@@ -1,57 +1,53 @@
 # Apex Strike
 
-NFT-gated Contra-style run-and-gun game for **Apex Huntress** holders on Cronos.
+NFT-gated Contra-style run-and-gun for **Apex Huntress** holders on Cronos.
 
-## Current Status (v0.2)
-
-**Playable prototype is ready.**
+## Status — v0.3 (Playable)
 
 ### Features
-- [x] Wallet connect on Cronos
-- [x] Apex Huntress NFT ownership gate (`0x7e9c0ed6433f1425b218f7cc721ba60d6be9e9b9`)
-- [x] Side-scrolling run & gun gameplay
-- [x] Platforms & jumping
-- [x] Shooting
-- [x] Enemies with simple AI
-- [x] Health system (3 hits)
-- [x] Score
-- [x] Victory & Game Over screens with restart
-- [ ] Real art / animations
-- [ ] Multiple levels
-- [ ] Mobile touch controls
+- [x] Cronos wallet + Apex Huntress NFT gate
+- [x] Temporary Dev Mode bypass (yellow button)
+- [x] Side-scrolling run & gun
+- [x] Two full levels
+- [x] Multiple enemy types (Walker, Flyer, Tank) with better AI
+- [x] Enemy projectiles
+- [x] Power-ups (Health, Spread shot, Rapid fire)
+- [x] Health + Score system
+- [x] Screen shake / hit feedback
+- [x] Keyboard controls
+- [x] Gamepad / controller support
+- [x] Mobile touch controls
+- [ ] Real pixel art / animations
 - [ ] Sound & music
-- [ ] Power-ups
+- [ ] Boss fight polish
 
 ## Controls
 
-| Key | Action |
-|-----|--------|
-| A / ← | Move left |
-| D / → | Move right |
-| W / ↑ | Jump |
-| Space | Shoot |
+| Input | Move | Jump | Shoot |
+|-------|------|------|-------|
+| Keyboard | A/D or Arrows | W / Up | Space |
+| Gamepad | Left Stick / D-Pad | A / Cross | X / Square / RT |
+| Mobile | On-screen ◀ ▶ | JUMP button | FIRE button |
 
-## Getting Started
+## Levels
+1. **Neon Streets** — intro platforms + mixed enemies
+2. **Apex Citadel** — denser layout, more tanks & flyers
 
+## Power-ups
+- Green: +1 Health (max 5)
+- Cyan: Spread shot (10s)
+- Yellow: Rapid fire (10s)
+
+## Dev
 ```bash
 npm install
 npm run dev
 ```
 
-Open http://localhost:5173
-
-## Codespaces
-
-If using GitHub Codespaces:
-1. Open the terminal in Codespaces
-2. Run `npm install`
-3. Run `npm run dev -- --host`
-4. Click the popup / Ports tab and open the forwarded port 5173
+Codespaces: `npm install` then `npm run dev -- --host` → open port 5173
 
 ## Contract
-
-Apex Huntress: `0x7e9c0ed6433f1425b218f7cc721ba60d6be9e9b9` on Cronos
+`0x7e9c0ed6433f1425b218f7cc721ba60d6be9e9b9` (Cronos)
 
 ---
-
 Built for the Apex Huntress community.

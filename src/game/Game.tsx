@@ -18,7 +18,7 @@ export function Game() {
       physics: {
         default: 'arcade',
         arcade: {
-          gravity: { x: 0, y: 950 },
+          gravity: { x: 0, y: 980 },
           debug: false,
         },
       },
@@ -29,6 +29,7 @@ export function Game() {
       },
       input: {
         keyboard: true,
+        gamepad: true,
       },
     }
 
@@ -47,7 +48,7 @@ export function Game() {
       <div className="w-full max-w-4xl">
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-wider text-fuchsia-400">APEX STRIKE</span>
-          <span className="text-zinc-500 text-xs">v0.2 — Playable Prototype</span>
+          <span className="text-zinc-500 text-xs">v0.3 — Full Prototype</span>
         </div>
 
         <div
@@ -56,8 +57,16 @@ export function Game() {
           style={{ aspectRatio: '4/3' }}
         />
 
-        <div className="mt-3 text-center text-xs text-zinc-500">
-          <span className="text-zinc-400">Controls:</span> A/D or Arrow Keys = Move &nbsp;|&nbsp; W or Up = Jump &nbsp;|&nbsp; Space = Shoot
+        <div className="mt-3 text-center text-xs text-zinc-500 space-y-1">
+          <div>
+            <span className="text-zinc-400">Keyboard:</span> A/D Move · W Jump · Space Shoot
+          </div>
+          <div>
+            <span className="text-zinc-400">Gamepad:</span> Left Stick / D-Pad · A Jump · X / RT Shoot
+          </div>
+          <div>
+            <span className="text-zinc-400">Mobile:</span> On-screen buttons (bottom corners)
+          </div>
         </div>
       </div>
     </div>
