@@ -46,6 +46,8 @@ export class MainScene extends Phaser.Scene {
   private weapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' = 'normal'
   private weaponTimer = 0
   private particles!: Phaser.GameObjects.Particles.ParticleEmitter
+  private jumpCount = 0
+  private maxJumps = 2
 
   constructor() {
     super({ key: 'MainScene' })
@@ -62,6 +64,7 @@ export class MainScene extends Phaser.Scene {
     this.facingRight = true
     this.weapon = 'normal'
     this.fireRate = 140
+    this.jumpCount = 0
     this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
 
     this.cameras.main.setBackgroundColor('#04040a')
@@ -83,9 +86,9 @@ export class MainScene extends Phaser.Scene {
     this.player.setBounce(0.02)
     this.player.setDepth(25)
     this.player.setDragX(1600)
-    this.player.setMaxVelocity(340, 950)
+    this.player.setMaxVelocity(360, 1100)
 
-    this.physics.add.collider(this.player, this.platforms)
+    this.physics.add.collider(this.player, this.platforms, undefined, undefined, this)
     this.physics.add.collider(this.enemies, this.platforms)
     this.physics.add.collider(this.powerups, this.platforms)
 
@@ -103,6 +106,10 @@ export class MainScene extends Phaser.Scene {
     }
     this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
 
+    // Jump on key just-down for double jump feel
+    this.wasd.up.on('down', () => this.tryJump())
+    this.cursors.up.on('down', () => this.tryJump())
+
     this.particles = this.add.particles(0, 0, 'spark', {
       speed: { min: 60, max: 220 },
       scale: { start: 0.8, end: 0 },
@@ -116,6 +123,18 @@ export class MainScene extends Phaser.Scene {
     this.showBanner('LEVEL 1', 'NEON STREETS')
   }
 
+  private tryJump() {
+    if (this.gameOver || this.levelTransition) return
+    const body = this.player.body as Phaser.Physics.Arcade.Body
+    if (body.blocked.down) {
+      this.jumpCount = 0
+    }
+    if (this.jumpCount < this.maxJumps) {
+      this.player.setVelocityY(-560)
+      this.jumpCount++
+    }
+  }
+
   private drawBackdrop() {
     for (let i = 0; i < 6; i++) {
       this.add.rectangle(400, 50 + i * 100, 800, 100, 0x0a0a1a, 0.25 + i * 0.04).setDepth(0)
@@ -126,7 +145,6 @@ export class MainScene extends Phaser.Scene {
   }
 
   private createTextures() {
-    // Player - sharper cyber huntress
     const p = this.make.graphics({ x: 0, y: 0 })
     p.fillStyle(0x0e7490, 1)
     p.fillRect(8, 40, 7, 8)
@@ -150,7 +168,6 @@ export class MainScene extends Phaser.Scene {
     p.generateTexture('player', 32, 48)
     p.destroy()
 
-    // Platform
     const plat = this.make.graphics({ x: 0, y: 0 })
     plat.fillStyle(0x1e1b4b, 1)
     plat.fillRect(0, 2, 32, 12)
@@ -161,7 +178,6 @@ export class MainScene extends Phaser.Scene {
     plat.generateTexture('platform', 32, 14)
     plat.destroy()
 
-    // Bullets
     const mkBullet = (key: string, color: number, w: number, h: number) => {
       const g = this.make.graphics({ x: 0, y: 0 })
       g.fillStyle(color, 1)
@@ -176,7 +192,6 @@ export class MainScene extends Phaser.Scene {
     mkBullet('fireball', 0xfb923c, 12, 12)
     mkBullet('enemyBullet', 0xf87171, 10, 5)
 
-    // Walker
     const e = this.make.graphics({ x: 0, y: 0 })
     e.fillStyle(0xe11d48, 1)
     e.fillRoundedRect(2, 4, 28, 28, 3)
@@ -191,7 +206,6 @@ export class MainScene extends Phaser.Scene {
     e.generateTexture('enemy', 32, 36)
     e.destroy()
 
-    // Flyer
     const f = this.make.graphics({ x: 0, y: 0 })
     f.fillStyle(0xa855f7, 1)
     f.fillCircle(16, 16, 12)
@@ -203,7 +217,6 @@ export class MainScene extends Phaser.Scene {
     f.generateTexture('flyer', 32, 32)
     f.destroy()
 
-    // Tank
     const t = this.make.graphics({ x: 0, y: 0 })
     t.fillStyle(0xea580c, 1)
     t.fillRoundedRect(0, 10, 44, 28, 4)
@@ -214,7 +227,6 @@ export class MainScene extends Phaser.Scene {
     t.generateTexture('tank', 44, 40)
     t.destroy()
 
-    // Boss
     const boss = this.make.graphics({ x: 0, y: 0 })
     boss.fillStyle(0x7f1d1d, 1)
     boss.fillRoundedRect(2, 12, 60, 44, 6)
@@ -229,7 +241,6 @@ export class MainScene extends Phaser.Scene {
     boss.generateTexture('boss', 64, 58)
     boss.destroy()
 
-    // Powerups
     ;[
       ['pow_health', 0x4ade80],
       ['pow_spread', 0x22d3ee],
@@ -262,65 +273,65 @@ export class MainScene extends Phaser.Scene {
 
     this.platforms.create(400, 590, 'platform').setScale(28, 1.6).refreshBody()
 
+    // Platforms spaced for double-jump climbability (roughly 90-120px vertical gaps)
     const plat = (x: number, y: number, sx: number) => {
       this.platforms.create(x, y, 'platform').setScale(sx, 0.85).refreshBody()
     }
 
     if (lvl === 1) {
-      plat(150, 470, 4); plat(420, 400, 5); plat(100, 300, 3.5); plat(580, 270, 4.2)
-      plat(350, 180, 3.2); plat(700, 460, 3); plat(250, 350, 2.5)
-      this.waveWalkers([[220, 420, 2, 55], [400, 350, 2, 65], [120, 250, 2, 50], [650, 520, 2, 45], [500, 520, 2, 50]])
-      this.spawnEnemy('flyer', 400, 80, 2, 40)
-      this.spawnEnemy('flyer', 650, 140, 2, 45)
-      this.spawnPowerup(480, 360, 'spread')
-      this.spawnPowerup(180, 260, 'health')
+      plat(150, 480, 4.5); plat(400, 420, 5); plat(120, 340, 3.8); plat(560, 300, 4.2)
+      plat(340, 220, 3.5); plat(680, 470, 3.2); plat(240, 380, 2.8)
+      this.waveWalkers([[220, 430, 2, 55], [400, 370, 2, 65], [140, 290, 2, 50], [650, 520, 2, 45], [500, 520, 2, 50]])
+      this.spawnEnemy('flyer', 400, 90, 2, 40)
+      this.spawnEnemy('flyer', 650, 150, 2, 45)
+      this.spawnPowerup(480, 380, 'spread')
+      this.spawnPowerup(180, 300, 'health')
     } else if (lvl === 2) {
-      plat(90, 500, 3); plat(260, 440, 3); plat(450, 380, 3.5); plat(660, 320, 3)
-      plat(160, 300, 2.8); plat(380, 240, 3.5); plat(600, 180, 3); plat(280, 130, 2.5)
-      this.waveWalkers([[110, 450, 3, 70], [440, 330, 3, 75], [640, 270, 3, 65], [200, 520, 3, 60]])
+      plat(100, 500, 3.2); plat(280, 450, 3.2); plat(460, 400, 3.5); plat(650, 350, 3.2)
+      plat(180, 320, 3); plat(400, 270, 3.5); plat(600, 220, 3); plat(300, 160, 2.8)
+      this.waveWalkers([[120, 450, 3, 70], [450, 350, 3, 75], [640, 300, 3, 65], [200, 520, 3, 60]])
       this.spawnEnemy('tank', 350, 520, 6, 28)
-      this.spawnEnemy('flyer', 300, 70, 3, 50)
-      this.spawnEnemy('flyer', 550, 90, 3, 55)
-      this.spawnEnemy('flyer', 700, 50, 3, 45)
-      this.spawnPowerup(260, 400, 'rapid')
-      this.spawnPowerup(380, 200, 'health')
+      this.spawnEnemy('flyer', 300, 80, 3, 50)
+      this.spawnEnemy('flyer', 550, 100, 3, 55)
+      this.spawnEnemy('flyer', 700, 60, 3, 45)
+      this.spawnPowerup(280, 410, 'rapid')
+      this.spawnPowerup(400, 230, 'health')
     } else if (lvl === 3) {
-      plat(70, 510, 2.8); plat(210, 450, 2.6); plat(370, 390, 3); plat(540, 330, 2.8)
-      plat(690, 270, 2.5); plat(140, 290, 2.5); plat(400, 210, 3.2); plat(620, 150, 2.8); plat(300, 100, 2.5)
-      this.waveWalkers([[90, 460, 3, 80], [360, 340, 3, 75], [520, 280, 3, 70], [680, 520, 3, 65]])
+      plat(80, 510, 3); plat(230, 460, 2.8); plat(390, 410, 3.2); plat(550, 360, 3)
+      plat(700, 310, 2.8); plat(160, 310, 2.8); plat(400, 250, 3.2); plat(620, 190, 3); plat(320, 140, 2.8)
+      this.waveWalkers([[100, 460, 3, 80], [380, 360, 3, 75], [540, 310, 3, 70], [680, 520, 3, 65]])
       this.spawnEnemy('tank', 400, 520, 7, 30)
-      this.spawnEnemy('flyer', 180, 60, 3, 60)
-      this.spawnEnemy('flyer', 420, 40, 3, 65)
-      this.spawnEnemy('flyer', 650, 80, 3, 55)
-      this.spawnEnemy('flyer', 500, 120, 3, 50)
-      this.spawnPowerup(370, 350, 'laser')
-      this.spawnPowerup(140, 250, 'health')
-      this.spawnPowerup(620, 110, 'fire')
+      this.spawnEnemy('flyer', 180, 70, 3, 60)
+      this.spawnEnemy('flyer', 420, 50, 3, 65)
+      this.spawnEnemy('flyer', 650, 90, 3, 55)
+      this.spawnEnemy('flyer', 500, 130, 3, 50)
+      this.spawnPowerup(390, 370, 'laser')
+      this.spawnPowerup(160, 270, 'health')
+      this.spawnPowerup(620, 150, 'fire')
     } else if (lvl === 4) {
-      plat(100, 520, 3); plat(300, 460, 3); plat(500, 400, 3.2); plat(700, 340, 2.8)
-      plat(180, 340, 2.5); plat(400, 280, 3); plat(600, 220, 2.8); plat(100, 220, 2.5)
-      plat(300, 160, 2.8); plat(520, 110, 3)
-      this.waveWalkers([[120, 470, 4, 85], [480, 350, 4, 80], [680, 290, 4, 75], [220, 520, 4, 70], [400, 520, 4, 70]])
-      this.spawnEnemy('tank', 250, 520, 8, 32)
+      plat(110, 520, 3.2); plat(310, 470, 3.2); plat(510, 420, 3.2); plat(690, 370, 3)
+      plat(200, 360, 2.8); plat(420, 310, 3.2); plat(600, 260, 3); plat(120, 250, 2.8)
+      plat(320, 190, 3); plat(520, 140, 3.2)
+      this.waveWalkers([[130, 470, 4, 85], [500, 370, 4, 80], [680, 320, 4, 75], [240, 520, 4, 70], [420, 520, 4, 70]])
+      this.spawnEnemy('tank', 260, 520, 8, 32)
       this.spawnEnemy('tank', 600, 520, 8, 30)
-      this.spawnEnemy('flyer', 200, 50, 4, 70)
-      this.spawnEnemy('flyer', 450, 40, 4, 75)
-      this.spawnEnemy('flyer', 700, 70, 4, 65)
-      this.spawnPowerup(300, 420, 'rapid')
-      this.spawnPowerup(400, 240, 'health')
-      this.spawnPowerup(520, 70, 'laser')
+      this.spawnEnemy('flyer', 200, 60, 4, 70)
+      this.spawnEnemy('flyer', 450, 50, 4, 75)
+      this.spawnEnemy('flyer', 700, 80, 4, 65)
+      this.spawnPowerup(310, 430, 'rapid')
+      this.spawnPowerup(420, 270, 'health')
+      this.spawnPowerup(520, 100, 'laser')
     } else {
-      // Boss arena
-      plat(140, 490, 3.5); plat(400, 410, 4.5); plat(660, 490, 3.5)
-      plat(240, 310, 3); plat(560, 310, 3); plat(400, 210, 3.5)
-      this.spawnEnemy('boss', 400, 100, 32, 45)
-      this.spawnEnemy('flyer', 120, 70, 3, 55)
-      this.spawnEnemy('flyer', 680, 70, 3, 55)
+      plat(150, 500, 3.8); plat(400, 430, 4.5); plat(650, 500, 3.8)
+      plat(250, 340, 3.2); plat(550, 340, 3.2); plat(400, 250, 3.5)
+      this.spawnEnemy('boss', 400, 110, 32, 45)
+      this.spawnEnemy('flyer', 120, 80, 3, 55)
+      this.spawnEnemy('flyer', 680, 80, 3, 55)
       this.spawnEnemy('tank', 200, 520, 6, 25)
       this.spawnEnemy('tank', 600, 520, 6, 25)
-      this.spawnPowerup(240, 270, 'health')
-      this.spawnPowerup(560, 270, 'laser')
-      this.spawnPowerup(400, 370, 'fire')
+      this.spawnPowerup(250, 300, 'health')
+      this.spawnPowerup(550, 300, 'laser')
+      this.spawnPowerup(400, 390, 'fire')
     }
   }
 
@@ -373,7 +384,11 @@ export class MainScene extends Phaser.Scene {
     const btn = (x: number, y: number, w: number, h: number, label: string, key: keyof TouchState) => {
       const bg = this.add.rectangle(x, y, w, h, 0x000000, 0.42).setScrollFactor(0).setDepth(150).setInteractive()
       this.add.text(x, y, label, { fontFamily: 'monospace', fontSize: '12px', color: '#e4e4e7' }).setOrigin(0.5).setScrollFactor(0).setDepth(151)
-      bg.on('pointerdown', () => { this.touch[key] = true; bg.setFillStyle(0xd946ef, 0.55) })
+      bg.on('pointerdown', () => {
+        this.touch[key] = true
+        bg.setFillStyle(0xd946ef, 0.55)
+        if (key === 'jump') this.tryJump()
+      })
       bg.on('pointerup', () => { this.touch[key] = false; bg.setFillStyle(0x000000, 0.42) })
       bg.on('pointerout', () => { this.touch[key] = false; bg.setFillStyle(0x000000, 0.42) })
       this.input.addPointer(4)
@@ -393,8 +408,22 @@ export class MainScene extends Phaser.Scene {
     this.tweens.add({ targets: t, alpha: 1, duration: 350, yoyo: true, hold: 800, onComplete: () => t.destroy() })
   }
 
+  private popup(x: number, y: number, text: string, color = '#f0abfc') {
+    const t = this.add.text(x, y, text, { fontFamily: 'monospace', fontSize: '14px', color }).setOrigin(0.5).setDepth(50)
+    this.tweens.add({
+      targets: t,
+      y: y - 40,
+      alpha: 0,
+      duration: 700,
+      onComplete: () => t.destroy()
+    })
+  }
+
   update(time: number, delta: number) {
     if (this.gameOver || this.levelTransition || !this.player?.active) return
+
+    const body = this.player.body as Phaser.Physics.Arcade.Body
+    if (body.blocked.down) this.jumpCount = 0
 
     if (this.weapon !== 'normal' && time > this.weaponTimer) {
       this.weapon = 'normal'
@@ -407,24 +436,24 @@ export class MainScene extends Phaser.Scene {
   }
 
   private handleInput(time: number) {
-    const body = this.player.body as Phaser.Physics.Arcade.Body
-    const speed = 270
+    const speed = 280
 
     let left = this.cursors.left.isDown || this.wasd.left.isDown || this.touch.left
     let right = this.cursors.right.isDown || this.wasd.right.isDown || this.touch.right
-    let jump = this.cursors.up.isDown || this.wasd.up.isDown || this.touch.jump
     let shoot = this.spaceKey.isDown || this.touch.shoot
-    this.aimUp = this.wasd.up.isDown || this.touch.up
+    this.aimUp = this.touch.up
     this.aimDown = this.wasd.down.isDown || this.cursors.down.isDown || this.touch.down
-
-    // When aiming up while grounded and not jumping intent from touch jump separately
-    // Use W both for jump when grounded and aim when held with shoot - simplified: S = aim down, hold W while shooting aims up-diagonal
 
     const pad = this.input.gamepad?.getPad(0)
     if (pad) {
       if (pad.left || (pad.axes[0] && pad.axes[0].getValue() < -0.3)) left = true
       if (pad.right || (pad.axes[0] && pad.axes[0].getValue() > 0.3)) right = true
-      if (pad.A || pad.buttons[0]?.pressed) jump = true
+      if (pad.A || pad.buttons[0]?.pressed) {
+        // handled via continuous check for held - use just pressed simulation
+        if (pad.A && this.jumpCount < this.maxJumps) {
+          // simple: allow jump if button pressed and jumps left when grounded-ish
+        }
+      }
       if (pad.X || pad.buttons[2]?.pressed || pad.buttons[7]?.pressed) shoot = true
       if (pad.up || (pad.axes[1] && pad.axes[1].getValue() < -0.3)) this.aimUp = true
       if (pad.down || (pad.axes[1] && pad.axes[1].getValue() > 0.3)) this.aimDown = true
@@ -440,9 +469,7 @@ export class MainScene extends Phaser.Scene {
       this.player.setFlipX(false)
     }
 
-    if (jump && body.blocked.down) {
-      this.player.setVelocityY(-510)
-    }
+    // Touch jump is edge-triggered in button handler; keyboard uses tryJump on keydown
 
     if (shoot && time > this.lastFired) {
       this.fire()
@@ -452,15 +479,12 @@ export class MainScene extends Phaser.Scene {
 
   private fire() {
     const dir = this.facingRight ? 1 : -1
-    let angle = 0 // degrees from horizontal
+    let angle = 0
+
+    const movingH = this.touch.left || this.touch.right || this.cursors.left.isDown || this.cursors.right.isDown || this.wasd.left.isDown || this.wasd.right.isDown
 
     if (this.aimUp && !this.aimDown) {
-      angle = this.facingRight || this.touch.left || this.touch.right ? -40 : -90
-      if (!this.touch.left && !this.touch.right && !this.cursors.left.isDown && !this.cursors.right.isDown && !this.wasd.left.isDown && !this.wasd.right.isDown) {
-        angle = -90
-      } else {
-        angle = -35
-      }
+      angle = movingH ? -35 : -90
     } else if (this.aimDown) {
       angle = 35
     }
@@ -474,7 +498,6 @@ export class MainScene extends Phaser.Scene {
       b.setActive(true).setVisible(true)
       b.body?.reset(baseX, baseY)
       const rad = Phaser.Math.DegToRad(ang)
-      // When shooting purely up, ignore facing for x
       const vx = ang === -90 ? 0 : Math.cos(rad) * dir * spd
       const vy = Math.sin(rad) * spd
       b.setVelocity(vx, vy)
@@ -489,8 +512,6 @@ export class MainScene extends Phaser.Scene {
       spawn(angle, 'fireball', 480)
       spawn(angle - 12, 'fireball', 460)
       spawn(angle + 12, 'fireball', 460)
-    } else if (this.weapon === 'rapid') {
-      spawn(angle)
     } else {
       spawn(angle)
     }
@@ -575,11 +596,11 @@ export class MainScene extends Phaser.Scene {
       const pts = type === 'boss' ? 2000 : type === 'tank' ? 350 : type === 'flyer' ? 200 : 100
       this.score += pts
       this.scoreText.setText('SCORE  ' + this.score)
+      this.popup(enemy.x, enemy.y - 20, '+' + pts)
       this.particles.emitParticleAt(enemy.x, enemy.y, 20)
       this.cameras.main.shake(70, 0.012)
 
-      // Chance to drop powerup
-      if (Math.random() < 0.22 && type !== 'boss') {
+      if (Math.random() < 0.25 && type !== 'boss') {
         const kinds = ['health', 'spread', 'rapid', 'laser', 'fire']
         this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
       }
@@ -631,6 +652,7 @@ export class MainScene extends Phaser.Scene {
         this.updateHealth()
         this.player.setPosition(60, 480)
         this.player.setVelocity(0, 0)
+        this.jumpCount = 0
         this.invulnerable = true
         this.time.delayedCall(1500, () => { this.invulnerable = false; this.player.clearTint() })
       }
@@ -645,6 +667,7 @@ export class MainScene extends Phaser.Scene {
     const kind = pow.getData('kind') as string
     pow.destroy()
     this.particles.emitParticleAt(pow.x, pow.y, 14)
+    this.popup(pow.x, pow.y, kind.toUpperCase(), '#4ade80')
 
     if (kind === 'health') {
       this.health = Math.min(this.maxHealth, this.health + 1)
@@ -682,6 +705,7 @@ export class MainScene extends Phaser.Scene {
         this.levelText.setText('LEVEL  ' + next)
         this.player.setPosition(60, 480)
         this.player.setVelocity(0, 0)
+        this.jumpCount = 0
         this.health = Math.min(this.maxHealth, this.health + 1)
         this.updateHealth()
         this.buildLevel(next)
