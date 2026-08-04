@@ -14,7 +14,7 @@ export function Game() {
       width: 800,
       height: 600,
       parent: containerRef.current,
-      backgroundColor: '#04040a',
+      backgroundColor: '#0a0612',
       physics: {
         default: 'arcade',
         arcade: {
@@ -44,23 +44,22 @@ export function Game() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-2">
+    <div className="min-h-screen bg-[#05030a] flex flex-col items-center justify-center p-2">
       <div className="w-full max-w-4xl">
         <div className="mb-2 flex items-center justify-between text-sm">
-          <span className="font-bold tracking-wider text-fuchsia-400">APEX STRIKE</span>
-          <span className="text-zinc-500 text-xs">v0.5.1 — Contra Arcade Prototype</span>
+          <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
+          <span className="text-violet-400/70 text-xs">v0.6 — Permanent Weapons + Modern UI</span>
         </div>
 
         <div
           ref={containerRef}
-          className="rounded-lg overflow-hidden border border-zinc-800 shadow-2xl shadow-fuchsia-950/40 bg-zinc-950"
+          className="rounded-xl overflow-hidden border border-violet-900/50 shadow-2xl shadow-fuchsia-950/50 bg-zinc-950"
           style={{ aspectRatio: '4/3' }}
         />
 
         <div className="mt-3 text-center text-xs text-zinc-500 space-y-1">
-          <div><span className="text-zinc-400">Keyboard:</span> A/D Move · W Jump · S Aim Down · Space Shoot</div>
-          <div><span className="text-zinc-400">Aim:</span> Hold W while shooting for up/diagonal · S for down</div>
-          <div><span className="text-zinc-400">Gamepad / Mobile:</span> Supported</div>
+          <div><span className="text-violet-400">Keyboard:</span> A/D Move · W Jump · S Aim Down · Space Fire</div>
+          <div><span className="text-violet-400">Weapons:</span> Permanent until next pickup · Hold fire for Rapid</div>
         </div>
       </div>
     </div>
