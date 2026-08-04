@@ -1,15 +1,16 @@
 import Phaser from 'phaser'
 
+// Self-hosted sprites from public/assets (no CDN dependency)
 const ASSETS = {
-  huntress: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210604_bd36a09c-e78c-4d25-b90d-b8c5ffce127e.png',
-  huntress_run: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210616_98b4c435-316e-4969-8c92-67ff36572815.png',
-  enemy_soldier: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210944_3769028f-f122-4c92-80aa-e6aacac2ab2a.png',
-  enemy_flyer: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210945_c030d6b1-a485-4022-a573-c538590a90c7.png',
-  enemy_tank: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210946_c0a5a277-d5af-45f1-ae5a-d6366bac8a8a.png',
-  boss: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210954_35ad3045-8bd0-4f80-add5-2c55b9b1965c.png',
-  pickup_pod: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210955_2cf1b1a5-afec-467e-ac88-054e6ad8650b.png',
-  platform_tile: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210956_971e83b7-b83a-43ab-a6ca-e7af9655be8b.png',
-  logo: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210957_09fe6151-b178-4818-98fa-2653d860ff42.png',
+  huntress: '/assets/huntress.png',
+  huntress_run: '/assets/huntress_run.png',
+  enemy_soldier: '/assets/enemy_soldier.png',
+  enemy_flyer: '/assets/enemy_flyer.png',
+  enemy_tank: '/assets/enemy_tank.png',
+  boss: '/assets/boss.png',
+  pickup_pod: '/assets/pickup_pod.png',
+  platform_tile: '/assets/platform_tile.png',
+  logo: '/assets/logo.png',
 }
 
 interface TouchState {
@@ -179,7 +180,6 @@ export class MainScene extends Phaser.Scene {
   }
 
   private createFallbackTextures() {
-    // Minimal fallbacks if CDN fails
     if (!this.textures.exists('player')) {
       const p = this.make.graphics({ x: 0, y: 0 })
       p.fillStyle(0x7c3aed, 1)
@@ -246,7 +246,6 @@ export class MainScene extends Phaser.Scene {
     this.spawnTimer = 0
     this.bossPhase = 1
 
-    // Ground
     const useTile = this.textures.exists('platform_tile')
     const groundKey = useTile ? 'platform_tile' : 'platform'
     const ground = this.platforms.create(400, 590, groundKey) as Phaser.Physics.Arcade.Sprite
@@ -446,7 +445,6 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    // Swap to run frame when moving (if available)
     if (this.textures.exists('huntress_run') && this.textures.exists('huntress')) {
       const moving = Math.abs(body.velocity.x) > 20
       const desired = moving ? 'huntress_run' : 'huntress'
