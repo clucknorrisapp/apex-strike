@@ -22,6 +22,18 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
 
   const hasNFT = balance !== undefined && balance > 0n
 
+  // ========== TEMPORARY DEV BYPASS ==========
+  // Remove this section (or the buttons) when the real gate should be enforced again
+  const DevBypassButton = () => (
+    <button
+      onClick={onAccessGranted}
+      className="w-full py-3 px-6 rounded-xl border border-dashed border-yellow-500/60 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-300 font-medium transition-all mt-4"
+    >
+      ⚠️ Skip Gate (Dev Mode)
+    </button>
+  )
+  // ==========================================
+
   if (!isConnected) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-black via-zinc-950 to-black px-4">
@@ -45,6 +57,8 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
               </button>
             ))}
           </div>
+
+          <DevBypassButton />
 
           <p className="mt-6 text-xs text-zinc-500">
             Requires at least 1 Apex Huntress NFT on Cronos
@@ -82,6 +96,10 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
           >
             Disconnect
           </button>
+
+          <div className="mt-6">
+            <DevBypassButton />
+          </div>
         </div>
       </div>
     )
@@ -105,9 +123,11 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
             Mint / Buy Apex Huntress
           </a>
 
+          <DevBypassButton />
+
           <button
             onClick={() => disconnect()}
-            className="text-sm text-zinc-500 hover:text-zinc-300"
+            className="mt-4 text-sm text-zinc-500 hover:text-zinc-300"
           >
             Disconnect wallet
           </button>
@@ -116,7 +136,7 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
     )
   }
 
-  // Access granted
+  // Access granted (real NFT holder)
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-black via-zinc-950 to-black px-4">
       <div className="text-center max-w-md">
