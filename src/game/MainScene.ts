@@ -31,11 +31,14 @@ export class MainScene extends Phaser.Scene {
   private score = 0
   private level = 1
   private lives = 3
+  private combo = 0
+  private comboTimer = 0
   private healthText!: Phaser.GameObjects.Text
   private scoreText!: Phaser.GameObjects.Text
   private levelText!: Phaser.GameObjects.Text
   private weaponText!: Phaser.GameObjects.Text
   private livesText!: Phaser.GameObjects.Text
+  private comboText!: Phaser.GameObjects.Text
   private gameOver = false
   private levelTransition = false
   private invulnerable = false
@@ -48,18 +51,15 @@ export class MainScene extends Phaser.Scene {
   private jumpCount = 0
   private maxJumps = 2
   private spawnTimer = 0
-  private usingRealArt = false
+  private bossPhase = 1
 
   constructor() {
     super({ key: 'MainScene' })
   }
 
   preload() {
-    // Try real Huntress art; fallback handled in createTextures
     this.load.image('huntress', '/assets/huntress.png')
-    this.load.on('loaderror', () => {
-      // silent fallback
-    })
+    this.load.on('loaderror', () => {})
   }
 
   create() {
@@ -69,12 +69,15 @@ export class MainScene extends Phaser.Scene {
     this.lives = 3
     this.score = 0
     this.level = 1
+    this.combo = 0
+    this.comboTimer = 0
     this.invulnerable = false
     this.facingRight = true
     this.weapon = 'normal'
     this.fireRate = 130
     this.jumpCount = 0
     this.spawnTimer = 0
+    this.bossPhase = 1
     this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
 
     this.cameras.main.setBackgroundColor('#0a0612')
@@ -85,18 +88,15 @@ export class MainScene extends Phaser.Scene {
 
     this.platforms = this.physics.add.staticGroup()
     this.bullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 90 })
-    this.enemyBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 55 })
+    this.enemyBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 60 })
     this.enemies = this.physics.add.group()
     this.powerups = this.physics.add.group()
 
     this.buildLevel(1)
 
     const playerKey = this.textures.exists('huntress') ? 'huntress' : 'player'
-    this.usingRealArt = playerKey === 'huntress'
     this.player = this.physics.add.sprite(60, 480, playerKey)
-    if (this.usingRealArt) {
-      this.player.setDisplaySize(48, 48)
-    }
+    if (playerKey === 'huntress') this.player.setDisplaySize(48, 48)
     this.player.setCollideWorldBounds(true)
     this.player.setBounce(0.02)
     this.player.setDepth(25)
@@ -125,9 +125,9 @@ export class MainScene extends Phaser.Scene {
     this.cursors.up.on('down', () => this.tryJump())
 
     this.particles = this.add.particles(0, 0, 'spark', {
-      speed: { min: 70, max: 240 },
-      scale: { start: 0.9, end: 0 },
-      lifespan: 400,
+      speed: { min: 80, max: 260 },
+      scale: { start: 1, end: 0 },
+      lifespan: 420,
       blendMode: 'ADD',
       emitting: false,
     })
@@ -148,12 +148,10 @@ export class MainScene extends Phaser.Scene {
   }
 
   private drawBackdrop() {
-    // Modern deep purple gradient bars
     const cols = [0x0a0612, 0x12081c, 0x1a0c28, 0x140820]
     for (let i = 0; i < 4; i++) {
       this.add.rectangle(400, 75 + i * 140, 800, 150, cols[i], 0.5).setDepth(0)
     }
-    // Subtle cyan grid
     for (let x = 0; x < 820; x += 40) {
       this.add.rectangle(x, 300, 1, 600, 0x22d3ee, 0.03).setDepth(1)
     }
@@ -163,7 +161,6 @@ export class MainScene extends Phaser.Scene {
   }
 
   private createTextures() {
-    // Procedural fallback player — purple cyber armor inspired by Huntress
     const p = this.make.graphics({ x: 0, y: 0 })
     p.fillStyle(0x5b21b6, 1)
     p.fillRect(8, 40, 7, 8)
@@ -285,9 +282,9 @@ export class MainScene extends Phaser.Scene {
     this.bullets.clear(true, true)
     this.enemyBullets.clear(true, true)
     this.spawnTimer = 0
+    this.bossPhase = 1
 
     this.platforms.create(400, 590, 'platform').setScale(28, 1.6).refreshBody()
-
     const plat = (x: number, y: number, sx: number) => {
       this.platforms.create(x, y, 'platform').setScale(sx, 0.85).refreshBody()
     }
@@ -338,7 +335,7 @@ export class MainScene extends Phaser.Scene {
     } else {
       plat(150, 500, 3.8); plat(400, 430, 4.5); plat(650, 500, 3.8)
       plat(250, 340, 3.2); plat(550, 340, 3.2); plat(400, 250, 3.5)
-      this.spawnEnemy('boss', 400, 110, 36, 48)
+      this.spawnEnemy('boss', 400, 110, 40, 50)
       this.spawnEnemy('flyer', 120, 80, 3, 55)
       this.spawnEnemy('flyer', 680, 80, 3, 55)
       this.spawnEnemy('tank', 200, 520, 6, 25)
@@ -359,6 +356,7 @@ export class MainScene extends Phaser.Scene {
     enemy.setBounce(0.02)
     enemy.setCollideWorldBounds(true)
     enemy.setData('hp', hp)
+    enemy.setData('maxHp', hp)
     enemy.setData('speed', speed)
     enemy.setData('type', t)
     enemy.setData('dir', Math.random() > 0.5 ? 1 : -1)
@@ -386,13 +384,13 @@ export class MainScene extends Phaser.Scene {
   }
 
   private createHUD() {
-    // Modern sleek HUD
-    this.add.rectangle(90, 48, 160, 88, 0x0a0612, 0.65).setScrollFactor(0).setDepth(99).setStrokeStyle(1, 0xa855f7, 0.4)
+    this.add.rectangle(95, 55, 170, 100, 0x0a0612, 0.7).setScrollFactor(0).setDepth(99).setStrokeStyle(1, 0xa855f7, 0.45)
     this.scoreText = this.add.text(16, 10, 'SCORE  0', { fontFamily: 'monospace', fontSize: '13px', color: '#e879f9' }).setScrollFactor(0).setDepth(100)
     this.healthText = this.add.text(16, 28, 'HP  \u2665\u2665\u2665\u2665', { fontFamily: 'monospace', fontSize: '12px', color: '#f472b6' }).setScrollFactor(0).setDepth(100)
     this.livesText = this.add.text(16, 44, 'LIVES  3', { fontFamily: 'monospace', fontSize: '11px', color: '#a1a1aa' }).setScrollFactor(0).setDepth(100)
     this.levelText = this.add.text(16, 58, 'LEVEL  1', { fontFamily: 'monospace', fontSize: '11px', color: '#71717a' }).setScrollFactor(0).setDepth(100)
     this.weaponText = this.add.text(16, 72, 'GUN  NORMAL', { fontFamily: 'monospace', fontSize: '11px', color: '#22d3ee' }).setScrollFactor(0).setDepth(100)
+    this.comboText = this.add.text(16, 88, '', { fontFamily: 'monospace', fontSize: '11px', color: '#fbbf24' }).setScrollFactor(0).setDepth(100)
     this.add.text(788, 10, 'APEX STRIKE', { fontFamily: 'monospace', fontSize: '11px', color: '#a855f7' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100)
   }
 
@@ -427,7 +425,7 @@ export class MainScene extends Phaser.Scene {
 
   private popup(x: number, y: number, text: string, color = '#e879f9') {
     const t = this.add.text(x, y, text, { fontFamily: 'monospace', fontSize: '14px', color }).setOrigin(0.5).setDepth(50)
-    this.tweens.add({ targets: t, y: y - 42, alpha: 0, duration: 700, onComplete: () => t.destroy() })
+    this.tweens.add({ targets: t, y: y - 44, alpha: 0, duration: 650, onComplete: () => t.destroy() })
   }
 
   update(time: number, delta: number) {
@@ -435,6 +433,15 @@ export class MainScene extends Phaser.Scene {
 
     const body = this.player.body as Phaser.Physics.Arcade.Body
     if (body.blocked.down) this.jumpCount = 0
+
+    // Combo decay
+    if (this.combo > 0) {
+      this.comboTimer -= delta
+      if (this.comboTimer <= 0) {
+        this.combo = 0
+        this.comboText.setText('')
+      }
+    }
 
     this.handleInput(time)
     this.updateEnemies(delta)
@@ -444,22 +451,21 @@ export class MainScene extends Phaser.Scene {
   private maybeSpawnReinforcements(delta: number) {
     if (this.level >= 5) return
     this.spawnTimer += delta
-    const interval = 4500 - this.level * 400
-    if (this.spawnTimer > interval && this.enemies.countActive(true) < 8 + this.level) {
+    const interval = 4200 - this.level * 380
+    if (this.spawnTimer > interval && this.enemies.countActive(true) < 9 + this.level) {
       this.spawnTimer = 0
       const side = Math.random() > 0.5 ? 780 : 20
-      const y = Phaser.Math.Between(100, 500)
-      if (Math.random() > 0.55) {
-        this.spawnEnemy('flyer', side, y, 2 + Math.floor(this.level / 2), 40 + this.level * 5)
+      const y = Phaser.Math.Between(80, 480)
+      if (Math.random() > 0.5) {
+        this.spawnEnemy('flyer', side, y, 2 + Math.floor(this.level / 2), 42 + this.level * 5)
       } else {
-        this.spawnEnemy('enemy', side, 520, 2 + Math.floor(this.level / 2), 50 + this.level * 8, 'walker')
+        this.spawnEnemy('enemy', side, 520, 2 + Math.floor(this.level / 2), 52 + this.level * 8, 'walker')
       }
     }
   }
 
   private handleInput(time: number) {
     const speed = 285
-
     let left = this.cursors.left.isDown || this.wasd.left.isDown || this.touch.left
     let right = this.cursors.right.isDown || this.wasd.right.isDown || this.touch.right
     let shoot = this.spaceKey.isDown || this.touch.shoot
@@ -485,10 +491,9 @@ export class MainScene extends Phaser.Scene {
       this.player.setFlipX(false)
     }
 
-    // Hold-to-fire (especially for rapid)
     if (shoot && time > this.lastFired) {
       this.fire()
-      const rate = this.weapon === 'rapid' ? 55 : this.fireRate
+      const rate = this.weapon === 'rapid' ? 52 : this.fireRate
       this.lastFired = time + rate
     }
   }
@@ -497,14 +502,13 @@ export class MainScene extends Phaser.Scene {
     const dir = this.facingRight ? 1 : -1
     let angle = 0
     const movingH = this.touch.left || this.touch.right || this.cursors.left.isDown || this.cursors.right.isDown || this.wasd.left.isDown || this.wasd.right.isDown
-
     if (this.aimUp && !this.aimDown) angle = movingH ? -35 : -90
     else if (this.aimDown) angle = 35
 
     const baseX = this.player.x + dir * 18
     const baseY = this.player.y - 4
 
-    const spawn = (ang: number, tex = 'bullet', spd = 660) => {
+    const spawn = (ang: number, tex = 'bullet', spd = 670) => {
       const b = this.bullets.get(baseX, baseY, tex) as Phaser.Physics.Arcade.Image
       if (!b) return
       b.setActive(true).setVisible(true)
@@ -519,11 +523,11 @@ export class MainScene extends Phaser.Scene {
     if (this.weapon === 'spread') {
       spawn(angle - 18); spawn(angle); spawn(angle + 18)
     } else if (this.weapon === 'laser') {
-      spawn(angle, 'laser', 860)
+      spawn(angle, 'laser', 880)
     } else if (this.weapon === 'fire') {
-      spawn(angle, 'fireball', 500)
-      spawn(angle - 12, 'fireball', 480)
-      spawn(angle + 12, 'fireball', 480)
+      spawn(angle, 'fireball', 510)
+      spawn(angle - 12, 'fireball', 490)
+      spawn(angle + 12, 'fireball', 490)
     } else {
       spawn(angle)
     }
@@ -553,17 +557,29 @@ export class MainScene extends Phaser.Scene {
       }
 
       if (type === 'boss') {
+        const hp = enemy.getData('hp') as number
+        const maxHp = enemy.getData('maxHp') as number
+        const ratio = hp / maxHp
+        // Phase 2 under 50%
+        if (ratio < 0.5 && this.bossPhase === 1) {
+          this.bossPhase = 2
+          this.popup(enemy.x, enemy.y - 40, 'PHASE 2', '#f43f5e')
+          this.cameras.main.shake(200, 0.02)
+        }
+        const spd = this.bossPhase === 2 ? speed * 1.35 : speed
         const dx = this.player.x - enemy.x
-        enemy.setVelocityX(Phaser.Math.Clamp(dx * 0.42, -speed, speed))
-        enemy.setVelocityY(Math.sin(this.time.now / 320) * 45)
+        enemy.setVelocityX(Phaser.Math.Clamp(dx * 0.45, -spd, spd))
+        enemy.setVelocityY(Math.sin(this.time.now / (this.bossPhase === 2 ? 220 : 320)) * (this.bossPhase === 2 ? 60 : 40))
       }
 
       if (type === 'tank' || type === 'flyer' || type === 'boss') {
         let timer = enemy.getData('shootTimer') as number
         timer -= delta
         if (timer <= 0) {
-          this.enemyFire(enemy, type === 'boss' ? 5 : 1)
-          enemy.setData('shootTimer', type === 'boss' ? 750 : type === 'tank' ? 1300 : 1050)
+          const count = type === 'boss' ? (this.bossPhase === 2 ? 7 : 5) : 1
+          this.enemyFire(enemy, count)
+          const base = type === 'boss' ? (this.bossPhase === 2 ? 550 : 750) : type === 'tank' ? 1300 : 1050
+          enemy.setData('shootTimer', base)
         } else {
           enemy.setData('shootTimer', timer)
         }
@@ -577,9 +593,9 @@ export class MainScene extends Phaser.Scene {
       if (!b) continue
       b.setActive(true).setVisible(true)
       b.body?.reset(enemy.x, enemy.y)
-      const spread = (i - (count - 1) / 2) * 0.22
+      const spread = (i - (count - 1) / 2) * 0.2
       const ang = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y) + spread
-      const spd = count > 1 ? 195 : 235
+      const spd = count > 1 ? 200 : 240
       b.setVelocity(Math.cos(ang) * spd, Math.sin(ang) * spd)
       this.time.delayedCall(2000, () => { if (b.active) b.setActive(false).setVisible(false) })
     }
@@ -597,27 +613,41 @@ export class MainScene extends Phaser.Scene {
     let hp = (enemy.getData('hp') as number) - dmg
     enemy.setData('hp', hp)
 
+    // Hit flash + tiny hitstop feel via brief freeze tint
     enemy.setTint(0xffffff)
-    this.time.delayedCall(40, () => { if (enemy.active) enemy.clearTint() })
-    this.cameras.main.shake(22, 0.004)
-    this.particles.emitParticleAt(enemy.x, enemy.y, 4)
+    this.time.delayedCall(45, () => { if (enemy.active) enemy.clearTint() })
+    this.cameras.main.shake(18, 0.003)
+    this.particles.emitParticleAt(enemy.x, enemy.y, 3)
 
     if (hp <= 0) {
       const type = enemy.getData('type') as string
-      const pts = type === 'boss' ? 2500 : type === 'tank' ? 400 : type === 'flyer' ? 200 : 100
+      let pts = type === 'boss' ? 3000 : type === 'tank' ? 400 : type === 'flyer' ? 200 : 100
+
+      // Combo system
+      this.combo++
+      this.comboTimer = 2200
+      if (this.combo > 1) {
+        pts = Math.floor(pts * (1 + Math.min(this.combo, 10) * 0.1))
+        this.comboText.setText('COMBO x' + this.combo)
+      }
+
       this.score += pts
       this.scoreText.setText('SCORE  ' + this.score)
       this.popup(enemy.x, enemy.y - 18, '+' + pts)
-      this.particles.emitParticleAt(enemy.x, enemy.y, 22)
-      this.cameras.main.shake(65, 0.012)
+      this.particles.emitParticleAt(enemy.x, enemy.y, 24)
+      this.cameras.main.shake(70, 0.014)
 
-      if (Math.random() < 0.28 && type !== 'boss') {
+      // Brief screen flash on big kills
+      if (type === 'tank' || type === 'boss') {
+        this.cameras.main.flash(80, 180, 80, 255, false)
+      }
+
+      if (Math.random() < 0.3 && type !== 'boss') {
         const kinds = ['health', 'spread', 'rapid', 'laser', 'fire']
         this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
       }
 
       enemy.destroy()
-      // Level clear only when fixed spawns done AND no reinforcements critical — still check active count
       if (this.enemies.countActive(true) === 0) this.onLevelClear()
     }
   }
@@ -642,10 +672,12 @@ export class MainScene extends Phaser.Scene {
     if (this.invulnerable || this.gameOver || this.levelTransition) return
 
     this.health -= 1
+    this.combo = 0
+    this.comboText.setText('')
     this.updateHealth()
     this.invulnerable = true
     this.player.setTint(0xff0030)
-    this.cameras.main.shake(120, 0.014)
+    this.cameras.main.shake(130, 0.015)
     this.cameras.main.flash(90, 255, 20, 50, false)
     this.player.setVelocityY(-250)
 
@@ -685,13 +717,12 @@ export class MainScene extends Phaser.Scene {
       this.health = Math.min(this.maxHealth, this.health + 1)
       this.updateHealth()
     } else {
-      // PERMANENT until next weapon pickup (Contra style)
       this.weapon = kind as typeof this.weapon
       const labels: Record<string, string> = {
         spread: 'SPREAD', rapid: 'RAPID', laser: 'LASER', fire: 'FIRE'
       }
       this.weaponText.setText('GUN  ' + (labels[kind] || 'NORMAL'))
-      this.fireRate = kind === 'rapid' ? 55 : kind === 'laser' ? 110 : 140
+      this.fireRate = kind === 'rapid' ? 52 : kind === 'laser' ? 105 : 135
     }
   }
 
