@@ -64,7 +64,6 @@ export class MainScene extends Phaser.Scene {
   private maxJumps = 2
   private spawnTimer = 0
   private bossPhase = 1
-  private artReady = false
 
   constructor() {
     super({ key: 'MainScene' })
@@ -99,7 +98,6 @@ export class MainScene extends Phaser.Scene {
     this.spawnTimer = 0
     this.bossPhase = 1
     this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
-    this.artReady = this.textures.exists('huntress')
 
     this.cameras.main.setBackgroundColor('#0a0612')
     this.createFallbackTextures()
