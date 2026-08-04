@@ -14,11 +14,11 @@ export function Game() {
       width: 800,
       height: 600,
       parent: containerRef.current,
-      backgroundColor: '#07070f',
+      backgroundColor: '#05050c',
       physics: {
         default: 'arcade',
         arcade: {
-          gravity: { x: 0, y: 980 },
+          gravity: { x: 0, y: 1000 },
           debug: false,
         },
       },
@@ -48,7 +48,7 @@ export function Game() {
       <div className="w-full max-w-4xl">
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-wider text-fuchsia-400">APEX STRIKE</span>
-          <span className="text-zinc-500 text-xs">v0.3 — Full Prototype</span>
+          <span className="text-zinc-500 text-xs">v0.4 — 5 Levels + Boss</span>
         </div>
 
         <div
@@ -58,15 +58,9 @@ export function Game() {
         />
 
         <div className="mt-3 text-center text-xs text-zinc-500 space-y-1">
-          <div>
-            <span className="text-zinc-400">Keyboard:</span> A/D Move · W Jump · Space Shoot
-          </div>
-          <div>
-            <span className="text-zinc-400">Gamepad:</span> Left Stick / D-Pad · A Jump · X / RT Shoot
-          </div>
-          <div>
-            <span className="text-zinc-400">Mobile:</span> On-screen buttons (bottom corners)
-          </div>
+          <div><span className="text-zinc-400">Keyboard:</span> A/D Move · W Jump · Space Shoot</div>
+          <div><span className="text-zinc-400">Gamepad:</span> Stick/D-Pad · A Jump · X/RT Shoot</div>
+          <div><span className="text-zinc-400">Mobile:</span> On-screen buttons</div>
         </div>
       </div>
     </div>
