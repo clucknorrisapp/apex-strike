@@ -14,7 +14,7 @@ export function Game() {
       width: 800,
       height: 600,
       parent: containerRef.current,
-      backgroundColor: '#05050c',
+      backgroundColor: '#04040a',
       physics: {
         default: 'arcade',
         arcade: {
@@ -48,7 +48,7 @@ export function Game() {
       <div className="w-full max-w-4xl">
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-wider text-fuchsia-400">APEX STRIKE</span>
-          <span className="text-zinc-500 text-xs">v0.4 — 5 Levels + Boss</span>
+          <span className="text-zinc-500 text-xs">v0.5.1 — Contra Arcade Prototype</span>
         </div>
 
         <div
@@ -58,9 +58,9 @@ export function Game() {
         />
 
         <div className="mt-3 text-center text-xs text-zinc-500 space-y-1">
-          <div><span className="text-zinc-400">Keyboard:</span> A/D Move · W Jump · Space Shoot</div>
-          <div><span className="text-zinc-400">Gamepad:</span> Stick/D-Pad · A Jump · X/RT Shoot</div>
-          <div><span className="text-zinc-400">Mobile:</span> On-screen buttons</div>
+          <div><span className="text-zinc-400">Keyboard:</span> A/D Move · W Jump · S Aim Down · Space Shoot</div>
+          <div><span className="text-zinc-400">Aim:</span> Hold W while shooting for up/diagonal · S for down</div>
+          <div><span className="text-zinc-400">Gamepad / Mobile:</span> Supported</div>
         </div>
       </div>
     </div>
