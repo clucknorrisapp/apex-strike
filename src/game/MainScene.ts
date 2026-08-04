@@ -1,5 +1,17 @@
 import Phaser from 'phaser'
 
+const ASSETS = {
+  huntress: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210604_bd36a09c-e78c-4d25-b90d-b8c5ffce127e.png',
+  huntress_run: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210616_98b4c435-316e-4969-8c92-67ff36572815.png',
+  enemy_soldier: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210944_3769028f-f122-4c92-80aa-e6aacac2ab2a.png',
+  enemy_flyer: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210945_c030d6b1-a485-4022-a573-c538590a90c7.png',
+  enemy_tank: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210946_c0a5a277-d5af-45f1-ae5a-d6366bac8a8a.png',
+  boss: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210954_35ad3045-8bd0-4f80-add5-2c55b9b1965c.png',
+  pickup_pod: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210955_2cf1b1a5-afec-467e-ac88-054e6ad8650b.png',
+  platform_tile: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210956_971e83b7-b83a-43ab-a6ca-e7af9655be8b.png',
+  logo: 'https://d8j0ntlcm91z4.cloudfront.net/user_3FusN3Ju3eYDQtXzIkwBTR7xnLV/hf_20260804_210957_09fe6151-b178-4818-98fa-2653d860ff42.png',
+}
+
 interface TouchState {
   left: boolean
   right: boolean
@@ -52,14 +64,22 @@ export class MainScene extends Phaser.Scene {
   private maxJumps = 2
   private spawnTimer = 0
   private bossPhase = 1
+  private artReady = false
 
   constructor() {
     super({ key: 'MainScene' })
   }
 
   preload() {
-    this.load.image('huntress', '/assets/huntress.png')
-    this.load.on('loaderror', () => {})
+    this.load.image('huntress', ASSETS.huntress)
+    this.load.image('huntress_run', ASSETS.huntress_run)
+    this.load.image('enemy_soldier', ASSETS.enemy_soldier)
+    this.load.image('enemy_flyer', ASSETS.enemy_flyer)
+    this.load.image('enemy_tank', ASSETS.enemy_tank)
+    this.load.image('boss_art', ASSETS.boss)
+    this.load.image('pickup_pod', ASSETS.pickup_pod)
+    this.load.image('platform_tile', ASSETS.platform_tile)
+    this.load.image('logo', ASSETS.logo)
   }
 
   create() {
@@ -79,9 +99,10 @@ export class MainScene extends Phaser.Scene {
     this.spawnTimer = 0
     this.bossPhase = 1
     this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
+    this.artReady = this.textures.exists('huntress')
 
     this.cameras.main.setBackgroundColor('#0a0612')
-    this.createTextures()
+    this.createFallbackTextures()
     this.drawBackdrop()
 
     this.physics.world.setBounds(0, 0, 800, 600)
@@ -94,9 +115,11 @@ export class MainScene extends Phaser.Scene {
 
     this.buildLevel(1)
 
-    const playerKey = this.textures.exists('huntress') ? 'huntress' : 'player'
-    this.player = this.physics.add.sprite(60, 480, playerKey)
-    if (playerKey === 'huntress') this.player.setDisplaySize(48, 48)
+    const pKey = this.textures.exists('huntress') ? 'huntress' : 'player'
+    this.player = this.physics.add.sprite(60, 480, pKey)
+    if (pKey === 'huntress') {
+      this.player.setDisplaySize(56, 56)
+    }
     this.player.setCollideWorldBounds(true)
     this.player.setBounce(0.02)
     this.player.setDepth(25)
@@ -155,48 +178,34 @@ export class MainScene extends Phaser.Scene {
     for (let x = 0; x < 820; x += 40) {
       this.add.rectangle(x, 300, 1, 600, 0x22d3ee, 0.03).setDepth(1)
     }
-    for (let y = 0; y < 620; y += 40) {
-      this.add.rectangle(400, y, 800, 1, 0xa855f7, 0.025).setDepth(1)
-    }
   }
 
-  private createTextures() {
-    const p = this.make.graphics({ x: 0, y: 0 })
-    p.fillStyle(0x5b21b6, 1)
-    p.fillRect(8, 40, 7, 8)
-    p.fillRect(17, 40, 7, 8)
-    p.fillStyle(0x7c3aed, 1)
-    p.fillRect(9, 26, 6, 16)
-    p.fillRect(17, 26, 6, 16)
-    p.fillStyle(0x6d28d9, 1)
-    p.fillRoundedRect(5, 10, 22, 18, 3)
-    p.fillStyle(0x22d3ee, 1)
-    p.fillRect(11, 14, 10, 5)
-    p.fillStyle(0xc4b5fd, 1)
-    p.fillCircle(16, 7, 8)
-    p.fillStyle(0x22d3ee, 1)
-    p.fillRect(10, 5, 12, 3)
-    p.fillStyle(0xa78bfa, 1)
-    p.fillRect(0, 14, 6, 8)
-    p.fillRect(26, 14, 6, 8)
-    p.generateTexture('player', 32, 48)
-    p.destroy()
-
-    const plat = this.make.graphics({ x: 0, y: 0 })
-    plat.fillStyle(0x1e1b4b, 1)
-    plat.fillRect(0, 2, 32, 12)
-    plat.fillStyle(0xa855f7, 1)
-    plat.fillRect(0, 0, 32, 3)
-    plat.fillStyle(0xe9d5ff, 0.4)
-    plat.fillRect(0, 0, 32, 1)
-    plat.generateTexture('platform', 32, 14)
-    plat.destroy()
-
+  private createFallbackTextures() {
+    // Minimal fallbacks if CDN fails
+    if (!this.textures.exists('player')) {
+      const p = this.make.graphics({ x: 0, y: 0 })
+      p.fillStyle(0x7c3aed, 1)
+      p.fillRoundedRect(4, 8, 24, 36, 4)
+      p.fillStyle(0x22d3ee, 1)
+      p.fillCircle(16, 10, 6)
+      p.generateTexture('player', 32, 48)
+      p.destroy()
+    }
+    if (!this.textures.exists('platform')) {
+      const plat = this.make.graphics({ x: 0, y: 0 })
+      plat.fillStyle(0x1e1b4b, 1)
+      plat.fillRect(0, 2, 32, 12)
+      plat.fillStyle(0xa855f7, 1)
+      plat.fillRect(0, 0, 32, 3)
+      plat.generateTexture('platform', 32, 14)
+      plat.destroy()
+    }
     const mk = (key: string, color: number, w: number, h: number) => {
+      if (this.textures.exists(key)) return
       const g = this.make.graphics({ x: 0, y: 0 })
       g.fillStyle(color, 1)
       g.fillRect(0, 0, w, h)
-      g.fillStyle(0xffffff, 0.85)
+      g.fillStyle(0xffffff, 0.8)
       g.fillRect(1, 1, w - 2, Math.max(1, h - 2))
       g.generateTexture(key, w, h)
       g.destroy()
@@ -205,74 +214,29 @@ export class MainScene extends Phaser.Scene {
     mk('laser', 0xe879f9, 26, 3)
     mk('fireball', 0xfb923c, 12, 12)
     mk('enemyBullet', 0xf43f5e, 10, 5)
-
-    const e = this.make.graphics({ x: 0, y: 0 })
-    e.fillStyle(0xe11d48, 1)
-    e.fillRoundedRect(2, 4, 28, 28, 3)
-    e.fillStyle(0x9f1239, 1)
-    e.fillRect(7, 10, 18, 14)
-    e.fillStyle(0xfbbf24, 1)
-    e.fillCircle(11, 15, 3)
-    e.fillCircle(21, 15, 3)
-    e.generateTexture('enemy', 32, 36)
-    e.destroy()
-
-    const f = this.make.graphics({ x: 0, y: 0 })
-    f.fillStyle(0xa855f7, 1)
-    f.fillCircle(16, 16, 12)
-    f.fillStyle(0xe879f9, 1)
-    f.fillTriangle(0, 16, 16, 0, 16, 32)
-    f.fillTriangle(32, 16, 16, 0, 16, 32)
-    f.fillStyle(0xfae8ff, 1)
-    f.fillCircle(16, 16, 5)
-    f.generateTexture('flyer', 32, 32)
-    f.destroy()
-
-    const t = this.make.graphics({ x: 0, y: 0 })
-    t.fillStyle(0xea580c, 1)
-    t.fillRoundedRect(0, 10, 44, 28, 4)
-    t.fillStyle(0xc2410c, 1)
-    t.fillRect(8, 0, 28, 16)
-    t.fillStyle(0xfef08a, 1)
-    t.fillRect(14, 4, 16, 8)
-    t.generateTexture('tank', 44, 40)
-    t.destroy()
-
-    const boss = this.make.graphics({ x: 0, y: 0 })
-    boss.fillStyle(0x7f1d1d, 1)
-    boss.fillRoundedRect(2, 12, 60, 44, 6)
-    boss.fillStyle(0xdc2626, 1)
-    boss.fillRect(10, 0, 44, 20)
-    boss.fillStyle(0xfef08a, 1)
-    boss.fillCircle(22, 10, 6)
-    boss.fillCircle(42, 10, 6)
-    boss.fillStyle(0xf43f5e, 1)
-    boss.fillRect(0, 22, 10, 16)
-    boss.fillRect(54, 22, 10, 16)
-    boss.generateTexture('boss', 64, 58)
-    boss.destroy()
-
-    ;[
-      ['pow_health', 0x4ade80],
-      ['pow_spread', 0x22d3ee],
-      ['pow_rapid', 0xfbbf24],
-      ['pow_laser', 0xe879f9],
-      ['pow_fire', 0xfb923c],
-    ].forEach(([key, c]) => {
-      const g = this.make.graphics({ x: 0, y: 0 })
-      g.fillStyle(c as number, 1)
-      g.fillCircle(12, 12, 11)
-      g.fillStyle(0xffffff, 0.9)
-      g.fillCircle(12, 12, 5)
-      g.generateTexture(key as string, 24, 24)
-      g.destroy()
+    mk('enemy', 0xe11d48, 32, 36)
+    mk('flyer', 0xa855f7, 32, 32)
+    mk('tank', 0xea580c, 44, 40)
+    mk('boss', 0xdc2626, 64, 58)
+    ;['pow_health', 'pow_spread', 'pow_rapid', 'pow_laser', 'pow_fire'].forEach((k, i) => {
+      const colors = [0x4ade80, 0x22d3ee, 0xfbbf24, 0xe879f9, 0xfb923c]
+      if (!this.textures.exists(k)) {
+        const g = this.make.graphics({ x: 0, y: 0 })
+        g.fillStyle(colors[i], 1)
+        g.fillCircle(12, 12, 11)
+        g.fillStyle(0xffffff, 0.9)
+        g.fillCircle(12, 12, 5)
+        g.generateTexture(k, 24, 24)
+        g.destroy()
+      }
     })
-
-    const s = this.make.graphics({ x: 0, y: 0 })
-    s.fillStyle(0xffffff, 1)
-    s.fillCircle(4, 4, 4)
-    s.generateTexture('spark', 8, 8)
-    s.destroy()
+    if (!this.textures.exists('spark')) {
+      const s = this.make.graphics({ x: 0, y: 0 })
+      s.fillStyle(0xffffff, 1)
+      s.fillCircle(4, 4, 4)
+      s.generateTexture('spark', 8, 8)
+      s.destroy()
+    }
   }
 
   private buildLevel(lvl: number) {
@@ -284,22 +248,38 @@ export class MainScene extends Phaser.Scene {
     this.spawnTimer = 0
     this.bossPhase = 1
 
-    this.platforms.create(400, 590, 'platform').setScale(28, 1.6).refreshBody()
-    const plat = (x: number, y: number, sx: number) => {
-      this.platforms.create(x, y, 'platform').setScale(sx, 0.85).refreshBody()
+    // Ground
+    const useTile = this.textures.exists('platform_tile')
+    const groundKey = useTile ? 'platform_tile' : 'platform'
+    const ground = this.platforms.create(400, 590, groundKey) as Phaser.Physics.Arcade.Sprite
+    if (useTile) {
+      ground.setDisplaySize(800, 28)
+    } else {
+      ground.setScale(28, 1.6)
+    }
+    ground.refreshBody()
+
+    const plat = (x: number, y: number, w: number) => {
+      const p = this.platforms.create(x, y, groundKey) as Phaser.Physics.Arcade.Sprite
+      if (useTile) {
+        p.setDisplaySize(w, 22)
+      } else {
+        p.setScale(w / 32, 0.85)
+      }
+      p.refreshBody()
     }
 
     if (lvl === 1) {
-      plat(150, 480, 4.5); plat(400, 420, 5); plat(120, 340, 3.8); plat(560, 300, 4.2)
-      plat(340, 220, 3.5); plat(680, 470, 3.2); plat(240, 380, 2.8)
+      plat(150, 480, 140); plat(400, 420, 160); plat(120, 340, 120); plat(560, 300, 140)
+      plat(340, 220, 110); plat(680, 470, 100); plat(240, 380, 90)
       this.wave([[220, 430, 2, 55], [400, 370, 2, 65], [140, 290, 2, 50], [650, 520, 2, 45], [500, 520, 2, 50]])
       this.spawnEnemy('flyer', 400, 90, 2, 40)
       this.spawnEnemy('flyer', 650, 150, 2, 45)
       this.spawnPowerup(480, 380, 'spread')
       this.spawnPowerup(180, 300, 'health')
     } else if (lvl === 2) {
-      plat(100, 500, 3.2); plat(280, 450, 3.2); plat(460, 400, 3.5); plat(650, 350, 3.2)
-      plat(180, 320, 3); plat(400, 270, 3.5); plat(600, 220, 3); plat(300, 160, 2.8)
+      plat(100, 500, 100); plat(280, 450, 100); plat(460, 400, 110); plat(650, 350, 100)
+      plat(180, 320, 95); plat(400, 270, 110); plat(600, 220, 95); plat(300, 160, 90)
       this.wave([[120, 450, 3, 70], [450, 350, 3, 75], [640, 300, 3, 65], [200, 520, 3, 60], [350, 520, 3, 55]])
       this.spawnEnemy('tank', 500, 520, 6, 28)
       this.spawnEnemy('flyer', 300, 80, 3, 50)
@@ -308,8 +288,8 @@ export class MainScene extends Phaser.Scene {
       this.spawnPowerup(280, 410, 'rapid')
       this.spawnPowerup(400, 230, 'health')
     } else if (lvl === 3) {
-      plat(80, 510, 3); plat(230, 460, 2.8); plat(390, 410, 3.2); plat(550, 360, 3)
-      plat(700, 310, 2.8); plat(160, 310, 2.8); plat(400, 250, 3.2); plat(620, 190, 3); plat(320, 140, 2.8)
+      plat(80, 510, 95); plat(230, 460, 90); plat(390, 410, 100); plat(550, 360, 95)
+      plat(700, 310, 90); plat(160, 310, 90); plat(400, 250, 100); plat(620, 190, 95); plat(320, 140, 90)
       this.wave([[100, 460, 3, 80], [380, 360, 3, 75], [540, 310, 3, 70], [680, 520, 3, 65], [250, 520, 3, 60]])
       this.spawnEnemy('tank', 400, 520, 7, 30)
       this.spawnEnemy('flyer', 180, 70, 3, 60)
@@ -320,9 +300,9 @@ export class MainScene extends Phaser.Scene {
       this.spawnPowerup(160, 270, 'health')
       this.spawnPowerup(620, 150, 'fire')
     } else if (lvl === 4) {
-      plat(110, 520, 3.2); plat(310, 470, 3.2); plat(510, 420, 3.2); plat(690, 370, 3)
-      plat(200, 360, 2.8); plat(420, 310, 3.2); plat(600, 260, 3); plat(120, 250, 2.8)
-      plat(320, 190, 3); plat(520, 140, 3.2)
+      plat(110, 520, 100); plat(310, 470, 100); plat(510, 420, 100); plat(690, 370, 95)
+      plat(200, 360, 90); plat(420, 310, 100); plat(600, 260, 95); plat(120, 250, 90)
+      plat(320, 190, 95); plat(520, 140, 100)
       this.wave([[130, 470, 4, 85], [500, 370, 4, 80], [680, 320, 4, 75], [240, 520, 4, 70], [420, 520, 4, 70]])
       this.spawnEnemy('tank', 260, 520, 8, 32)
       this.spawnEnemy('tank', 600, 520, 8, 30)
@@ -333,9 +313,9 @@ export class MainScene extends Phaser.Scene {
       this.spawnPowerup(420, 270, 'health')
       this.spawnPowerup(520, 100, 'laser')
     } else {
-      plat(150, 500, 3.8); plat(400, 430, 4.5); plat(650, 500, 3.8)
-      plat(250, 340, 3.2); plat(550, 340, 3.2); plat(400, 250, 3.5)
-      this.spawnEnemy('boss', 400, 110, 40, 50)
+      plat(150, 500, 120); plat(400, 430, 145); plat(650, 500, 120)
+      plat(250, 340, 100); plat(550, 340, 100); plat(400, 250, 110)
+      this.spawnEnemy('boss', 400, 120, 40, 50)
       this.spawnEnemy('flyer', 120, 80, 3, 55)
       this.spawnEnemy('flyer', 680, 80, 3, 55)
       this.spawnEnemy('tank', 200, 520, 6, 25)
@@ -347,12 +327,35 @@ export class MainScene extends Phaser.Scene {
   }
 
   private wave(list: number[][]) {
-    list.forEach(([x, y, hp, spd]) => this.spawnEnemy('enemy', x, y, hp, spd, 'walker'))
+    list.forEach(([x, y, hp, spd]) => this.spawnEnemy('soldier', x, y, hp, spd, 'walker'))
   }
 
-  private spawnEnemy(key: string, x: number, y: number, hp: number, speed: number, type?: string) {
-    const enemy = this.enemies.create(x, y, key) as Phaser.Physics.Arcade.Sprite
-    const t = type || (key === 'flyer' ? 'flyer' : key === 'tank' ? 'tank' : key === 'boss' ? 'boss' : 'walker')
+  private spawnEnemy(kind: string, x: number, y: number, hp: number, speed: number, type?: string) {
+    let tex = 'enemy'
+    let t = type || 'walker'
+    let displayW = 40
+    let displayH = 40
+
+    if (kind === 'soldier' || kind === 'enemy') {
+      tex = this.textures.exists('enemy_soldier') ? 'enemy_soldier' : 'enemy'
+      t = 'walker'
+      displayW = 44; displayH = 44
+    } else if (kind === 'flyer') {
+      tex = this.textures.exists('enemy_flyer') ? 'enemy_flyer' : 'flyer'
+      t = 'flyer'
+      displayW = 42; displayH = 42
+    } else if (kind === 'tank') {
+      tex = this.textures.exists('enemy_tank') ? 'enemy_tank' : 'tank'
+      t = 'tank'
+      displayW = 56; displayH = 48
+    } else if (kind === 'boss') {
+      tex = this.textures.exists('boss_art') ? 'boss_art' : 'boss'
+      t = 'boss'
+      displayW = 88; displayH = 80
+    }
+
+    const enemy = this.enemies.create(x, y, tex) as Phaser.Physics.Arcade.Sprite
+    enemy.setDisplaySize(displayW, displayH)
     enemy.setBounce(0.02)
     enemy.setCollideWorldBounds(true)
     enemy.setData('hp', hp)
@@ -372,12 +375,15 @@ export class MainScene extends Phaser.Scene {
   }
 
   private spawnPowerup(x: number, y: number, kind: string) {
-    const map: Record<string, string> = {
+    const usePod = this.textures.exists('pickup_pod')
+    const tex = usePod ? 'pickup_pod' : ({
       health: 'pow_health', spread: 'pow_spread', rapid: 'pow_rapid',
       laser: 'pow_laser', fire: 'pow_fire'
-    }
-    const p = this.powerups.create(x, y, map[kind]) as Phaser.Physics.Arcade.Sprite
+    } as Record<string, string>)[kind]
+
+    const p = this.powerups.create(x, y, tex) as Phaser.Physics.Arcade.Sprite
     p.setData('kind', kind)
+    if (usePod) p.setDisplaySize(32, 32)
     p.setBounce(0.55)
     p.setVelocityY(-110)
     p.setDepth(14)
@@ -434,12 +440,21 @@ export class MainScene extends Phaser.Scene {
     const body = this.player.body as Phaser.Physics.Arcade.Body
     if (body.blocked.down) this.jumpCount = 0
 
-    // Combo decay
     if (this.combo > 0) {
       this.comboTimer -= delta
       if (this.comboTimer <= 0) {
         this.combo = 0
         this.comboText.setText('')
+      }
+    }
+
+    // Swap to run frame when moving (if available)
+    if (this.textures.exists('huntress_run') && this.textures.exists('huntress')) {
+      const moving = Math.abs(body.velocity.x) > 20
+      const desired = moving ? 'huntress_run' : 'huntress'
+      if (this.player.texture.key !== desired) {
+        this.player.setTexture(desired)
+        this.player.setDisplaySize(56, 56)
       }
     }
 
@@ -459,7 +474,7 @@ export class MainScene extends Phaser.Scene {
       if (Math.random() > 0.5) {
         this.spawnEnemy('flyer', side, y, 2 + Math.floor(this.level / 2), 42 + this.level * 5)
       } else {
-        this.spawnEnemy('enemy', side, 520, 2 + Math.floor(this.level / 2), 52 + this.level * 8, 'walker')
+        this.spawnEnemy('soldier', side, 520, 2 + Math.floor(this.level / 2), 52 + this.level * 8, 'walker')
       }
     }
   }
@@ -505,8 +520,8 @@ export class MainScene extends Phaser.Scene {
     if (this.aimUp && !this.aimDown) angle = movingH ? -35 : -90
     else if (this.aimDown) angle = 35
 
-    const baseX = this.player.x + dir * 18
-    const baseY = this.player.y - 4
+    const baseX = this.player.x + dir * 20
+    const baseY = this.player.y - 2
 
     const spawn = (ang: number, tex = 'bullet', spd = 670) => {
       const b = this.bullets.get(baseX, baseY, tex) as Phaser.Physics.Arcade.Image
@@ -546,6 +561,7 @@ export class MainScene extends Phaser.Scene {
           const d = -(enemy.getData('dir') as number)
           enemy.setData('dir', d)
           enemy.setVelocityX(d * speed)
+          enemy.setFlipX(d < 0)
         }
       }
 
@@ -554,22 +570,22 @@ export class MainScene extends Phaser.Scene {
         const dy = this.player.y - enemy.y - 45
         enemy.setVelocityX(Phaser.Math.Clamp(dx * 0.5, -speed, speed))
         enemy.setVelocityY(Phaser.Math.Clamp(dy * 0.3, -speed * 0.5, speed * 0.5))
+        enemy.setFlipX(dx < 0)
       }
 
       if (type === 'boss') {
         const hp = enemy.getData('hp') as number
         const maxHp = enemy.getData('maxHp') as number
-        const ratio = hp / maxHp
-        // Phase 2 under 50%
-        if (ratio < 0.5 && this.bossPhase === 1) {
+        if (hp / maxHp < 0.5 && this.bossPhase === 1) {
           this.bossPhase = 2
-          this.popup(enemy.x, enemy.y - 40, 'PHASE 2', '#f43f5e')
+          this.popup(enemy.x, enemy.y - 50, 'PHASE 2', '#f43f5e')
           this.cameras.main.shake(200, 0.02)
         }
         const spd = this.bossPhase === 2 ? speed * 1.35 : speed
         const dx = this.player.x - enemy.x
         enemy.setVelocityX(Phaser.Math.Clamp(dx * 0.45, -spd, spd))
         enemy.setVelocityY(Math.sin(this.time.now / (this.bossPhase === 2 ? 220 : 320)) * (this.bossPhase === 2 ? 60 : 40))
+        enemy.setFlipX(dx < 0)
       }
 
       if (type === 'tank' || type === 'flyer' || type === 'boss') {
@@ -613,7 +629,6 @@ export class MainScene extends Phaser.Scene {
     let hp = (enemy.getData('hp') as number) - dmg
     enemy.setData('hp', hp)
 
-    // Hit flash + tiny hitstop feel via brief freeze tint
     enemy.setTint(0xffffff)
     this.time.delayedCall(45, () => { if (enemy.active) enemy.clearTint() })
     this.cameras.main.shake(18, 0.003)
@@ -623,7 +638,6 @@ export class MainScene extends Phaser.Scene {
       const type = enemy.getData('type') as string
       let pts = type === 'boss' ? 3000 : type === 'tank' ? 400 : type === 'flyer' ? 200 : 100
 
-      // Combo system
       this.combo++
       this.comboTimer = 2200
       if (this.combo > 1) {
@@ -637,7 +651,6 @@ export class MainScene extends Phaser.Scene {
       this.particles.emitParticleAt(enemy.x, enemy.y, 24)
       this.cameras.main.shake(70, 0.014)
 
-      // Brief screen flash on big kills
       if (type === 'tank' || type === 'boss') {
         this.cameras.main.flash(80, 180, 80, 255, false)
       }
