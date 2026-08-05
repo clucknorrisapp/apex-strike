@@ -338,6 +338,13 @@ interface TouchState {
   down: boolean
 }
 
+// Gamepad actions that can be remapped (press-to-bind, persisted to localStorage).
+// Movement + aim stay on the d-pad / left stick; only these action buttons rebind.
+type PadBindAction = 'fire' | 'jump' | 'swap' | 'pause'
+const PAD_BIND_DEFAULTS: Record<PadBindAction, number> = { fire: 2, jump: 0, swap: 3, pause: 9 }
+const PAD_BIND_ORDER: PadBindAction[] = ['fire', 'jump', 'swap', 'pause']
+const PAD_BIND_LABEL: Record<PadBindAction, string> = { fire: 'FIRE', jump: 'JUMP', swap: 'SWAP WEAPON', pause: 'PAUSE' }
+
 export class MainScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
@@ -410,6 +417,19 @@ export class MainScene extends Phaser.Scene {
   // Two-weapon carry: a backup slot you can swap into (Q / touch / gamepad Y).
   private altWeapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' = 'normal'
   private padSwapPrev = false
+  // Gamepad remap (press-to-bind, saved to localStorage) + robustness state.
+  private padBinds: Record<PadBindAction, number> = { ...PAD_BIND_DEFAULTS }
+  private gamepadActive = false        // armed only once a pad button/axis actually MOVES — never on presence (trap #3)
+  private gpDebug = false              // ?gpdebug=1 — live-dump button/axis indices to tune oddball pads (trap #7)
+  private gpDebugText?: Phaser.GameObjects.Text
+  private controlsUI: Phaser.GameObjects.GameObject[] = []
+  private controlsOpen = false
+  private rebinding: PadBindAction | null = null
+  private rebindArmed = false          // true once all buttons release, so the opening tap can't self-bind
+  private rebindHint?: Phaser.GameObjects.Text
+  private startGraceUntil = 0          // brief guard so a pad press leaving a menu can't skip the next screen
+  private startKeyHandler?: () => void
+  private closeControlsKey = () => this.closeControls()
   private particles!: Phaser.GameObjects.Particles.ParticleEmitter
   private jumpsLeft = 2
   private lastGroundAt = 0
@@ -543,6 +563,14 @@ export class MainScene extends Phaser.Scene {
     this.shardsGot = 0
     this.shardsTotal = 0
     this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
+    this.controlsOpen = false
+    this.controlsUI = []
+    this.rebinding = null
+    this.rebindArmed = false
+    this.rebindHint = undefined
+    this.gpDebugText = undefined
+    this.startKeyHandler = undefined
+    this.startGraceUntil = 0
 
     this.physics.world.gravity.y = GRAV
     this.sfx?.dispose()   // kill any prior music/context before a fresh restart
@@ -628,10 +656,12 @@ export class MainScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown-M', () => this.toggleMute())
     this.input.keyboard!.on('keydown-Q', () => this.swapWeapon())
 
-    // Controller: confirm the pad the instant it wakes up (browsers only surface
-    // gamepads after the first input) — and if one is already active.
-    this.input.gamepad?.on('connected', () => this.controllerToast())
-    if ((this.input.gamepad?.total ?? 0) > 0) this.controllerToast()
+    // Controller: arm on ACTUAL input, never on mere presence — a wireless dongle
+    // or headset can enumerate as a "gamepad" and must not hijack the UI (trap #3).
+    // The READY toast + gamepadActive flag are driven from real button/axis motion
+    // in update() via pollGamepadInput(). Load saved rebinds + the debug flag here.
+    this.loadPadBinds()
+    try { this.gpDebug = new URLSearchParams(window.location.search).get('gpdebug') === '1' } catch { /* ignore */ }
 
     this.particles = this.add.particles(0, 0, 'spark', {
       speed: { min: 120, max: 380 },
@@ -1417,6 +1447,175 @@ export class MainScene extends Phaser.Scene {
     this.tweens.add({ targets: t, alpha: 1, duration: 200, yoyo: true, hold: 1400, onComplete: () => t.destroy() })
   }
 
+  // ---- Gamepad: remap persistence + arm-on-input + debug ---------------------
+
+  private loadPadBinds() {
+    this.padBinds = { ...PAD_BIND_DEFAULTS }
+    try {
+      const raw = localStorage.getItem('apex_binds')
+      if (raw) {
+        const saved = JSON.parse(raw) as Partial<Record<PadBindAction, number>>
+        for (const a of PAD_BIND_ORDER) {
+          const v = saved[a]
+          if (typeof v === 'number' && v >= 0 && v < 32) this.padBinds[a] = v
+        }
+      }
+    } catch { /* ignore malformed / blocked storage */ }
+  }
+
+  private savePadBinds() {
+    try { localStorage.setItem('apex_binds', JSON.stringify(this.padBinds)) } catch { /* ignore */ }
+  }
+
+  // Human label for a raw button index — names the standard-mapping buttons and
+  // always shows the index, so an oddball clone stays unambiguous.
+  private padButtonLabel(i: number): string {
+    const names: Record<number, string> = {
+      0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'LB', 5: 'RB', 6: 'LT', 7: 'RT',
+      8: 'BACK', 9: 'START', 10: 'L3', 11: 'R3', 12: 'D-UP', 13: 'D-DOWN', 14: 'D-LEFT', 15: 'D-RIGHT', 16: 'GUIDE',
+    }
+    return names[i] ? `${names[i]} (${i})` : `BTN ${i}`
+  }
+
+  private anyPadButtonDown(pad: Phaser.Input.Gamepad.Gamepad): boolean {
+    for (let i = 0; i < pad.buttons.length; i++) if (pad.buttons[i]?.pressed) return true
+    return false
+  }
+
+  private firstPadButtonDown(pad: Phaser.Input.Gamepad.Gamepad): number {
+    for (let i = 0; i < pad.buttons.length; i++) if (pad.buttons[i]?.pressed) return i
+    return -1
+  }
+
+  // Runs every frame BEFORE the game gates: arms controller mode only once a
+  // button or stick actually MOVES (never on presence, trap #3), and feeds gpdebug.
+  private pollGamepadInput() {
+    const pad = this.input.gamepad?.getPad(0)
+    if (pad && !this.gamepadActive) {
+      const moved = this.anyPadButtonDown(pad) ||
+        (!!pad.axes[0] && Math.abs(pad.axes[0].getValue()) > 0.4) ||
+        (!!pad.axes[1] && Math.abs(pad.axes[1].getValue()) > 0.4)
+      if (moved) { this.gamepadActive = true; this.controllerToast() }
+    }
+    if (this.gpDebug) this.updateGpDebug(pad)
+  }
+
+  private updateGpDebug(pad?: Phaser.Input.Gamepad.Gamepad) {
+    if (!this.gpDebugText) {
+      this.gpDebugText = this.add.text(6, 96, '', {
+        fontFamily: 'monospace', fontSize: '9px', color: '#86efac',
+        backgroundColor: '#0a0612', padding: { x: 4, y: 3 },
+      }).setScrollFactor(0).setDepth(260)
+    }
+    if (!pad) { this.gpDebugText.setText('gpdebug: no pad'); return }
+    const btns: number[] = []
+    for (let i = 0; i < pad.buttons.length; i++) if (pad.buttons[i]?.pressed) btns.push(i)
+    const ax = pad.axes.map((a, i) => `${i}:${a.getValue().toFixed(2)}`).join(' ')
+    this.gpDebugText.setText(`gpdebug id:${(pad.id || '').slice(0, 16)}\nbtns:[${btns.join(',')}]\naxes ${ax}`)
+  }
+
+  // ---- Controls / rebind overlay --------------------------------------------
+
+  private openControls() {
+    if (this.controlsOpen) return
+    this.controlsOpen = true
+    this.rebinding = null
+    this.rebindArmed = false
+    this.buildControlsScreen()
+    this.input.keyboard!.on('keydown-ESC', this.closeControlsKey)   // Esc closes / cancels
+  }
+
+  private closeControls() {
+    if (!this.controlsOpen) return
+    this.input.keyboard!.off('keydown-ESC', this.closeControlsKey)
+    this.controlsUI.forEach((o) => o.destroy())
+    this.controlsUI = []
+    this.rebindHint = undefined
+    this.controlsOpen = false
+    this.rebinding = null
+    this.rebindArmed = false
+    this.startGraceUntil = this.time.now + 400   // so the closing tap/press can't skip the title
+  }
+
+  private buildControlsScreen() {
+    this.controlsUI.forEach((o) => o.destroy())
+    this.controlsUI = []
+    const push = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.controlsUI.push(o); return o }
+
+    // Backdrop — interactive so nothing behind it (title / pause menu) receives taps.
+    push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.93).setScrollFactor(0).setDepth(250).setInteractive())
+    push(this.add.text(256, 22, 'CONTROLS', { fontFamily: 'monospace', fontSize: '18px', color: '#e879f9', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+
+    // Keyboard column
+    const kb = [
+      'KEYBOARD',
+      'Move       A / D  ·  ← / →',
+      'Jump       W / ↑  (double)',
+      'Aim        ↑ / ↓  (8-way)',
+      'Crouch     hold ↓ / S',
+      'Fire       SPACE (hold)',
+      'Swap gun   Q',
+      'Pause      P / Esc',
+      'Mute       M',
+    ]
+    push(this.add.text(22, 50, kb.join('\n'), { fontFamily: 'monospace', fontSize: '10px', color: '#c4b5fd', lineSpacing: 5 }).setScrollFactor(0).setDepth(251))
+
+    // Gamepad column
+    push(this.add.text(276, 50, 'GAMEPAD', { fontFamily: 'monospace', fontSize: '10px', color: '#67e8f9' }).setScrollFactor(0).setDepth(251))
+    push(this.add.text(276, 66, 'Move / Aim   D-pad / Left stick', { fontFamily: 'monospace', fontSize: '9px', color: '#c4b5fd' }).setScrollFactor(0).setDepth(251))
+
+    // Rebindable action rows — tap the value box, then press a pad button.
+    const rowY = 88
+    PAD_BIND_ORDER.forEach((action, idx) => {
+      const y = rowY + idx * 24
+      push(this.add.text(276, y, PAD_BIND_LABEL[action], { fontFamily: 'monospace', fontSize: '10px', color: '#e9d5ff' }).setScrollFactor(0).setDepth(251))
+      const val = push(this.add.text(400, y - 2, this.padButtonLabel(this.padBinds[action]), {
+        fontFamily: 'monospace', fontSize: '10px', color: '#fbbf24',
+        backgroundColor: '#1e1b4b', padding: { x: 6, y: 3 },
+      }).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+      val.on('pointerover', () => { if (this.rebinding !== action) val.setColor('#fde68a') })
+      val.on('pointerout', () => { if (this.rebinding !== action) val.setColor('#fbbf24') })
+      val.on('pointerdown', () => this.beginRebind(action, val))
+    })
+
+    this.rebindHint = push(this.add.text(276, rowY + PAD_BIND_ORDER.length * 24 + 4, 'Tap a button box, then press a pad button to bind it.', {
+      fontFamily: 'monospace', fontSize: '8px', color: '#71717a', wordWrap: { width: 216 },
+    }).setScrollFactor(0).setDepth(251))
+
+    const reset = push(this.add.text(276, 296, '[ RESET DEFAULTS ]', { fontFamily: 'monospace', fontSize: '9px', color: '#a5b4fc' }).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    reset.on('pointerdown', () => { this.padBinds = { ...PAD_BIND_DEFAULTS }; this.savePadBinds(); this.rebinding = null; this.buildControlsScreen() })
+
+    if (this.sys.game.device.input.touch) {
+      push(this.add.text(22, 296, 'TOUCH  on-screen pad ( ⌨ toggles )', { fontFamily: 'monospace', fontSize: '9px', color: '#71717a' }).setScrollFactor(0).setDepth(251))
+    }
+
+    const back = push(this.add.text(256, 344, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    back.on('pointerdown', () => this.closeControls())
+  }
+
+  private beginRebind(action: PadBindAction, val: Phaser.GameObjects.Text) {
+    this.rebinding = action
+    this.rebindArmed = false          // must see all buttons release first, so this tap can't self-bind
+    val.setColor('#f43f5e').setText('press…')
+    this.rebindHint?.setText(`Press a button for ${PAD_BIND_LABEL[action]}   ·   Esc cancels`)
+  }
+
+  // Polled from update() while the controls screen is open.
+  private updateControlsRebind() {
+    if (!this.rebinding) return
+    const pad = this.input.gamepad?.getPad(0)
+    if (!pad) return
+    if (!this.rebindArmed) { if (!this.anyPadButtonDown(pad)) this.rebindArmed = true; return }
+    const i = this.firstPadButtonDown(pad)
+    if (i >= 0) {
+      this.padBinds[this.rebinding] = i
+      this.savePadBinds()
+      this.rebinding = null
+      this.rebindArmed = false
+      this.buildControlsScreen()      // redraw rows with the new binding
+    }
+  }
+
   private screenToast(text: string, color = '#a5b4fc', y = 120) {
     const t = this.add.text(256, y, text, { fontFamily: 'monospace', fontSize: '12px', color })
       .setOrigin(0.5).setScrollFactor(0).setDepth(232).setAlpha(0)
@@ -1424,6 +1623,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private togglePause() {
+    if (this.controlsOpen) return
     if (!this.started || this.gameOver || this.levelTransition || !this.player?.active) return
     this.userPaused = !this.userPaused
     if (this.userPaused) {
@@ -1433,9 +1633,11 @@ export class MainScene extends Phaser.Scene {
       const hint = this.add.text(256, 190, 'P / Start  resume        M  ' + (this.muted ? 'unmute' : 'mute'), { fontFamily: 'monospace', fontSize: '10px', color: '#a5b4fc' }).setOrigin(0.5).setScrollFactor(0).setDepth(231)
       const resume = this.add.text(256, 226, '[ RESUME ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(231).setInteractive({ useHandCursor: true })
       resume.on('pointerdown', () => this.togglePause())
-      const restart = this.add.text(256, 254, '[ RESTART MISSION ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(231).setInteractive({ useHandCursor: true })
+      const restart = this.add.text(256, 250, '[ RESTART MISSION ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(231).setInteractive({ useHandCursor: true })
       restart.on('pointerdown', () => this.scene.restart())
-      this.pauseUI = [dim, title, hint, resume, restart]
+      const controls = this.add.text(256, 278, '[ CONTROLS ]', { fontFamily: 'monospace', fontSize: '11px', color: '#a5b4fc' }).setOrigin(0.5).setScrollFactor(0).setDepth(231).setInteractive({ useHandCursor: true })
+      controls.on('pointerdown', () => this.openControls())
+      this.pauseUI = [dim, title, hint, resume, restart, controls]
     } else {
       this.physics.resume()
       this.pauseUI.forEach((o) => o.destroy())
@@ -1551,17 +1753,31 @@ export class MainScene extends Phaser.Scene {
     els.push(this.add.text(256, 214, 'APEX  STRIKE', { fontFamily: 'monospace', fontSize: '22px', color: '#e879f9', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
     els.push(this.add.text(256, 236, 'a Cluck Norris production', { fontFamily: 'monospace', fontSize: '8px', color: '#7c6f9c' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
     if (best > 0) els.push(this.add.text(256, 256, 'BEST  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#67e8f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    const prompt = this.add.text(256, 292, this.sys.game.device.input.touch ? '▶  TAP TO START' : '▶  PRESS ANY KEY TO START', { fontFamily: 'monospace', fontSize: '12px', color: '#f5f3ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)
+    const prompt = this.add.text(256, 284, this.sys.game.device.input.touch ? '▶  TAP TO START' : '▶  PRESS ANY KEY TO START', { fontFamily: 'monospace', fontSize: '12px', color: '#f5f3ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)
     this.tweens.add({ targets: prompt, alpha: 0.32, duration: 620, yoyo: true, repeat: -1 })
     els.push(prompt)
-    els.push(this.add.text(256, 322, 'move · double-jump · 8-way aim · hold to fire', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    els.push(this.add.text(256, 312, 'move · double-jump · 8-way aim · hold to fire', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    // CONTROLS button — opens the controls + gamepad-rebind screen. It sits ABOVE
+    // the start catcher, so (input is top-only) tapping it never also starts play.
+    const ctrlBtn = this.add.text(256, 340, '[ CONTROLS ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    ctrlBtn.on('pointerover', () => ctrlBtn.setColor('#f0abfc'))
+    ctrlBtn.on('pointerout', () => ctrlBtn.setColor('#c4b5fd'))
+    ctrlBtn.on('pointerdown', () => this.openControls())
+    els.push(ctrlBtn)
+    // Full-screen catcher: a tap on empty space starts. Below the button, above the dim.
+    const startCatcher = this.add.rectangle(256, 192, 512, 384, 0x000000, 0.001).setScrollFactor(0).setDepth(240.5).setInteractive()
+    startCatcher.on('pointerdown', () => this.beginPlay())
+    els.push(startCatcher)
     this.titleUI = els
-    this.input.keyboard!.once('keydown', () => this.beginPlay())
-    this.input.once('pointerdown', () => this.beginPlay())
+    // Any key starts (guarded so it no-ops while the controls screen is open).
+    this.startKeyHandler = () => this.beginPlay()
+    this.input.keyboard!.on('keydown', this.startKeyHandler)
   }
 
   private beginPlay() {
-    if (this.started) return
+    if (this.started || this.controlsOpen) return
+    if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
+    if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     this.started = true
     this.sfx?.resume()
     this.sfx?.startMusic()
@@ -1579,15 +1795,18 @@ export class MainScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     this.routeCameras()  // route any newly-spawned objects to the right camera
+    this.pollGamepadInput()                                          // arm-on-input READY toast + gpdebug overlay
+    if (this.controlsOpen) { this.updateControlsRebind(); return }   // controls / rebind screen owns input
     if (this.gameOver) return
     if (!this.started) {
       const gp = this.input.gamepad?.getPad(0)
-      if (gp && (gp.A || gp.buttons[0]?.pressed || gp.buttons[9]?.pressed)) this.beginPlay()
+      // Any button starts, with a short grace so a press that left a menu can't skip the title.
+      if (gp && time > this.startGraceUntil && this.anyPadButtonDown(gp)) this.beginPlay()
       return
     }
-    // Gamepad Start / Select toggles pause (edge-detected) — polled even while paused.
+    // Gamepad pause button toggles pause (edge-detected) — polled even while paused.
     const spad = this.input.gamepad?.getPad(0)
-    const startNow = !!(spad && (spad.buttons[9]?.pressed || spad.buttons[8]?.pressed))
+    const startNow = !!(spad && spad.buttons[this.padBinds.pause]?.pressed)
     if (startNow && !this.prevStart) this.togglePause()
     this.prevStart = startNow
     if (this.userPaused) return
@@ -1769,14 +1988,17 @@ export class MainScene extends Phaser.Scene {
 
     const pad = this.input.gamepad?.getPad(0)
     if (pad) {
+      const held = (i: number) => !!pad.buttons[i]?.pressed
+      // Move + aim read the d-pad OR the left stick — tolerant to pads that report
+      // the d-pad as an axis instead of buttons (most cheap USB adapters, trap #7).
       if (pad.left || (pad.axes[0] && pad.axes[0].getValue() < -0.3)) left = true
       if (pad.right || (pad.axes[0] && pad.axes[0].getValue() > 0.3)) right = true
-      if (pad.X || pad.buttons[2]?.pressed || pad.buttons[7]?.pressed) shoot = true
-      if (pad.A || pad.buttons[0]?.pressed) jump = true
       if (pad.up || (pad.axes[1] && pad.axes[1].getValue() < -0.3)) this.aimUp = true
       if (pad.down || (pad.axes[1] && pad.axes[1].getValue() > 0.3)) this.aimDown = true
-      // Y (button 3) swaps weapons, edge-triggered so a held button fires once.
-      const yNow = !!(pad.Y || pad.buttons[3]?.pressed)
+      // Action buttons go through the remap table (press-to-bind, persisted).
+      if (held(this.padBinds.fire)) shoot = true
+      if (held(this.padBinds.jump)) jump = true
+      const yNow = held(this.padBinds.swap)          // edge-triggered so a held button swaps once
       if (yNow && !this.padSwapPrev) this.swapWeapon()
       this.padSwapPrev = yNow
     }
