@@ -83,6 +83,7 @@ class Sfx {
   hurt() { this.tone(300, 70, 0.28, 'sawtooth', 0.08) }
   stomp() { this.tone(520, 150, 0.1, 'square', 0.06) }
   clear() { this.tone(520, 940, 0.14, 'square', 0.05) }
+  dash() { this.tone(200, 520, 0.14, 'sawtooth', 0.05) }
 
   // ---- Procedural background music: a subtle driving synth loop ----
   private musicGain: GainNode | null = null
@@ -186,6 +187,7 @@ export const LEVELS: LevelDef[] = [
       { kind: 'soldier', x: 300, y: 1090, hp: 2, speed: 60 }, { kind: 'soldier', x: 900, y: 1090, hp: 2, speed: 65 },
       { kind: 'soldier', x: 520, y: 720, hp: 2, speed: 55 }, { kind: 'soldier', x: 960, y: 610, hp: 2, speed: 60 },
       { kind: 'soldier', x: 1900, y: 880, hp: 3, speed: 60 }, { kind: 'soldier', x: 2250, y: 1090, hp: 3, speed: 60 },
+      { kind: 'charger', x: 640, y: 1090, hp: 3, speed: 55 }, { kind: 'charger', x: 1650, y: 1090, hp: 4, speed: 58 },
       { kind: 'flyer', x: 600, y: 320, hp: 2, speed: 45 }, { kind: 'flyer', x: 1300, y: 260, hp: 2, speed: 50 },
       { kind: 'flyer', x: 2050, y: 420, hp: 3, speed: 50 },
     ],
@@ -203,6 +205,7 @@ export const LEVELS: LevelDef[] = [
     turrets: [[900, 700], [1160, 640], [2260, 700], [2260, 400]],
     enemies: [
       { kind: 'soldier', x: 300, y: 1210, hp: 3, speed: 65 }, { kind: 'tank', x: 1000, y: 1210, hp: 6, speed: 28 },
+      { kind: 'charger', x: 700, y: 1210, hp: 4, speed: 60 }, { kind: 'charger', x: 1750, y: 1210, hp: 4, speed: 62 },
       { kind: 'soldier', x: 640, y: 700, hp: 3, speed: 70 }, { kind: 'soldier', x: 1160, y: 600, hp: 3, speed: 70 },
       { kind: 'tank', x: 1900, y: 1210, hp: 7, speed: 30 }, { kind: 'soldier', x: 2100, y: 800, hp: 3, speed: 70 },
       { kind: 'flyer', x: 500, y: 260, hp: 3, speed: 55 }, { kind: 'flyer', x: 1200, y: 220, hp: 3, speed: 60 },
@@ -222,6 +225,7 @@ export const LEVELS: LevelDef[] = [
     turrets: [[1000, 740], [1420, 560], [2020, 660], [2260, 260]],
     enemies: [
       { kind: 'soldier', x: 260, y: 1290, hp: 3, speed: 70 }, { kind: 'tank', x: 900, y: 1290, hp: 7, speed: 30 },
+      { kind: 'charger', x: 560, y: 1290, hp: 5, speed: 64 }, { kind: 'charger', x: 1600, y: 1290, hp: 5, speed: 66 },
       { kind: 'soldier', x: 760, y: 780, hp: 3, speed: 75 }, { kind: 'soldier', x: 1180, y: 600, hp: 3, speed: 75 },
       { kind: 'soldier', x: 1780, y: 740, hp: 4, speed: 70 }, { kind: 'tank', x: 2100, y: 1290, hp: 8, speed: 32 },
       { kind: 'flyer', x: 450, y: 300, hp: 3, speed: 65 }, { kind: 'flyer', x: 1000, y: 240, hp: 3, speed: 70 },
@@ -775,6 +779,9 @@ export class MainScene extends Phaser.Scene {
       t = 'tank'; displayW = 88; displayH = 65
     } else if (kind === 'turret') {
       tex = 'turret'; t = 'turret'; displayW = 50; displayH = 42
+    } else if (kind === 'charger') {
+      tex = this.textures.exists('enemy_soldier') ? 'enemy_soldier' : 'enemy'
+      t = 'charger'; displayW = 52; displayH = 70
     } else if (kind === 'boss') {
       tex = this.textures.exists('boss_art') ? 'boss_art' : 'boss'
       t = 'boss'; displayW = 230; displayH = 230
@@ -782,6 +789,7 @@ export class MainScene extends Phaser.Scene {
 
     const enemy = this.enemies.create(x, y, tex) as Phaser.Physics.Arcade.Sprite
     enemy.setDisplaySize(displayW, displayH)
+    if (t === 'charger') { enemy.setData('baseTint', 0xff7a3c); enemy.setTint(0xff7a3c) }
     enemy.setData('bsx', enemy.scaleX); enemy.setData('bsy', enemy.scaleY)
     enemy.setBounce(0.02)
     enemy.setCollideWorldBounds(false)
@@ -1295,6 +1303,39 @@ export class MainScene extends Phaser.Scene {
         enemy.setVelocityY(Math.sin(this.time.now / (this.bossPhase === 2 ? 180 : 280)) * (this.bossPhase === 2 ? 70 : 45))
         enemy.setFlipX(dx < 0)
       }
+      if (type === 'charger') {
+        const st = (enemy.getData('cstate') as string) || 'patrol'
+        const ct = ((enemy.getData('ctimer') as number) || 0) - delta
+        const dx = this.player.x - enemy.x
+        const adx = Math.abs(dx), ady = Math.abs(this.player.y - enemy.y)
+        if (st === 'patrol') {
+          if (body.blocked.left || body.blocked.right) enemy.setData('dir', -(enemy.getData('dir') as number))
+          const d = enemy.getData('dir') as number
+          enemy.setVelocityX(speed * d); enemy.setFlipX(d < 0)
+          if (adx < 400 && ady < 74 && ct <= 0) {
+            // Lock on: face the player, freeze, and wind up (telegraph flash).
+            enemy.setData('cstate', 'wind'); enemy.setData('ctimer', 340)
+            enemy.setData('dir', dx < 0 ? -1 : 1); enemy.setFlipX(dx < 0)
+            enemy.setVelocityX(0); enemy.setTintFill(0xffe08a)
+          } else enemy.setData('ctimer', ct)
+        } else if (st === 'wind') {
+          enemy.setVelocityX(0)
+          if (ct <= 0) {
+            enemy.setData('cstate', 'dash'); enemy.setData('ctimer', 560)
+            this.restoreTint(enemy)
+            const d = enemy.getData('dir') as number
+            enemy.setVelocityX(360 * d); enemy.setFlipX(d < 0)
+            this.sfx?.dash()
+          } else enemy.setData('ctimer', ct)
+        } else if (st === 'dash') {
+          if (ct <= 0 || body.blocked.left || body.blocked.right) {
+            enemy.setData('cstate', 'cool'); enemy.setData('ctimer', 950); enemy.setVelocityX(0)
+          } else enemy.setData('ctimer', ct)
+        } else {
+          enemy.setVelocityX(0)
+          if (ct <= 0) { enemy.setData('cstate', 'patrol'); enemy.setData('ctimer', 0) } else enemy.setData('ctimer', ct)
+        }
+      }
 
       if (type === 'tank' || type === 'flyer' || type === 'boss' || type === 'turret') {
         let timer = enemy.getData('shootTimer') as number
@@ -1306,7 +1347,7 @@ export class MainScene extends Phaser.Scene {
         if (alive && near && (type === 'boss' || type === 'turret') && timer <= 260 && timer > 40 && !enemy.getData('tele')) {
           enemy.setData('tele', true)
           enemy.setTintFill(0xffe08a)
-          this.time.delayedCall(170, () => { if (enemy.active) enemy.clearTint() })
+          this.time.delayedCall(170, () => this.restoreTint(enemy))
           if (type === 'boss') this.shockwave(enemy.x, enemy.y, 0xfbbf24, 38)
         }
         if (timer <= 0 && near && alive) {
@@ -1339,6 +1380,14 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
+  // Clear a hit/telegraph flash but keep any persistent base tint (e.g. the charger's).
+  private restoreTint(e: Phaser.Physics.Arcade.Sprite) {
+    if (!e.active) return
+    e.clearTint()
+    const bt = e.getData('baseTint') as number | undefined
+    if (bt) e.setTint(bt)
+  }
+
   private hitEnemy(
     bulletObj: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile,
     enemyObj: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile
@@ -1351,7 +1400,7 @@ export class MainScene extends Phaser.Scene {
     const hp = (enemy.getData('hp') as number) - dmg
     enemy.setData('hp', hp)
     enemy.setTintFill(0xffffff)
-    this.time.delayedCall(60, () => { if (enemy.active) enemy.clearTint() })
+    this.time.delayedCall(60, () => this.restoreTint(enemy))
     this.particles.emitParticleAt(enemy.x, enemy.y, 5)
 
     if (hp > 0) {
@@ -1365,8 +1414,8 @@ export class MainScene extends Phaser.Scene {
 
     // ---- Kill ----
     const type = enemy.getData('type') as string
-    const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : 0xf43f5e
-    let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'turret' ? 350 : type === 'flyer' ? 250 : 120
+    const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : type === 'charger' ? 0xff7a3c : 0xf43f5e
+    let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'turret' ? 350 : type === 'flyer' ? 250 : type === 'charger' ? 200 : 120
     this.combo++
     this.comboTimer = 2400
     this.maxCombo = Math.max(this.maxCombo, this.combo)
@@ -1438,7 +1487,7 @@ export class MainScene extends Phaser.Scene {
     const pb = this.player.body as Phaser.Physics.Arcade.Body
     const eb = enemy.body as Phaser.Physics.Arcade.Body
     // Mario stomp: falling onto a SOFT enemy from above kills it and bounces you.
-    const soft = type === 'walker' || type === 'flyer'
+    const soft = type === 'walker' || type === 'flyer' || type === 'charger'
     if (soft && pb.velocity.y > 60 && pb.bottom <= eb.top + 22) {
       this.player.setVelocityY(-360)
       this.isJumping = true
