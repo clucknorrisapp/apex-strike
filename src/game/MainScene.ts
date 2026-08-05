@@ -484,7 +484,8 @@ export class MainScene extends Phaser.Scene {
     this.powerups = this.physics.add.group()
     this.shards = this.physics.add.group({ allowGravity: false, immovable: true })
 
-    // Persist mute across restarts within a session.
+    // Restore the saved mute preference (persists across page reloads too).
+    try { this.muted = localStorage.getItem('apex_muted') === '1' } catch { /* ignore */ }
     this.sfx.setMuted(this.muted)
 
     // Painted backdrop (used when its art loaded) sits behind everything, pinned to the camera.
@@ -954,6 +955,7 @@ export class MainScene extends Phaser.Scene {
 
   private toggleMute() {
     this.muted = !this.muted
+    try { localStorage.setItem('apex_muted', this.muted ? '1' : '0') } catch { /* ignore */ }
     this.sfx?.setMuted(this.muted)
     if (this.muteIcon) { this.muteIcon.setText(this.muted ? '♪ OFF' : '♪ ON'); this.muteIcon.setColor(this.muted ? '#ef4444' : '#a5b4fc') }
     this.screenToast(this.muted ? 'SOUND OFF' : 'SOUND ON')
