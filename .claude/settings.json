@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(curl -sS -I *)",
+      "Bash(curl -sS -o /dev/null *)",
+      "Bash(git fetch *)",
+      "Bash(git ls-tree *)",
+      "Bash(git grep *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git branch *)",
+      "Bash(git rebase *)",
+      "Bash(git merge *)",
+      "Bash(git stash*)",
+      "Bash(npm run build)",
+      "Bash(npm run dev)",
+      "Bash(npm run lint)",
+      "Bash(npm run preview)",
+      "mcp__github__list_issues",
+      "mcp__github__list_pull_requests",
+      "mcp__github__issue_read",
+      "mcp__github__list_commits",
+      "mcp__github__search_repositories",
+      "mcp__Higgsfield__list_websites",
+      "mcp__Higgsfield__balance",
+      "mcp__Claude_Code_Remote__list_triggers",
+      "mcp__Claude_Code_Remote__send_later"
+    ]
+  }
+}
