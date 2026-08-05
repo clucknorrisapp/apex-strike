@@ -37,6 +37,7 @@ const MAX_JUMPS = 2
 // Asset-free procedural sound — short Web-Audio blips, no files needed.
 class Sfx {
   private ctx: AudioContext | null = null
+  muted = false
   constructor() {
     try {
       const AC = (window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext })
@@ -45,8 +46,9 @@ class Sfx {
     } catch { this.ctx = null }
   }
   resume() { this.ctx?.resume?.() }
+  setMuted(v: boolean) { this.muted = v }
   private tone(f0: number, f1: number, dur: number, type: OscillatorType, gain: number) {
-    const c = this.ctx; if (!c) return
+    const c = this.ctx; if (!c || this.muted) return
     const t = c.currentTime
     const o = c.createOscillator(); const g = c.createGain()
     o.type = type
@@ -58,7 +60,7 @@ class Sfx {
     o.start(t); o.stop(t + dur + 0.02)
   }
   private noise(dur: number, gain: number) {
-    const c = this.ctx; if (!c) return
+    const c = this.ctx; if (!c || this.muted) return
     const t = c.currentTime
     const n = Math.floor(c.sampleRate * dur)
     const buf = c.createBuffer(1, n, c.sampleRate)
@@ -292,6 +294,21 @@ export class MainScene extends Phaser.Scene {
   private levelH = 1200
   private goalX = 0
   private goalY = 0
+  // Pause / mute
+  private userPaused = false
+  private muted = false
+  private prevStart = false
+  private pauseUI: Phaser.GameObjects.GameObject[] = []
+  private muteIcon!: Phaser.GameObjects.Text
+  // Boss HP bar
+  private bossRef?: Phaser.Physics.Arcade.Sprite
+  private bossBar: Phaser.GameObjects.GameObject[] = []
+  private bossBarFill?: Phaser.GameObjects.Rectangle
+  // Apex Shards (collectibles)
+  private shards!: Phaser.Physics.Arcade.Group
+  private shardsGot = 0
+  private shardsTotal = 0
+  private shardText!: Phaser.GameObjects.Text
 
   constructor() {
     super({ key: 'MainScene' })
@@ -308,7 +325,7 @@ export class MainScene extends Phaser.Scene {
   private hitstop(ms: number) {
     if (this.physics.world.isPaused) return
     this.physics.world.pause()
-    this.time.delayedCall(ms, () => this.physics.world.resume())
+    this.time.delayedCall(ms, () => { if (!this.userPaused) this.physics.world.resume() })
   }
   // Expanding neon ring on kills/impacts.
   private shockwave(x: number, y: number, color: number, r = 30) {
@@ -374,6 +391,13 @@ export class MainScene extends Phaser.Scene {
     this.bossPhase = 1
     this.prone = false
     this.decor = []
+    this.userPaused = false
+    this.prevStart = false
+    this.pauseUI = []
+    this.bossBar = []
+    this.bossRef = undefined
+    this.shardsGot = 0
+    this.shardsTotal = 0
     this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
 
     this.physics.world.gravity.y = GRAV
@@ -386,6 +410,10 @@ export class MainScene extends Phaser.Scene {
     this.enemyBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 80 })
     this.enemies = this.physics.add.group()
     this.powerups = this.physics.add.group()
+    this.shards = this.physics.add.group({ allowGravity: false, immovable: true })
+
+    // Persist mute across restarts within a session.
+    this.sfx.setMuted(this.muted)
 
     // Painted backdrop (used when its art loaded) sits behind everything, pinned to the camera.
     this.bgImage = this.add.image(256, 192, 'stars').setScrollFactor(0).setDepth(-10).setVisible(false)
@@ -417,6 +445,7 @@ export class MainScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.enemies, this.hitPlayer as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this)
     this.physics.add.overlap(this.player, this.powerups, this.collectPowerup as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this)
     this.physics.add.overlap(this.player, this.enemyBullets, this.hitByEnemyBullet as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this)
+    this.physics.add.overlap(this.player, this.shards, this.collectShard as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this)
 
     this.cursors = this.input.keyboard!.createCursorKeys()
     this.wasd = {
@@ -431,6 +460,11 @@ export class MainScene extends Phaser.Scene {
     const resumeAudio = () => this.sfx?.resume()
     this.input.keyboard!.once('keydown', resumeAudio)
     this.input.once('pointerdown', resumeAudio)
+
+    // Pause (P / Esc) and mute (M) — event-driven so they work while paused.
+    this.input.keyboard!.on('keydown-P', () => this.togglePause())
+    this.input.keyboard!.on('keydown-ESC', () => this.togglePause())
+    this.input.keyboard!.on('keydown-M', () => this.toggleMute())
 
     // Controller: confirm the pad the instant it wakes up (browsers only surface
     // gamepads after the first input) — and if one is already active.
@@ -542,6 +576,14 @@ export class MainScene extends Phaser.Scene {
       s.fillStyle(0xffffff, 1); s.fillCircle(6, 6, 6)
       s.generateTexture('spark', 12, 12); s.destroy()
     }
+    if (!this.textures.exists('shard')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const diamond = (cx: number, cy: number, r: number) => { g.beginPath(); g.moveTo(cx, cy - r); g.lineTo(cx + r, cy); g.lineTo(cx, cy + r); g.lineTo(cx - r, cy); g.closePath(); g.fillPath() }
+      g.fillStyle(0x22d3ee, 1); diamond(11, 11, 11)
+      g.fillStyle(0xa5f3fc, 1); diamond(11, 11, 6)
+      g.fillStyle(0xffffff, 0.95); diamond(11, 9, 2.5)
+      g.generateTexture('shard', 22, 22); g.destroy()
+    }
   }
 
   private createThemeTextures() {
@@ -586,6 +628,12 @@ export class MainScene extends Phaser.Scene {
     this.powerups.clear(true, true)
     this.bullets.clear(true, true)
     this.enemyBullets.clear(true, true)
+    this.shards?.getChildren().forEach((s) => this.tweens.killTweensOf(s))
+    this.shards?.clear(true, true)
+    this.destroyBossBar()
+    this.bossRef = undefined
+    this.shardsGot = 0
+    this.shardsTotal = 0
     this.decor.forEach((d) => d.destroy())
     this.decor = []
     this.spawnTimer = 0
@@ -642,6 +690,7 @@ export class MainScene extends Phaser.Scene {
     def.turrets.forEach(([x, surY]) => this.spawnEnemy('turret', x, surY - 19, 4 + lvl, 0))
     def.enemies.forEach((e) => this.spawnEnemy(e.kind, e.x, e.y, e.hp, e.speed))
     def.pods.forEach(([x, y, kind]) => this.spawnPowerup(x, y, kind as string))
+    this.placeShards(def)
   }
 
   private spawnEnemy(kind: string, x: number, y: number, hp: number, speed: number, type?: string) {
@@ -676,6 +725,8 @@ export class MainScene extends Phaser.Scene {
     enemy.setData('shootTimer', Phaser.Math.Between(200, 900))
     enemy.setDepth(18)
 
+    if (t === 'boss') { this.bossRef = enemy; this.createBossBar(hp) }
+
     if (t === 'flyer' || t === 'boss') {
       enemy.setVelocity(speed * (Math.random() > 0.5 ? 1 : -1), t === 'boss' ? 15 : speed * 0.3)
       ;(enemy.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
@@ -707,14 +758,19 @@ export class MainScene extends Phaser.Scene {
   }
 
   private createHUD() {
-    this.add.rectangle(76, 42, 146, 80, 0x0a0612, 0.75).setScrollFactor(0).setDepth(99).setStrokeStyle(1, 0xa855f7, 0.5)
+    this.add.rectangle(78, 47, 150, 94, 0x0a0612, 0.75).setScrollFactor(0).setDepth(99).setStrokeStyle(1, 0xa855f7, 0.5)
     this.scoreText = this.add.text(10, 7, 'SCORE  0', { fontFamily: 'monospace', fontSize: '11px', color: '#e879f9' }).setScrollFactor(0).setDepth(100)
     this.healthText = this.add.text(10, 21, 'HP  ♥♥♥♥♥', { fontFamily: 'monospace', fontSize: '10px', color: '#f472b6' }).setScrollFactor(0).setDepth(100)
     this.livesText = this.add.text(10, 33, 'LIVES  3', { fontFamily: 'monospace', fontSize: '9px', color: '#a1a1aa' }).setScrollFactor(0).setDepth(100)
     this.levelText = this.add.text(10, 44, 'LEVEL  1', { fontFamily: 'monospace', fontSize: '9px', color: '#71717a' }).setScrollFactor(0).setDepth(100)
     this.weaponText = this.add.text(10, 55, 'GUN  NORMAL', { fontFamily: 'monospace', fontSize: '9px', color: '#22d3ee' }).setScrollFactor(0).setDepth(100)
     this.comboText = this.add.text(10, 66, '', { fontFamily: 'monospace', fontSize: '9px', color: '#fbbf24' }).setScrollFactor(0).setDepth(100)
+    this.shardText = this.add.text(10, 78, '◆ ' + this.shardsGot + '/' + this.shardsTotal, { fontFamily: 'monospace', fontSize: '9px', color: '#67e8f9' }).setScrollFactor(0).setDepth(100)
     this.add.text(502, 7, 'APEX STRIKE', { fontFamily: 'monospace', fontSize: '9px', color: '#a855f7' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100)
+    this.muteIcon = this.add.text(502, 20, this.muted ? '♪ OFF' : '♪ ON', { fontFamily: 'monospace', fontSize: '9px', color: this.muted ? '#ef4444' : '#a5b4fc' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100)
+    if (!this.sys.game.device.input.touch) {
+      this.add.text(256, 373, 'P / Start  pause      M  mute', { fontFamily: 'monospace', fontSize: '8px', color: '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(100)
+    }
   }
 
   private createTouchControls() {
@@ -742,6 +798,15 @@ export class MainScene extends Phaser.Scene {
     // Right thumb — jump (green) + fire (red). Big targets, bottom-right.
     btn(452, 266, 96, 46, 'JUMP', 'jump', 0x14532d, 0x4ade80, '12px')
     btn(452, 338, 96, 66, 'FIRE', 'shoot', 0x4c0519, 0xf43f5e, '13px')
+    // Pause + mute, tucked in the gap between the thumb clusters.
+    const tapBtn = (x: number, label: string, cb: () => void) => {
+      const bg = this.add.rectangle(x, 361, 42, 26, 0x1e1b4b, 0.4).setScrollFactor(0).setDepth(150).setInteractive()
+      bg.setStrokeStyle(1, 0xa855f7, 0.6)
+      this.add.text(x, 361, label, { fontFamily: 'monospace', fontSize: '11px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(151)
+      bg.on('pointerdown', cb)
+    }
+    tapBtn(228, 'II', () => this.togglePause())
+    tapBtn(284, '♪', () => this.toggleMute())
   }
 
   private controllerToast() {
@@ -752,6 +817,110 @@ export class MainScene extends Phaser.Scene {
       backgroundColor: '#0a0612', padding: { x: 8, y: 4 },
     }).setOrigin(0.5).setScrollFactor(0).setDepth(210).setAlpha(0)
     this.tweens.add({ targets: t, alpha: 1, duration: 200, yoyo: true, hold: 1400, onComplete: () => t.destroy() })
+  }
+
+  private screenToast(text: string, color = '#a5b4fc', y = 120) {
+    const t = this.add.text(256, y, text, { fontFamily: 'monospace', fontSize: '12px', color })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(232).setAlpha(0)
+    this.tweens.add({ targets: t, alpha: 1, duration: 160, yoyo: true, hold: 800, onComplete: () => t.destroy() })
+  }
+
+  private togglePause() {
+    if (this.gameOver || this.levelTransition || !this.player?.active) return
+    this.userPaused = !this.userPaused
+    if (this.userPaused) {
+      this.physics.pause()
+      const dim = this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.72).setScrollFactor(0).setDepth(230)
+      const title = this.add.text(256, 148, 'PAUSED', { fontFamily: 'monospace', fontSize: '26px', color: '#e879f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(231)
+      const hint = this.add.text(256, 190, 'P / Start  resume        M  ' + (this.muted ? 'unmute' : 'mute'), { fontFamily: 'monospace', fontSize: '10px', color: '#a5b4fc' }).setOrigin(0.5).setScrollFactor(0).setDepth(231)
+      const resume = this.add.text(256, 226, '[ RESUME ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(231).setInteractive({ useHandCursor: true })
+      resume.on('pointerdown', () => this.togglePause())
+      const restart = this.add.text(256, 254, '[ RESTART MISSION ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(231).setInteractive({ useHandCursor: true })
+      restart.on('pointerdown', () => this.scene.restart())
+      this.pauseUI = [dim, title, hint, resume, restart]
+    } else {
+      this.physics.resume()
+      this.pauseUI.forEach((o) => o.destroy())
+      this.pauseUI = []
+    }
+  }
+
+  private toggleMute() {
+    this.muted = !this.muted
+    this.sfx?.setMuted(this.muted)
+    if (this.muteIcon) { this.muteIcon.setText(this.muted ? '♪ OFF' : '♪ ON'); this.muteIcon.setColor(this.muted ? '#ef4444' : '#a5b4fc') }
+    this.screenToast(this.muted ? 'SOUND OFF' : 'SOUND ON')
+  }
+
+  private collectShard(
+    _p: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile,
+    sObj: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile
+  ) {
+    const s = sObj as Phaser.Physics.Arcade.Sprite
+    if (!s.active) return
+    this.tweens.killTweensOf(s)
+    s.destroy()
+    this.shardsGot++
+    this.score += 75
+    this.scoreText.setText('SCORE  ' + this.score)
+    this.shardText?.setText('◆ ' + this.shardsGot + '/' + this.shardsTotal)
+    this.particles.emitParticleAt(s.x, s.y, 12)
+    this.shockwave(s.x, s.y, 0x67e8f9, 18)
+    this.popup(s.x, s.y - 16, '+75', '#67e8f9')
+    this.sfx?.pickup()
+    if (this.shardsTotal > 0 && this.shardsGot === this.shardsTotal) {
+      this.score += 500
+      this.scoreText.setText('SCORE  ' + this.score)
+      this.screenToast('ALL SHARDS  +500', '#67e8f9', 118)
+    }
+  }
+
+  // Reward exploration — a shard hovers over most ledges + wide ground spans.
+  private placeShards(def: LevelDef) {
+    const spots: [number, number][] = []
+    def.plats.forEach(([cx, top]) => spots.push([cx, top - 26]))
+    def.ground.forEach(([x1, x2, top]) => { if (x2 - x1 > 320) spots.push([(x1 + x2) / 2, top - 30]) })
+    Phaser.Utils.Array.Shuffle(spots)
+    const chosen = spots.filter(([x]) => Math.abs(x - def.spawn[0]) > 130).slice(0, 12)
+    chosen.forEach(([x, y]) => this.spawnShard(x, y))
+    this.shardsTotal = chosen.length
+    this.shardText?.setText('◆ 0/' + this.shardsTotal)
+  }
+
+  private spawnShard(x: number, y: number) {
+    const s = this.shards.create(x, y, 'shard') as Phaser.Physics.Arcade.Sprite
+    s.setDepth(13); s.setDisplaySize(20, 20)
+    ;(s.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
+    this.tweens.add({ targets: s, angle: 360, duration: 2600, repeat: -1 })
+    this.tweens.add({ targets: s, y: y - 7, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.inOut' })
+  }
+
+  private createBossBar(maxHp: number) {
+    this.destroyBossBar()
+    const w = 300
+    const frame = this.add.rectangle(256, 26, w + 8, 16, 0x0a0612, 0.85).setScrollFactor(0).setDepth(205).setStrokeStyle(1, 0xf43f5e, 0.85)
+    const fill = this.add.rectangle(256 - w / 2, 26, w, 10, 0xf43f5e, 1).setOrigin(0, 0.5).setScrollFactor(0).setDepth(206)
+    const label = this.add.text(256, 12, 'APEX SENTINEL', { fontFamily: 'monospace', fontSize: '9px', color: '#fca5a5' }).setOrigin(0.5).setScrollFactor(0).setDepth(206)
+    fill.setData('max', maxHp)
+    this.bossBarFill = fill
+    this.bossBar = [frame, fill, label]
+  }
+
+  private updateBossBar() {
+    const boss = this.bossRef
+    if (!boss || !boss.active) { this.destroyBossBar(); this.bossRef = undefined; return }
+    if (!this.bossBarFill) return
+    const hp = Math.max(0, boss.getData('hp') as number)
+    const max = this.bossBarFill.getData('max') as number
+    const frac = Phaser.Math.Clamp(hp / max, 0, 1)
+    this.bossBarFill.scaleX = frac
+    this.bossBarFill.setFillStyle(frac > 0.5 ? 0xf43f5e : frac > 0.25 ? 0xfb923c : 0xfbbf24, 1)
+  }
+
+  private destroyBossBar() {
+    this.bossBar.forEach((o) => o.destroy())
+    this.bossBar = []
+    this.bossBarFill = undefined
   }
 
   private showBanner(title: string, subtitle: string) {
@@ -767,7 +936,15 @@ export class MainScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number) {
-    if (this.gameOver || this.levelTransition || !this.player?.active) return
+    if (this.gameOver) return
+    // Gamepad Start / Select toggles pause (edge-detected) — polled even while paused.
+    const spad = this.input.gamepad?.getPad(0)
+    const startNow = !!(spad && (spad.buttons[9]?.pressed || spad.buttons[8]?.pressed))
+    if (startNow && !this.prevStart) this.togglePause()
+    this.prevStart = startNow
+    if (this.userPaused) return
+    if (this.levelTransition || !this.player?.active) return
+    if (this.bossRef) this.updateBossBar()
 
     const body = this.player.body as Phaser.Physics.Arcade.Body
     const landed = !this.prevOnGround && body.blocked.down
@@ -998,7 +1175,16 @@ export class MainScene extends Phaser.Scene {
         timer -= delta
         // Don't let off-screen enemies snipe you — only fire when roughly on-screen (the boss always fires).
         const near = type === 'boss' || (Math.abs(enemy.x - this.player.x) < 600 && Math.abs(enemy.y - this.player.y) < 380)
-        if (timer <= 0 && near) {
+        const alive = (enemy.getData('hp') as number) > 0
+        // Telegraph: a brief wind-up flash before boss/turret volleys so they read as fair.
+        if (alive && near && (type === 'boss' || type === 'turret') && timer <= 260 && timer > 40 && !enemy.getData('tele')) {
+          enemy.setData('tele', true)
+          enemy.setTintFill(0xffe08a)
+          this.time.delayedCall(170, () => { if (enemy.active) enemy.clearTint() })
+          if (type === 'boss') this.shockwave(enemy.x, enemy.y, 0xfbbf24, 38)
+        }
+        if (timer <= 0 && near && alive) {
+          enemy.setData('tele', false)
           let count = 1
           if (type === 'boss') count = this.bossPhase === 2 ? 9 : 6
           else if (type === 'turret') count = this.level >= 3 ? 2 : 1

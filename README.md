@@ -4,7 +4,12 @@ NFT-gated Contra-style run-and-gun for **Apex Huntress** holders on Cronos.
 
 **Live:** https://apexstrike.app · (Railway origin: https://apex-strike-production.up.railway.app)
 
-## Current Version — v1.6 (All Screens)
+## Current Version — v1.7 (Depth)
+
+### Systems (v1.7)
+- **Pause & mute** — P / Esc / gamepad-Start to pause (resume + restart), M to mute; touch buttons on mobile
+- **Boss fight** — a live **APEX SENTINEL health bar** + attack **telegraphs** (wind-up flash before every volley)
+- **Apex Shards** — collectible shards hidden on ledges each stage; grab them all for a bonus
 
 ### Feel & juice (v1.5–v1.6)
 - **Hitstop** on kills / stomps / taking damage — impacts land with weight
