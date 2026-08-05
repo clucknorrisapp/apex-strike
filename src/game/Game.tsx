@@ -48,7 +48,7 @@ export function Game() {
       <div className="w-full max-w-4xl">
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
-          <span className="text-violet-400/70 text-xs">v0.8 — Side-Scrolling Stages</span>
+          <span className="text-violet-400/70 text-xs">v0.9 — Heavy Firepower</span>
         </div>
 
         <div
@@ -58,8 +58,8 @@ export function Game() {
         />
 
         <div className="mt-3 text-center text-xs text-zinc-500 space-y-1">
-          <div><span className="text-violet-400">Keyboard:</span> A/D Move · W Jump · S Aim Down · Space Fire</div>
-          <div><span className="text-violet-400">Stages:</span> Push right to the cyan goal flag · Boss at Level 5</div>
+          <div><span className="text-violet-400">Hold fire</span> for continuous shots · Grab SPREAD / RAPID / LASER / FIRE</div>
+          <div>Push right to the cyan goal · Survive to Level 5 boss</div>
         </div>
       </div>
     </div>
