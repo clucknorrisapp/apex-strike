@@ -23,3 +23,21 @@ body {
   width: 100%;
   min-height: 100vh;
 }
+
+/* Rotate-to-landscape hint (mobile portrait gate) */
+@keyframes apex-rotate-hint {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(90deg); }
+}
+.rotate-hint {
+  animation: apex-rotate-hint 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rotate-hint { animation: none; }
+}
+
+/* Phaser canvas sits crisp and centered inside its parent on every screen */
+canvas {
+  display: block;
+  image-rendering: auto;
+}

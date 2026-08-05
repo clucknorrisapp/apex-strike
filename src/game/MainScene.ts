@@ -268,6 +268,7 @@ export class MainScene extends Phaser.Scene {
   private comboText!: Phaser.GameObjects.Text
   private gameOver = false
   private levelTransition = false
+  private controllerSeen = false
   private invulnerable = false
   private facingRight = true
   private aimUp = false
@@ -430,6 +431,11 @@ export class MainScene extends Phaser.Scene {
     const resumeAudio = () => this.sfx?.resume()
     this.input.keyboard!.once('keydown', resumeAudio)
     this.input.once('pointerdown', resumeAudio)
+
+    // Controller: confirm the pad the instant it wakes up (browsers only surface
+    // gamepads after the first input) — and if one is already active.
+    this.input.gamepad?.on('connected', () => this.controllerToast())
+    if ((this.input.gamepad?.total ?? 0) > 0) this.controllerToast()
 
     this.particles = this.add.particles(0, 0, 'spark', {
       speed: { min: 120, max: 380 },
@@ -712,21 +718,40 @@ export class MainScene extends Phaser.Scene {
   }
 
   private createTouchControls() {
-    const btn = (x: number, y: number, w: number, h: number, label: string, key: keyof TouchState) => {
-      const bg = this.add.rectangle(x, y, w, h, 0x1e1b4b, 0.5).setScrollFactor(0).setDepth(150).setInteractive()
-      bg.setStrokeStyle(1, 0xa855f7, 0.5)
-      this.add.text(x, y, label, { fontFamily: 'monospace', fontSize: '10px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(151)
-      bg.on('pointerdown', () => { this.touch[key] = true; bg.setFillStyle(0x7c3aed, 0.7) })
-      bg.on('pointerup', () => { this.touch[key] = false; bg.setFillStyle(0x1e1b4b, 0.5) })
-      bg.on('pointerout', () => { this.touch[key] = false; bg.setFillStyle(0x1e1b4b, 0.5) })
-      this.input.addPointer(4)
+    // Enough simultaneous touches for move + aim + jump + fire at once.
+    this.input.addPointer(4)
+    const btn = (
+      x: number, y: number, w: number, h: number, label: string, key: keyof TouchState,
+      tint = 0x1e1b4b, rim = 0xa855f7, fs = '11px'
+    ) => {
+      const bg = this.add.rectangle(x, y, w, h, tint, 0.42).setScrollFactor(0).setDepth(150).setInteractive()
+      bg.setStrokeStyle(2, rim, 0.75)
+      this.add.text(x, y, label, { fontFamily: 'monospace', fontSize: fs, color: '#f5f3ff', fontStyle: 'bold' })
+        .setOrigin(0.5).setScrollFactor(0).setDepth(151)
+      const press = () => { this.touch[key] = true; bg.setFillStyle(rim, 0.55) }
+      const release = () => { this.touch[key] = false; bg.setFillStyle(tint, 0.42) }
+      bg.on('pointerdown', press)
+      bg.on('pointerup', release)
+      bg.on('pointerout', release)
     }
-    btn(40, 344, 48, 40, '◀', 'left')
-    btn(94, 344, 48, 40, '▶', 'right')
-    btn(67, 300, 60, 34, 'JUMP', 'jump')
-    btn(40, 262, 48, 32, '▲', 'up')
-    btn(94, 262, 48, 32, '▼', 'down')
-    btn(456, 340, 70, 52, 'FIRE', 'shoot')
+    // Left thumb — move (violet) + 8-way aim (cyan). Cross layout, bottom-left.
+    btn(78, 268, 56, 38, '▲', 'up', 0x134e4a, 0x22d3ee)
+    btn(44, 322, 56, 46, '◀', 'left')
+    btn(112, 322, 56, 46, '▶', 'right')
+    btn(78, 362, 56, 30, '▼', 'down', 0x134e4a, 0x22d3ee)
+    // Right thumb — jump (green) + fire (red). Big targets, bottom-right.
+    btn(452, 266, 96, 46, 'JUMP', 'jump', 0x14532d, 0x4ade80, '12px')
+    btn(452, 338, 96, 66, 'FIRE', 'shoot', 0x4c0519, 0xf43f5e, '13px')
+  }
+
+  private controllerToast() {
+    if (this.controllerSeen) return
+    this.controllerSeen = true
+    const t = this.add.text(256, 28, '🎮  CONTROLLER READY', {
+      fontFamily: 'monospace', fontSize: '11px', color: '#67e8f9',
+      backgroundColor: '#0a0612', padding: { x: 8, y: 4 },
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(210).setAlpha(0)
+    this.tweens.add({ targets: t, alpha: 1, duration: 200, yoyo: true, hold: 1400, onComplete: () => t.destroy() })
   }
 
   private showBanner(title: string, subtitle: string) {

@@ -1,0 +1,49 @@
+name: Deploy to Railway
+
+# Railway's native GitHub integration stopped triggering builds, so we drive
+# the deploy ourselves: on every push to main this calls the Railway CLI, which
+# uploads the repo and kicks off a build+deploy over Railway's API. Reliable and
+# visible — every deploy shows up here in the Actions tab with full logs.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: railway-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::error::RAILWAY_TOKEN secret is missing. Add it under repo Settings → Secrets and variables → Actions → New repository secret. Create the token in Railway → Project → Settings → Tokens (a project token)."
+            exit 1
+          fi
+          # --ci streams the build log and exits with the deploy's status, so a
+          # failed build fails this job (instead of silently detaching).
+          if [ -n "$RAILWAY_SERVICE" ]; then
+            echo "Deploying service: $RAILWAY_SERVICE"
+            railway up --ci --service "$RAILWAY_SERVICE"
+          else
+            echo "Deploying default service (set repo variable RAILWAY_SERVICE to target a specific one)"
+            railway up --ci
+          fi
