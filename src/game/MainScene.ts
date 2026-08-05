@@ -188,6 +188,7 @@ export const LEVELS: LevelDef[] = [
       { kind: 'soldier', x: 520, y: 720, hp: 2, speed: 55 }, { kind: 'soldier', x: 960, y: 610, hp: 2, speed: 60 },
       { kind: 'soldier', x: 1900, y: 880, hp: 3, speed: 60 }, { kind: 'soldier', x: 2250, y: 1090, hp: 3, speed: 60 },
       { kind: 'charger', x: 640, y: 1090, hp: 3, speed: 55 }, { kind: 'charger', x: 1650, y: 1090, hp: 4, speed: 58 },
+      { kind: 'diver', x: 850, y: 560, hp: 3, speed: 95 },
       { kind: 'flyer', x: 600, y: 320, hp: 2, speed: 45 }, { kind: 'flyer', x: 1300, y: 260, hp: 2, speed: 50 },
       { kind: 'flyer', x: 2050, y: 420, hp: 3, speed: 50 },
     ],
@@ -206,6 +207,7 @@ export const LEVELS: LevelDef[] = [
     enemies: [
       { kind: 'soldier', x: 300, y: 1210, hp: 3, speed: 65 }, { kind: 'tank', x: 1000, y: 1210, hp: 6, speed: 28 },
       { kind: 'charger', x: 700, y: 1210, hp: 4, speed: 60 }, { kind: 'charger', x: 1750, y: 1210, hp: 4, speed: 62 },
+      { kind: 'diver', x: 1050, y: 540, hp: 3, speed: 100 }, { kind: 'diver', x: 2050, y: 560, hp: 4, speed: 104 },
       { kind: 'soldier', x: 640, y: 700, hp: 3, speed: 70 }, { kind: 'soldier', x: 1160, y: 600, hp: 3, speed: 70 },
       { kind: 'tank', x: 1900, y: 1210, hp: 7, speed: 30 }, { kind: 'soldier', x: 2100, y: 800, hp: 3, speed: 70 },
       { kind: 'flyer', x: 500, y: 260, hp: 3, speed: 55 }, { kind: 'flyer', x: 1200, y: 220, hp: 3, speed: 60 },
@@ -226,6 +228,7 @@ export const LEVELS: LevelDef[] = [
     enemies: [
       { kind: 'soldier', x: 260, y: 1290, hp: 3, speed: 70 }, { kind: 'tank', x: 900, y: 1290, hp: 7, speed: 30 },
       { kind: 'charger', x: 560, y: 1290, hp: 5, speed: 64 }, { kind: 'charger', x: 1600, y: 1290, hp: 5, speed: 66 },
+      { kind: 'diver', x: 900, y: 520, hp: 4, speed: 104 }, { kind: 'diver', x: 1900, y: 540, hp: 4, speed: 108 },
       { kind: 'soldier', x: 760, y: 780, hp: 3, speed: 75 }, { kind: 'soldier', x: 1180, y: 600, hp: 3, speed: 75 },
       { kind: 'soldier', x: 1780, y: 740, hp: 4, speed: 70 }, { kind: 'tank', x: 2100, y: 1290, hp: 8, speed: 32 },
       { kind: 'flyer', x: 450, y: 300, hp: 3, speed: 65 }, { kind: 'flyer', x: 1000, y: 240, hp: 3, speed: 70 },
@@ -782,6 +785,9 @@ export class MainScene extends Phaser.Scene {
     } else if (kind === 'charger') {
       tex = this.textures.exists('enemy_soldier') ? 'enemy_soldier' : 'enemy'
       t = 'charger'; displayW = 52; displayH = 70
+    } else if (kind === 'diver') {
+      tex = this.textures.exists('enemy_flyer') ? 'enemy_flyer' : 'flyer'
+      t = 'diver'; displayW = 58; displayH = 58
     } else if (kind === 'boss') {
       tex = this.textures.exists('boss_art') ? 'boss_art' : 'boss'
       t = 'boss'; displayW = 230; displayH = 230
@@ -790,6 +796,7 @@ export class MainScene extends Phaser.Scene {
     const enemy = this.enemies.create(x, y, tex) as Phaser.Physics.Arcade.Sprite
     enemy.setDisplaySize(displayW, displayH)
     if (t === 'charger') { enemy.setData('baseTint', 0xff7a3c); enemy.setTint(0xff7a3c) }
+    if (t === 'diver') { enemy.setData('baseTint', 0xff4d6d); enemy.setTint(0xff4d6d) }
     enemy.setData('bsx', enemy.scaleX); enemy.setData('bsy', enemy.scaleY)
     enemy.setBounce(0.02)
     enemy.setCollideWorldBounds(false)
@@ -801,7 +808,7 @@ export class MainScene extends Phaser.Scene {
 
     if (t === 'boss') { this.bossRef = enemy; this.createBossBar(hp) }
 
-    if (t === 'flyer' || t === 'boss') {
+    if (t === 'flyer' || t === 'boss' || t === 'diver') {
       enemy.setVelocity(speed * (Math.random() > 0.5 ? 1 : -1), t === 'boss' ? 15 : speed * 0.3)
       ;(enemy.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
     } else if (t === 'turret') {
@@ -1336,6 +1343,38 @@ export class MainScene extends Phaser.Scene {
           if (ct <= 0) { enemy.setData('cstate', 'patrol'); enemy.setData('ctimer', 0) } else enemy.setData('ctimer', ct)
         }
       }
+      if (type === 'diver') {
+        const st = (enemy.getData('dstate') as string) || 'hover'
+        const dt = ((enemy.getData('dtimer') as number) || 0) - delta
+        const dx = this.player.x - enemy.x
+        if (st === 'hover') {
+          // Stalk from above: home horizontally, hold a band ~170px over the player.
+          const dy = (this.player.y - 170) - enemy.y
+          enemy.setVelocityX(Phaser.Math.Clamp(dx * 0.8, -speed * 1.4, speed * 1.4))
+          enemy.setVelocityY(Phaser.Math.Clamp(dy * 0.6, -speed * 1.2, speed * 1.2))
+          enemy.setFlipX(dx < 0)
+          if (Math.abs(dx) < 240 && enemy.y < this.player.y - 80 && dt <= 0) {
+            enemy.setData('dstate', 'wind'); enemy.setData('dtimer', 300)
+            enemy.setVelocity(0, 0); enemy.setTintFill(0xffe08a)
+          } else enemy.setData('dtimer', dt)
+        } else if (st === 'wind') {
+          enemy.setVelocity(0, -12)
+          if (dt <= 0) {
+            enemy.setData('dstate', 'dive'); enemy.setData('dtimer', 700)
+            this.restoreTint(enemy)
+            enemy.setVelocity(Phaser.Math.Clamp(dx, -140, 140), 380); enemy.setFlipX(dx < 0)
+            this.sfx?.dash()
+          } else enemy.setData('dtimer', dt)
+        } else if (st === 'dive') {
+          if (dt <= 0 || body.blocked.down || enemy.y > this.levelH - 40) {
+            enemy.setData('dstate', 'recover'); enemy.setData('dtimer', 800)
+          } else enemy.setData('dtimer', dt)
+        } else {
+          enemy.setVelocityX(Phaser.Math.Clamp(dx * 0.3, -speed * 0.5, speed * 0.5))
+          enemy.setVelocityY(-150)
+          if (dt <= 0) { enemy.setData('dstate', 'hover'); enemy.setData('dtimer', 0) } else enemy.setData('dtimer', dt)
+        }
+      }
 
       if (type === 'tank' || type === 'flyer' || type === 'boss' || type === 'turret') {
         let timer = enemy.getData('shootTimer') as number
@@ -1414,8 +1453,8 @@ export class MainScene extends Phaser.Scene {
 
     // ---- Kill ----
     const type = enemy.getData('type') as string
-    const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : type === 'charger' ? 0xff7a3c : 0xf43f5e
-    let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'turret' ? 350 : type === 'flyer' ? 250 : type === 'charger' ? 200 : 120
+    const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : type === 'charger' ? 0xff7a3c : type === 'diver' ? 0xff4d6d : 0xf43f5e
+    let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'turret' ? 350 : type === 'flyer' ? 250 : type === 'charger' ? 200 : type === 'diver' ? 260 : 120
     this.combo++
     this.comboTimer = 2400
     this.maxCombo = Math.max(this.maxCombo, this.combo)
@@ -1487,7 +1526,7 @@ export class MainScene extends Phaser.Scene {
     const pb = this.player.body as Phaser.Physics.Arcade.Body
     const eb = enemy.body as Phaser.Physics.Arcade.Body
     // Mario stomp: falling onto a SOFT enemy from above kills it and bounces you.
-    const soft = type === 'walker' || type === 'flyer' || type === 'charger'
+    const soft = type === 'walker' || type === 'flyer' || type === 'charger' || type === 'diver'
     if (soft && pb.velocity.y > 60 && pb.bottom <= eb.top + 22) {
       this.player.setVelocityY(-360)
       this.isJumping = true
