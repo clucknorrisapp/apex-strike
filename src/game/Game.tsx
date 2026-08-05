@@ -48,7 +48,7 @@ export function Game() {
       <div className="w-full max-w-4xl">
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
-          <span className="text-violet-400/70 text-xs">v0.7.2 — Local Art Assets</span>
+          <span className="text-violet-400/70 text-xs">v0.8 — Side-Scrolling Stages</span>
         </div>
 
         <div
@@ -59,7 +59,7 @@ export function Game() {
 
         <div className="mt-3 text-center text-xs text-zinc-500 space-y-1">
           <div><span className="text-violet-400">Keyboard:</span> A/D Move · W Jump · S Aim Down · Space Fire</div>
-          <div><span className="text-violet-400">Art:</span> Self-hosted Huntress · Enemies · Boss</div>
+          <div><span className="text-violet-400">Stages:</span> Push right to the cyan goal flag · Boss at Level 5</div>
         </div>
       </div>
     </div>
