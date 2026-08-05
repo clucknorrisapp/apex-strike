@@ -4,16 +4,17 @@ NFT-gated Contra-style run-and-gun for **Apex Huntress** holders on Cronos.
 
 **Live:** https://apex-strike-production.up.railway.app
 
-## Current Version — v0.5.1
+## Current Version — v1.0 (Contra Rebuild)
 
 ### Gameplay
-- 5 levels + final boss
-- 8-directional style aiming
-- Weapons: Normal, Spread, Rapid, Laser, Fire
-- Enemy types: Walker, Flyer, Tank, Boss
-- Lives system + health
-- Power-up drops from kills
-- Combo / score popups
+- 5 side-scrolling stages + final boss, each hand-built as a real Contra-style level
+- Hand-authored terrain: elevation, **pits** (fall = damage), floating ledges, climbable structures
+- Layered **parallax** skylines with a distinct palette/mood per stage
+- True **8-way aim** (straight up, up-diagonal, horizontal, down-diagonal, straight down) + **crouch** + **double-jump**
+- Weapons: Normal, Spread, Rapid, Laser, Fire (hold-to-fire)
+- Enemy types: Walker, Flyer, Tank, **Turret** (emplacement), Boss (2 phases)
+- Reach the **extraction gate** to clear a stage; kill the boss to win
+- Lives + health, power-up drops, combo / score popups, screen-shake juice
 - Keyboard, Gamepad, Mobile touch
 
 ### Levels

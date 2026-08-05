@@ -12,8 +12,147 @@ const ASSETS = {
   logo: '/assets/logo.png',
 }
 
-const WORLD_W = 2400
-const WORLD_H = 600
+// Physics world extends well below the 600px view so pits are real drops.
+const WORLD_FLOOR = 900
+const FALL_Y = 660
+
+type ThemeName = 'streets' | 'industrial' | 'sky' | 'core' | 'throne'
+
+interface Theme {
+  bg: number
+  far: number
+  mid: number
+  rim: number
+  fill: number
+  ledge: number
+  accent: number
+}
+
+const THEMES: Record<ThemeName, Theme> = {
+  streets:    { bg: 0x0a0612, far: 0x1a1030, mid: 0x2a1a4d, rim: 0x22d3ee, fill: 0x2c1f4a, ledge: 0x3b2a63, accent: 0xe879f9 },
+  industrial: { bg: 0x0f0a07, far: 0x2a1c10, mid: 0x3d2a15, rim: 0xfb923c, fill: 0x3a2917, ledge: 0x4a3420, accent: 0xfbbf24 },
+  sky:        { bg: 0x071018, far: 0x122438, mid: 0x1d3a57, rim: 0x22d3ee, fill: 0x1f3a52, ledge: 0x2a4a63, accent: 0x67e8f9 },
+  core:       { bg: 0x120406, far: 0x2e0d14, mid: 0x4a141f, rim: 0xf43f5e, fill: 0x45141d, ledge: 0x5a1a26, accent: 0xfb7185 },
+  throne:     { bg: 0x0b0714, far: 0x241a3a, mid: 0x3a2a5c, rim: 0xfbbf24, fill: 0x362a52, ledge: 0x4a3a2a, accent: 0xfde68a },
+}
+
+interface EnemySpawn { kind: string; x: number; y: number; hp: number; speed: number }
+
+interface LevelDef {
+  name: string
+  theme: ThemeName
+  width: number
+  ground: [number, number, number][]           // [x1, x2, topY]  — gaps between spans are pits
+  ledges: [number, number, number][]            // [centerX, topY, width]
+  blocks: [number, number, number, number][]    // [centerX, topY, width, height] climbable structures
+  turrets: [number, number][]                   // [x, surfaceTopY]
+  enemies: EnemySpawn[]
+  powerups: [number, number, string][]
+  goalX: number
+}
+
+const LEVELS: LevelDef[] = [
+  {
+    name: 'NEON STREETS', theme: 'streets', width: 2800, goalX: 2700,
+    ground: [[0, 720, 560], [860, 1380, 560], [1380, 1600, 500], [1740, 2180, 520], [2180, 2800, 560]],
+    ledges: [[790, 470, 90], [1080, 395, 110], [1670, 435, 100], [1980, 410, 100]],
+    blocks: [],
+    turrets: [[1490, 500]],
+    enemies: [
+      { kind: 'soldier', x: 240, y: 520, hp: 2, speed: 60 },
+      { kind: 'soldier', x: 560, y: 520, hp: 2, speed: 65 },
+      { kind: 'soldier', x: 1080, y: 520, hp: 2, speed: 60 },
+      { kind: 'soldier', x: 1460, y: 460, hp: 2, speed: 60 },
+      { kind: 'soldier', x: 1900, y: 480, hp: 3, speed: 65 },
+      { kind: 'soldier', x: 2350, y: 520, hp: 3, speed: 60 },
+      { kind: 'flyer', x: 620, y: 110, hp: 2, speed: 45 },
+      { kind: 'flyer', x: 1240, y: 90, hp: 2, speed: 50 },
+      { kind: 'flyer', x: 1980, y: 120, hp: 3, speed: 50 },
+    ],
+    powerups: [[1080, 360, 'spread'], [1780, 470, 'health'], [2250, 500, 'rapid']],
+  },
+  {
+    name: 'INDUSTRIAL RISE', theme: 'industrial', width: 2950, goalX: 2850,
+    ground: [[0, 660, 560], [780, 1080, 540], [1080, 1360, 480], [1520, 1780, 520], [1780, 2060, 560], [2200, 2950, 560]],
+    ledges: [[720, 460, 80], [1230, 395, 110], [1440, 440, 90], [2130, 470, 90]],
+    blocks: [[980, 460, 80, 110]],
+    turrets: [[1200, 480], [1900, 560]],
+    enemies: [
+      { kind: 'soldier', x: 220, y: 520, hp: 3, speed: 65 },
+      { kind: 'soldier', x: 520, y: 500, hp: 3, speed: 65 },
+      { kind: 'tank', x: 900, y: 500, hp: 6, speed: 28 },
+      { kind: 'soldier', x: 1250, y: 440, hp: 3, speed: 70 },
+      { kind: 'tank', x: 1650, y: 480, hp: 7, speed: 30 },
+      { kind: 'soldier', x: 1950, y: 520, hp: 3, speed: 65 },
+      { kind: 'soldier', x: 2400, y: 520, hp: 3, speed: 70 },
+      { kind: 'flyer', x: 520, y: 90, hp: 3, speed: 55 },
+      { kind: 'flyer', x: 1100, y: 70, hp: 3, speed: 60 },
+      { kind: 'flyer', x: 1700, y: 95, hp: 3, speed: 55 },
+      { kind: 'flyer', x: 2300, y: 80, hp: 3, speed: 50 },
+    ],
+    powerups: [[1230, 350, 'rapid'], [1600, 470, 'health'], [2150, 430, 'laser']],
+  },
+  {
+    name: 'SKY RAIL', theme: 'sky', width: 3000, goalX: 2900,
+    ground: [[0, 600, 560], [720, 980, 560], [1120, 1360, 520], [1500, 1700, 480], [1840, 2100, 520], [2240, 3000, 560]],
+    ledges: [[660, 460, 80], [900, 375, 100], [1050, 420, 90], [1430, 405, 90], [1770, 400, 90], [2170, 430, 90]],
+    blocks: [],
+    turrets: [[1250, 520], [1950, 520]],
+    enemies: [
+      { kind: 'soldier', x: 300, y: 520, hp: 3, speed: 70 },
+      { kind: 'tank', x: 820, y: 520, hp: 7, speed: 30 },
+      { kind: 'soldier', x: 1200, y: 480, hp: 3, speed: 75 },
+      { kind: 'soldier', x: 1580, y: 440, hp: 3, speed: 75 },
+      { kind: 'tank', x: 1950, y: 480, hp: 8, speed: 32 },
+      { kind: 'soldier', x: 2400, y: 520, hp: 4, speed: 70 },
+      { kind: 'soldier', x: 2650, y: 520, hp: 4, speed: 70 },
+      { kind: 'flyer', x: 450, y: 80, hp: 3, speed: 65 },
+      { kind: 'flyer', x: 1000, y: 60, hp: 3, speed: 70 },
+      { kind: 'flyer', x: 1550, y: 85, hp: 4, speed: 65 },
+      { kind: 'flyer', x: 2050, y: 70, hp: 4, speed: 70 },
+      { kind: 'flyer', x: 2500, y: 90, hp: 4, speed: 65 },
+    ],
+    powerups: [[900, 335, 'laser'], [1500, 440, 'health'], [2170, 390, 'fire']],
+  },
+  {
+    name: 'CORE ACCESS', theme: 'core', width: 3050, goalX: 2950,
+    ground: [[0, 640, 560], [760, 1020, 560], [1020, 1320, 500], [1460, 1720, 540], [1720, 2000, 500], [2140, 2440, 560], [2580, 3050, 560]],
+    ledges: [[710, 460, 80], [1180, 400, 100], [1580, 450, 90], [1870, 405, 90], [2280, 460, 90], [2500, 430, 80]],
+    blocks: [[1120, 420, 90, 120], [1860, 405, 80, 105]],
+    turrets: [[1150, 500], [1780, 500], [2300, 560]],
+    enemies: [
+      { kind: 'soldier', x: 240, y: 520, hp: 4, speed: 70 },
+      { kind: 'tank', x: 560, y: 520, hp: 8, speed: 30 },
+      { kind: 'soldier', x: 1080, y: 460, hp: 4, speed: 75 },
+      { kind: 'tank', x: 1500, y: 500, hp: 8, speed: 32 },
+      { kind: 'soldier', x: 1880, y: 460, hp: 4, speed: 75 },
+      { kind: 'tank', x: 2250, y: 520, hp: 9, speed: 32 },
+      { kind: 'soldier', x: 2650, y: 520, hp: 4, speed: 75 },
+      { kind: 'soldier', x: 2820, y: 520, hp: 4, speed: 75 },
+      { kind: 'flyer', x: 420, y: 70, hp: 4, speed: 75 },
+      { kind: 'flyer', x: 980, y: 55, hp: 4, speed: 80 },
+      { kind: 'flyer', x: 1600, y: 75, hp: 4, speed: 75 },
+      { kind: 'flyer', x: 2150, y: 60, hp: 4, speed: 80 },
+      { kind: 'flyer', x: 2700, y: 80, hp: 4, speed: 75 },
+    ],
+    powerups: [[1180, 360, 'rapid'], [1580, 410, 'health'], [1870, 365, 'laser'], [2500, 390, 'fire']],
+  },
+  {
+    name: 'APEX THRONE', theme: 'throne', width: 1500, goalX: 9999,
+    ground: [[0, 1500, 560]],
+    ledges: [[250, 460, 120], [550, 400, 130], [850, 400, 130], [1150, 460, 120], [700, 320, 150]],
+    blocks: [],
+    turrets: [[120, 560], [1380, 560]],
+    enemies: [
+      { kind: 'boss', x: 750, y: 120, hp: 60, speed: 55 },
+      { kind: 'flyer', x: 200, y: 90, hp: 3, speed: 55 },
+      { kind: 'flyer', x: 1250, y: 90, hp: 3, speed: 55 },
+      { kind: 'tank', x: 300, y: 520, hp: 8, speed: 28 },
+      { kind: 'tank', x: 1150, y: 520, hp: 8, speed: 28 },
+    ],
+    powerups: [[300, 420, 'health'], [750, 280, 'laser'], [1150, 420, 'fire']],
+  },
+]
 
 interface TouchState {
   left: boolean
@@ -39,6 +178,9 @@ export class MainScene extends Phaser.Scene {
   private enemies!: Phaser.Physics.Arcade.Group
   private platforms!: Phaser.Physics.Arcade.StaticGroup
   private powerups!: Phaser.Physics.Arcade.Group
+  private bgFar!: Phaser.GameObjects.TileSprite
+  private bgMid!: Phaser.GameObjects.TileSprite
+  private decor: Phaser.GameObjects.GameObject[] = []
   private lastFired = 0
   private fireRate = 100
   private health = 5
@@ -60,6 +202,9 @@ export class MainScene extends Phaser.Scene {
   private facingRight = true
   private aimUp = false
   private aimDown = false
+  private movingH = false
+  private onGround = false
+  private prone = false
   private touch: TouchState = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
   private weapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' = 'normal'
   private particles!: Phaser.GameObjects.Particles.ParticleEmitter
@@ -67,7 +212,10 @@ export class MainScene extends Phaser.Scene {
   private maxJumps = 2
   private spawnTimer = 0
   private bossPhase = 1
-  private levelGoalX = 2200
+  private levelGoalX = 2700
+  private levelWidth = 2800
+  private lastGroundX = 80
+  private lastGroundY = 480
 
   constructor() {
     super({ key: 'MainScene' })
@@ -101,13 +249,12 @@ export class MainScene extends Phaser.Scene {
     this.jumpCount = 0
     this.spawnTimer = 0
     this.bossPhase = 1
+    this.prone = false
+    this.decor = []
     this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
 
-    this.cameras.main.setBackgroundColor('#0a0612')
     this.createTextures()
-
-    this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H)
-    this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H)
+    this.createThemeTextures()
 
     this.platforms = this.physics.add.staticGroup()
     this.bullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 120 })
@@ -115,11 +262,14 @@ export class MainScene extends Phaser.Scene {
     this.enemies = this.physics.add.group()
     this.powerups = this.physics.add.group()
 
-    this.drawBackdrop()
+    // Parallax layers (fixed to camera, scrolled via tilePositionX)
+    this.bgFar = this.add.tileSprite(400, 300, 800, 600, 'far_streets').setScrollFactor(0).setDepth(1)
+    this.bgMid = this.add.tileSprite(400, 300, 800, 600, 'mid_streets').setScrollFactor(0).setDepth(2)
+
     this.buildLevel(1)
 
     const pKey = this.textures.exists('huntress') ? 'huntress' : 'player'
-    this.player = this.physics.add.sprite(80, 480, pKey)
+    this.player = this.physics.add.sprite(80, 500, pKey)
     if (pKey === 'huntress') this.player.setDisplaySize(64, 64)
     this.player.setCollideWorldBounds(true)
     this.player.setBounce(0.02)
@@ -158,10 +308,11 @@ export class MainScene extends Phaser.Scene {
       blendMode: 'ADD',
       emitting: false,
     })
+    this.particles.setDepth(24)
 
     this.createHUD()
     this.createTouchControls()
-    this.showBanner('LEVEL 1', 'NEON STREETS')
+    this.showBanner('LEVEL 1', LEVELS[0].name)
   }
 
   private tryJump() {
@@ -174,15 +325,7 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  private drawBackdrop() {
-    for (let x = 0; x < WORLD_W; x += 400) {
-      this.add.rectangle(x + 200, 150, 400, 300, 0x12081c, 0.55).setDepth(0)
-      this.add.rectangle(x + 200, 450, 400, 300, 0x0a0612, 0.65).setDepth(0)
-    }
-  }
-
   private createTextures() {
-    // BIG, readable projectiles — Contra style
     if (!this.textures.exists('player')) {
       const p = this.make.graphics({ x: 0, y: 0 })
       p.fillStyle(0x7c3aed, 1)
@@ -192,14 +335,14 @@ export class MainScene extends Phaser.Scene {
       p.generateTexture('player', 32, 48)
       p.destroy()
     }
-    if (!this.textures.exists('platform')) {
-      const plat = this.make.graphics({ x: 0, y: 0 })
-      plat.fillStyle(0x1e1b4b, 1)
-      plat.fillRect(0, 2, 32, 12)
-      plat.fillStyle(0xa855f7, 1)
-      plat.fillRect(0, 0, 32, 3)
-      plat.generateTexture('platform', 32, 14)
-      plat.destroy()
+
+    // Ground/terrain: light vertical gradient, tinted per theme at build time.
+    if (!this.textures.exists('terrain')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      g.fillGradientStyle(0xbfc4d6, 0xbfc4d6, 0x30323f, 0x30323f, 1)
+      g.fillRect(0, 0, 32, 256)
+      g.generateTexture('terrain', 32, 256)
+      g.destroy()
     }
 
     // Fat cyan bolt
@@ -212,7 +355,6 @@ export class MainScene extends Phaser.Scene {
       g.generateTexture('bullet', 22, 14)
       g.destroy()
     }
-    // Thick magenta laser beam segment
     if (!this.textures.exists('laser')) {
       const g = this.make.graphics({ x: 0, y: 0 })
       g.fillStyle(0xe879f9, 1)
@@ -222,7 +364,6 @@ export class MainScene extends Phaser.Scene {
       g.generateTexture('laser', 40, 8)
       g.destroy()
     }
-    // Chunky fireball
     if (!this.textures.exists('fireball')) {
       const g = this.make.graphics({ x: 0, y: 0 })
       g.fillStyle(0xfb923c, 1)
@@ -232,7 +373,6 @@ export class MainScene extends Phaser.Scene {
       g.generateTexture('fireball', 24, 24)
       g.destroy()
     }
-    // Enemy red bolts — visible but not tiny
     if (!this.textures.exists('enemyBullet')) {
       const g = this.make.graphics({ x: 0, y: 0 })
       g.fillStyle(0xf43f5e, 1)
@@ -240,6 +380,21 @@ export class MainScene extends Phaser.Scene {
       g.fillStyle(0xfecdd3, 1)
       g.fillRoundedRect(2, 3, 10, 4, 1)
       g.generateTexture('enemyBullet', 16, 10)
+      g.destroy()
+    }
+
+    // Gun turret — stationary emplacement
+    if (!this.textures.exists('turret')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      g.fillStyle(0x2b2740, 1)
+      g.fillRect(4, 22, 40, 16)          // base
+      g.fillStyle(0x3f3a5c, 1)
+      g.fillRoundedRect(10, 8, 28, 18, 6) // dome
+      g.fillStyle(0x18151f, 1)
+      g.fillRect(30, 14, 18, 7)           // barrel
+      g.fillStyle(0xf43f5e, 1)
+      g.fillCircle(24, 17, 4)             // eye
+      g.generateTexture('turret', 48, 40)
       g.destroy()
     }
 
@@ -278,123 +433,93 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
+  private createThemeTextures() {
+    const makeSkyline = (key: string, color: number, accent: number, baseY: number, step: number) => {
+      if (this.textures.exists(key)) return
+      const g = this.make.graphics({ x: 0, y: 0 })
+      let x = 0
+      while (x < 800) {
+        const w = Phaser.Math.Between(Math.floor(step * 0.6), Math.floor(step * 1.5))
+        const h = Phaser.Math.Between(70, 240)
+        const top = baseY - h
+        g.fillStyle(color, 1)
+        g.fillRect(x, top, w - 6, h)
+        g.fillStyle(accent, 0.45)
+        for (let wy = top + 12; wy < baseY - 10; wy += 22) {
+          for (let wx = x + 6; wx < x + w - 14; wx += 16) {
+            if (Math.random() > 0.62) g.fillRect(wx, wy, 6, 9)
+          }
+        }
+        x += w
+      }
+      g.generateTexture(key, 800, 600)
+      g.destroy()
+    }
+
+    ;(Object.keys(THEMES) as ThemeName[]).forEach((name) => {
+      const t = THEMES[name]
+      makeSkyline('far_' + name, t.far, t.rim, 380, 68)
+      makeSkyline('mid_' + name, t.mid, t.accent, 500, 108)
+    })
+  }
+
   private buildLevel(lvl: number) {
     this.platforms.clear(true, true)
     this.enemies.clear(true, true)
     this.powerups.clear(true, true)
     this.bullets.clear(true, true)
     this.enemyBullets.clear(true, true)
+    this.decor.forEach((d) => d.destroy())
+    this.decor = []
     this.spawnTimer = 0
     this.bossPhase = 1
 
-    const useTile = this.textures.exists('platform_tile')
-    const groundKey = useTile ? 'platform_tile' : 'platform'
+    const def = LEVELS[lvl - 1]
+    const theme = THEMES[def.theme]
+    this.levelWidth = def.width
+    this.levelGoalX = def.goalX
 
-    for (let x = 100; x < WORLD_W; x += 200) {
-      const g = this.platforms.create(x, 590, groundKey) as Phaser.Physics.Arcade.Sprite
-      if (useTile) g.setDisplaySize(210, 28)
-      else g.setScale(7, 1.6)
-      g.refreshBody()
+    this.cameras.main.setBackgroundColor(theme.bg)
+    this.physics.world.setBounds(0, 0, def.width, WORLD_FLOOR)
+    this.cameras.main.setBounds(0, 0, def.width, 600)
+
+    this.bgFar.setTexture('far_' + def.theme)
+    this.bgMid.setTexture('mid_' + def.theme)
+    this.bgFar.tilePositionX = 0
+    this.bgMid.tilePositionX = 0
+
+    const solid = (cx: number, top: number, w: number, h: number, tint: number, rim: number) => {
+      const s = this.platforms.create(cx, top + h / 2, 'terrain') as Phaser.Physics.Arcade.Sprite
+      s.setDisplaySize(w, h)
+      s.setTint(tint)
+      s.setDepth(5)
+      s.refreshBody()
+      const edge = this.add.rectangle(cx, top + 2, w, 4, rim, 0.95).setDepth(6)
+      this.decor.push(edge)
     }
 
-    const plat = (x: number, y: number, w: number) => {
-      const p = this.platforms.create(x, y, groundKey) as Phaser.Physics.Arcade.Sprite
-      if (useTile) p.setDisplaySize(w, 22)
-      else p.setScale(w / 32, 0.85)
-      p.refreshBody()
+    // Ground spans (gaps = pits)
+    def.ground.forEach(([x1, x2, top]) => solid((x1 + x2) / 2, top, x2 - x1, WORLD_FLOOR - top, theme.fill, theme.rim))
+    // Floating ledges
+    def.ledges.forEach(([cx, top, w]) => solid(cx, top, w, 20, theme.ledge, theme.rim))
+    // Climbable structures
+    def.blocks.forEach(([cx, top, w, h]) => solid(cx, top, w, h, theme.ledge, theme.accent))
+
+    // Extraction gate at the goal
+    if (def.goalX < def.width) {
+      const gx = def.goalX
+      this.decor.push(this.add.rectangle(gx + 14, 470, 44, 176, theme.accent, 0.16).setDepth(6))
+      this.decor.push(this.add.rectangle(gx, 470, 14, 176, theme.rim, 1).setDepth(7))
+      this.decor.push(this.add.rectangle(gx + 28, 470, 14, 176, theme.rim, 1).setDepth(7))
+      this.decor.push(this.add.rectangle(gx + 14, 386, 58, 16, theme.accent, 1).setDepth(7))
+      const chev = this.add.text(gx + 14, 300, '▼', { fontFamily: 'monospace', fontSize: '20px', color: '#' + theme.rim.toString(16).padStart(6, '0') }).setOrigin(0.5).setDepth(7)
+      this.tweens.add({ targets: chev, y: 320, duration: 700, yoyo: true, repeat: -1 })
+      this.decor.push(chev)
     }
 
-    this.levelGoalX = lvl === 5 ? 1200 : 2100
-    this.add.rectangle(this.levelGoalX, 520, 14, 90, 0x22d3ee, 1).setDepth(5)
-    this.add.rectangle(this.levelGoalX + 24, 488, 48, 28, 0xa855f7, 1).setDepth(5)
-
-    if (lvl === 1) {
-      plat(200, 480, 140); plat(450, 420, 160); plat(700, 360, 140); plat(950, 420, 120)
-      plat(1200, 360, 140); plat(1450, 300, 130); plat(1700, 380, 150); plat(1950, 320, 140)
-      plat(350, 300, 100); plat(1100, 250, 110); plat(1600, 240, 100)
-      this.wave([
-        [250, 430, 2, 55], [500, 370, 2, 60], [750, 310, 2, 55], [1000, 370, 2, 60],
-        [1250, 310, 2, 55], [1500, 250, 3, 65], [1750, 330, 3, 60], [2000, 270, 3, 55],
-        [400, 520, 2, 50], [900, 520, 2, 50], [1400, 520, 2, 55], [1800, 520, 2, 50],
-      ])
-      this.spawnEnemy('flyer', 600, 100, 2, 45)
-      this.spawnEnemy('flyer', 1100, 80, 2, 50)
-      this.spawnEnemy('flyer', 1600, 120, 2, 45)
-      this.spawnPowerup(480, 380, 'spread')
-      this.spawnPowerup(1200, 320, 'health')
-      this.spawnPowerup(1700, 340, 'rapid')
-    } else if (lvl === 2) {
-      plat(180, 500, 120); plat(400, 440, 130); plat(650, 380, 130); plat(900, 320, 120)
-      plat(1150, 380, 130); plat(1400, 300, 140); plat(1650, 360, 130); plat(1900, 280, 140)
-      this.wave([
-        [220, 450, 3, 70], [450, 390, 3, 70], [700, 330, 3, 75], [950, 270, 3, 70],
-        [1200, 330, 3, 75], [1450, 250, 3, 70], [1700, 310, 3, 75], [1950, 230, 3, 70],
-        [500, 520, 3, 60], [1100, 520, 3, 65], [1600, 520, 3, 60],
-      ])
-      this.spawnEnemy('tank', 800, 520, 6, 28)
-      this.spawnEnemy('tank', 1500, 520, 7, 30)
-      this.spawnEnemy('flyer', 500, 80, 3, 55)
-      this.spawnEnemy('flyer', 1000, 60, 3, 60)
-      this.spawnEnemy('flyer', 1500, 90, 3, 55)
-      this.spawnEnemy('flyer', 1900, 70, 3, 50)
-      this.spawnPowerup(400, 400, 'rapid')
-      this.spawnPowerup(1150, 340, 'health')
-      this.spawnPowerup(1650, 320, 'laser')
-    } else if (lvl === 3) {
-      plat(200, 500, 110); plat(420, 450, 110); plat(650, 400, 120); plat(880, 350, 110)
-      plat(1100, 400, 120); plat(1350, 320, 130); plat(1600, 380, 120); plat(1850, 300, 130)
-      this.wave([
-        [250, 450, 3, 80], [480, 400, 3, 80], [700, 350, 3, 85], [950, 300, 3, 80],
-        [1150, 350, 3, 85], [1400, 270, 4, 80], [1650, 330, 4, 85], [1900, 250, 4, 80],
-        [600, 520, 3, 70], [1200, 520, 3, 70], [1800, 520, 3, 75],
-      ])
-      this.spawnEnemy('tank', 700, 520, 7, 30)
-      this.spawnEnemy('tank', 1400, 520, 8, 32)
-      this.spawnEnemy('flyer', 400, 70, 3, 65)
-      this.spawnEnemy('flyer', 900, 50, 3, 70)
-      this.spawnEnemy('flyer', 1300, 80, 3, 65)
-      this.spawnEnemy('flyer', 1700, 60, 3, 70)
-      this.spawnPowerup(650, 360, 'laser')
-      this.spawnPowerup(1350, 280, 'health')
-      this.spawnPowerup(1850, 260, 'fire')
-    } else if (lvl === 4) {
-      plat(200, 510, 110); plat(430, 460, 120); plat(680, 410, 120); plat(920, 360, 110)
-      plat(1160, 410, 120); plat(1400, 330, 130); plat(1650, 380, 120); plat(1900, 300, 130)
-      this.wave([
-        [250, 460, 4, 85], [500, 410, 4, 85], [750, 360, 4, 90], [1000, 310, 4, 85],
-        [1200, 360, 4, 90], [1450, 280, 4, 85], [1700, 330, 4, 90], [1950, 250, 4, 85],
-        [550, 520, 4, 75], [1250, 520, 4, 75], [1750, 520, 4, 80],
-      ])
-      this.spawnEnemy('tank', 600, 520, 8, 32)
-      this.spawnEnemy('tank', 1200, 520, 8, 34)
-      this.spawnEnemy('tank', 1800, 520, 9, 32)
-      this.spawnEnemy('flyer', 400, 60, 4, 75)
-      this.spawnEnemy('flyer', 900, 50, 4, 80)
-      this.spawnEnemy('flyer', 1400, 70, 4, 75)
-      this.spawnEnemy('flyer', 1850, 55, 4, 80)
-      this.spawnPowerup(430, 420, 'rapid')
-      this.spawnPowerup(1160, 370, 'health')
-      this.spawnPowerup(1650, 340, 'laser')
-      this.spawnPowerup(1900, 260, 'fire')
-    } else {
-      this.physics.world.setBounds(0, 0, 1400, WORLD_H)
-      this.cameras.main.setBounds(0, 0, 1400, WORLD_H)
-      plat(200, 480, 140); plat(500, 420, 150); plat(800, 360, 150); plat(1100, 420, 140)
-      plat(350, 300, 120); plat(700, 250, 130); plat(1000, 300, 120)
-      this.spawnEnemy('boss', 700, 120, 50, 55)
-      this.spawnEnemy('flyer', 200, 80, 3, 55)
-      this.spawnEnemy('flyer', 1100, 80, 3, 55)
-      this.spawnEnemy('tank', 300, 520, 7, 28)
-      this.spawnEnemy('tank', 1000, 520, 7, 28)
-      this.spawnPowerup(350, 260, 'health')
-      this.spawnPowerup(700, 210, 'laser')
-      this.spawnPowerup(1000, 260, 'fire')
-      this.levelGoalX = 9999
-    }
-  }
-
-  private wave(list: number[][]) {
-    list.forEach(([x, y, hp, spd]) => this.spawnEnemy('soldier', x, y, hp, spd, 'walker'))
+    def.turrets.forEach(([x, surY]) => this.spawnEnemy('turret', x, surY - 19, 4 + lvl, 0))
+    def.enemies.forEach((e) => this.spawnEnemy(e.kind, e.x, e.y, e.hp, e.speed))
+    def.powerups.forEach(([x, y, kind]) => this.spawnPowerup(x, y, kind as string))
   }
 
   private spawnEnemy(kind: string, x: number, y: number, hp: number, speed: number, type?: string) {
@@ -405,37 +530,40 @@ export class MainScene extends Phaser.Scene {
 
     if (kind === 'soldier' || kind === 'enemy') {
       tex = this.textures.exists('enemy_soldier') ? 'enemy_soldier' : 'enemy'
-      t = 'walker'
-      displayW = 52; displayH = 52
+      t = 'walker'; displayW = 52; displayH = 52
     } else if (kind === 'flyer') {
       tex = this.textures.exists('enemy_flyer') ? 'enemy_flyer' : 'flyer'
-      t = 'flyer'
-      displayW = 50; displayH = 50
+      t = 'flyer'; displayW = 50; displayH = 50
     } else if (kind === 'tank') {
       tex = this.textures.exists('enemy_tank') ? 'enemy_tank' : 'tank'
-      t = 'tank'
-      displayW = 68; displayH = 58
+      t = 'tank'; displayW = 68; displayH = 58
+    } else if (kind === 'turret') {
+      tex = 'turret'
+      t = 'turret'; displayW = 48; displayH = 40
     } else if (kind === 'boss') {
       tex = this.textures.exists('boss_art') ? 'boss_art' : 'boss'
-      t = 'boss'
-      displayW = 110; displayH = 100
+      t = 'boss'; displayW = 110; displayH = 100
     }
 
     const enemy = this.enemies.create(x, y, tex) as Phaser.Physics.Arcade.Sprite
     enemy.setDisplaySize(displayW, displayH)
     enemy.setBounce(0.02)
-    enemy.setCollideWorldBounds(true)
+    enemy.setCollideWorldBounds(false)
     enemy.setData('hp', hp)
     enemy.setData('maxHp', hp)
     enemy.setData('speed', speed)
     enemy.setData('type', t)
     enemy.setData('dir', Math.random() > 0.5 ? 1 : -1)
-    enemy.setData('shootTimer', Phaser.Math.Between(200, 800))
+    enemy.setData('shootTimer', Phaser.Math.Between(200, 900))
     enemy.setDepth(18)
 
     if (t === 'flyer' || t === 'boss') {
       enemy.setVelocity(speed * (Math.random() > 0.5 ? 1 : -1), t === 'boss' ? 15 : speed * 0.3)
       ;(enemy.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
+    } else if (t === 'turret') {
+      ;(enemy.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
+      enemy.setImmovable(true)
+      enemy.setVelocity(0, 0)
     } else {
       enemy.setVelocityX(speed * (enemy.getData('dir') as number))
     }
@@ -445,13 +573,14 @@ export class MainScene extends Phaser.Scene {
     const usePod = this.textures.exists('pickup_pod')
     const tex = usePod ? 'pickup_pod' : ({
       health: 'pow_health', spread: 'pow_spread', rapid: 'pow_rapid',
-      laser: 'pow_laser', fire: 'pow_fire'
+      laser: 'pow_laser', fire: 'pow_fire',
     } as Record<string, string>)[kind]
 
     const p = this.powerups.create(x, y, tex) as Phaser.Physics.Arcade.Sprite
     p.setData('kind', kind)
     if (usePod) p.setDisplaySize(40, 40)
     p.setBounce(0.55)
+    p.setCollideWorldBounds(false)
     p.setVelocityY(-130)
     p.setDepth(14)
   }
@@ -459,7 +588,7 @@ export class MainScene extends Phaser.Scene {
   private createHUD() {
     this.add.rectangle(100, 58, 180, 105, 0x0a0612, 0.75).setScrollFactor(0).setDepth(99).setStrokeStyle(1, 0xa855f7, 0.5)
     this.scoreText = this.add.text(16, 10, 'SCORE  0', { fontFamily: 'monospace', fontSize: '14px', color: '#e879f9' }).setScrollFactor(0).setDepth(100)
-    this.healthText = this.add.text(16, 30, 'HP  \u2665\u2665\u2665\u2665\u2665', { fontFamily: 'monospace', fontSize: '13px', color: '#f472b6' }).setScrollFactor(0).setDepth(100)
+    this.healthText = this.add.text(16, 30, 'HP  ♥♥♥♥♥', { fontFamily: 'monospace', fontSize: '13px', color: '#f472b6' }).setScrollFactor(0).setDepth(100)
     this.livesText = this.add.text(16, 48, 'LIVES  3', { fontFamily: 'monospace', fontSize: '12px', color: '#a1a1aa' }).setScrollFactor(0).setDepth(100)
     this.levelText = this.add.text(16, 64, 'LEVEL  1', { fontFamily: 'monospace', fontSize: '12px', color: '#71717a' }).setScrollFactor(0).setDepth(100)
     this.weaponText = this.add.text(16, 80, 'GUN  NORMAL', { fontFamily: 'monospace', fontSize: '12px', color: '#22d3ee' }).setScrollFactor(0).setDepth(100)
@@ -481,17 +610,17 @@ export class MainScene extends Phaser.Scene {
       bg.on('pointerout', () => { this.touch[key] = false; bg.setFillStyle(0x1e1b4b, 0.55) })
       this.input.addPointer(4)
     }
-    btn(50, 530, 60, 48, '\u25C0', 'left')
-    btn(120, 530, 60, 48, '\u25B6', 'right')
+    btn(50, 530, 60, 48, '◀', 'left')
+    btn(120, 530, 60, 48, '▶', 'right')
     btn(85, 470, 80, 44, 'JUMP', 'jump')
-    btn(50, 410, 60, 40, '\u25B2', 'up')
-    btn(120, 410, 60, 40, '\u25BC', 'down')
+    btn(50, 410, 60, 40, '▲', 'up')
+    btn(120, 410, 60, 40, '▼', 'down')
     btn(730, 510, 90, 64, 'FIRE', 'shoot')
   }
 
   private showBanner(title: string, subtitle: string) {
     const t = this.add.text(400, 250, title + '\n' + subtitle, {
-      fontFamily: 'monospace', fontSize: '26px', color: '#22d3ee', align: 'center'
+      fontFamily: 'monospace', fontSize: '26px', color: '#22d3ee', align: 'center',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(200).setAlpha(0)
     this.tweens.add({ targets: t, alpha: 1, duration: 300, yoyo: true, hold: 700, onComplete: () => t.destroy() })
   }
@@ -505,7 +634,23 @@ export class MainScene extends Phaser.Scene {
     if (this.gameOver || this.levelTransition || !this.player?.active) return
 
     const body = this.player.body as Phaser.Physics.Arcade.Body
-    if (body.blocked.down) this.jumpCount = 0
+    if (body.blocked.down) {
+      this.jumpCount = 0
+      if (this.player.y < 640) {
+        this.lastGroundX = this.player.x
+        this.lastGroundY = this.player.y
+      }
+    }
+
+    // Fell into a pit
+    if (this.player.y > FALL_Y) {
+      this.pitFall()
+      return
+    }
+
+    // Parallax scroll
+    this.bgFar.tilePositionX = this.cameras.main.scrollX * 0.25
+    this.bgMid.tilePositionX = this.cameras.main.scrollX * 0.5
 
     if (this.combo > 0) {
       this.comboTimer -= delta
@@ -515,13 +660,13 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    if (this.textures.exists('huntress_run') && this.textures.exists('huntress')) {
+    // Pose / animation
+    if (this.textures.exists('huntress')) {
       const moving = Math.abs(body.velocity.x) > 20
-      const desired = moving ? 'huntress_run' : 'huntress'
-      if (this.player.texture.key !== desired) {
-        this.player.setTexture(desired)
-        this.player.setDisplaySize(64, 64)
-      }
+      let key = 'huntress'
+      if (!this.prone && moving && this.textures.exists('huntress_run')) key = 'huntress_run'
+      if (this.player.texture.key !== key) this.player.setTexture(key)
+      this.player.setDisplaySize(64, this.prone ? 42 : 64)
     }
 
     if (this.level < 5 && this.player.x >= this.levelGoalX) {
@@ -534,6 +679,35 @@ export class MainScene extends Phaser.Scene {
     this.maybeSpawnReinforcements(delta)
   }
 
+  private pitFall() {
+    if (this.gameOver || this.levelTransition) return
+    this.player.setVelocity(0, 0)
+    this.player.setPosition(this.lastGroundX, this.lastGroundY - 44)
+    this.cameras.main.shake(180, 0.02)
+    this.cameras.main.flash(120, 120, 40, 200, false)
+    this.health -= 2
+    this.combo = 0
+    this.comboText.setText('')
+    this.updateHealth()
+    this.invulnerable = true
+    this.player.setTint(0xff3060)
+    this.time.delayedCall(700, () => { this.invulnerable = false; if (this.player.active) this.player.clearTint() })
+
+    if (this.health <= 0) {
+      this.lives -= 1
+      this.livesText.setText('LIVES  ' + this.lives)
+      if (this.lives <= 0) {
+        this.triggerGameOver()
+      } else {
+        this.health = 5
+        this.updateHealth()
+        this.jumpCount = 0
+        this.invulnerable = true
+        this.time.delayedCall(1300, () => { this.invulnerable = false; if (this.player.active) this.player.clearTint() })
+      }
+    }
+  }
+
   private maybeSpawnReinforcements(delta: number) {
     if (this.level >= 5) return
     this.spawnTimer += delta
@@ -541,22 +715,26 @@ export class MainScene extends Phaser.Scene {
     if (this.spawnTimer > interval && this.enemies.countActive(true) < 12 + this.level) {
       this.spawnTimer = 0
       const camX = this.cameras.main.scrollX
-      const side = Math.random() > 0.5 ? camX + 820 : Math.max(40, camX - 20)
-      const y = Phaser.Math.Between(80, 480)
+      const side = Phaser.Math.Clamp(Math.random() > 0.5 ? camX + 820 : camX - 20, 40, this.levelWidth - 40)
       if (Math.random() > 0.4) {
+        const y = Phaser.Math.Between(80, 300)
         this.spawnEnemy('flyer', side, y, 2 + Math.floor(this.level / 2), 48 + this.level * 6)
       } else {
-        this.spawnEnemy('soldier', side, 520, 2 + Math.floor(this.level / 2), 55 + this.level * 8, 'walker')
+        // paratrooper — drops in from above onto the terrain
+        this.spawnEnemy('soldier', side, 90, 2 + Math.floor(this.level / 2), 55 + this.level * 8, 'walker')
       }
     }
   }
 
   private handleInput(time: number) {
     const speed = 310
+    const body = this.player.body as Phaser.Physics.Arcade.Body
+    this.onGround = body.blocked.down
+
     let left = this.cursors.left.isDown || this.wasd.left.isDown || this.touch.left
     let right = this.cursors.right.isDown || this.wasd.right.isDown || this.touch.right
     let shoot = this.spaceKey.isDown || this.touch.shoot
-    this.aimUp = this.touch.up
+    this.aimUp = this.touch.up || this.cursors.up.isDown || this.wasd.up.isDown
     this.aimDown = this.wasd.down.isDown || this.cursors.down.isDown || this.touch.down
 
     const pad = this.input.gamepad?.getPad(0)
@@ -568,17 +746,21 @@ export class MainScene extends Phaser.Scene {
       if (pad.down || (pad.axes[1] && pad.axes[1].getValue() > 0.3)) this.aimDown = true
     }
 
-    if (left) {
-      this.player.setVelocityX(-speed)
-      this.facingRight = false
-      this.player.setFlipX(true)
-    } else if (right) {
-      this.player.setVelocityX(speed)
-      this.facingRight = true
-      this.player.setFlipX(false)
+    this.movingH = left || right
+    this.prone = this.onGround && this.aimDown && !this.movingH
+
+    if (this.movingH) {
+      if (left) {
+        this.player.setVelocityX(-speed)
+        this.facingRight = false
+        this.player.setFlipX(true)
+      } else {
+        this.player.setVelocityX(speed)
+        this.facingRight = true
+        this.player.setFlipX(false)
+      }
     }
 
-    // Always auto-fire when held — Contra style
     if (shoot && time > this.lastFired) {
       this.fire()
       let rate = this.fireRate
@@ -592,28 +774,31 @@ export class MainScene extends Phaser.Scene {
 
   private fire() {
     const dir = this.facingRight ? 1 : -1
-    let angle = 0
-    const movingH = this.touch.left || this.touch.right || this.cursors.left.isDown || this.cursors.right.isDown || this.wasd.left.isDown || this.wasd.right.isDown
-    if (this.aimUp && !this.aimDown) angle = movingH ? -32 : -90
-    else if (this.aimDown) angle = 32
 
-    const baseX = this.player.x + dir * 28
-    const baseY = this.player.y
+    // True 8-way aim: straight up, up-diagonal, horizontal, down-diagonal, straight down.
+    let angle = 0
+    if (this.aimUp && !this.aimDown) angle = this.movingH ? -45 : -90
+    else if (this.aimDown && !this.onGround) angle = this.movingH ? 45 : 90
+
+    const vertical = angle === -90 || angle === 90
+    const baseX = this.player.x + dir * (vertical ? 4 : 28)
+    const baseY = (this.prone ? this.player.y + 14 : this.player.y - 2) + (angle === 90 ? 10 : 0)
 
     const spawn = (ang: number, tex = 'bullet', spd = 780, scale = 1.3) => {
       const b = this.bullets.get(baseX, baseY, tex) as Phaser.Physics.Arcade.Image
       if (!b) return
       b.setActive(true).setVisible(true)
       b.setScale(scale)
+      b.setDepth(20)
       b.body?.reset(baseX, baseY)
       const rad = Phaser.Math.DegToRad(ang)
-      const vx = ang === -90 ? 0 : Math.cos(rad) * dir * spd
-      const vy = Math.sin(rad) * spd
+      const isVert = ang === -90 || ang === 90
+      const vx = isVert ? 0 : Math.cos(rad) * dir * spd
+      const vy = isVert ? Math.sin(rad) * spd : Math.sin(rad) * spd
       b.setVelocity(vx, vy)
       this.time.delayedCall(1100, () => { if (b.active) b.setActive(false).setVisible(false) })
     }
 
-    // Muzzle flash particle
     this.particles.emitParticleAt(baseX, baseY, 3)
 
     if (this.weapon === 'spread') {
@@ -622,7 +807,7 @@ export class MainScene extends Phaser.Scene {
       spawn(angle + 20, 'bullet', 760, 1.2)
     } else if (this.weapon === 'laser') {
       spawn(angle, 'laser', 1100, 1.6)
-      spawn(angle, 'laser', 1050, 1.2) // double beam feel
+      spawn(angle, 'laser', 1050, 1.2)
     } else if (this.weapon === 'fire') {
       spawn(angle, 'fireball', 620, 1.5)
       spawn(angle - 14, 'fireball', 580, 1.2)
@@ -639,6 +824,13 @@ export class MainScene extends Phaser.Scene {
       const enemy = child as Phaser.Physics.Arcade.Sprite
       if (!enemy.active) return
       const type = enemy.getData('type') as string
+
+      // Clean up anything that walked off into a pit
+      if (type !== 'turret' && enemy.y > 720) {
+        enemy.destroy()
+        return
+      }
+
       const speed = enemy.getData('speed') as number
       const body = enemy.body as Phaser.Physics.Arcade.Body
 
@@ -659,6 +851,10 @@ export class MainScene extends Phaser.Scene {
         enemy.setFlipX(dx < 0)
       }
 
+      if (type === 'turret') {
+        enemy.setFlipX(this.player.x < enemy.x)
+      }
+
       if (type === 'boss') {
         const hp = enemy.getData('hp') as number
         const maxHp = enemy.getData('maxHp') as number
@@ -674,13 +870,18 @@ export class MainScene extends Phaser.Scene {
         enemy.setFlipX(dx < 0)
       }
 
-      if (type === 'tank' || type === 'flyer' || type === 'boss') {
+      if (type === 'tank' || type === 'flyer' || type === 'boss' || type === 'turret') {
         let timer = enemy.getData('shootTimer') as number
         timer -= delta
         if (timer <= 0) {
-          const count = type === 'boss' ? (this.bossPhase === 2 ? 9 : 6) : 1
+          let count = 1
+          if (type === 'boss') count = this.bossPhase === 2 ? 9 : 6
+          else if (type === 'turret') count = this.level >= 3 ? 2 : 1
           this.enemyFire(enemy, count)
-          const base = type === 'boss' ? (this.bossPhase === 2 ? 480 : 680) : type === 'tank' ? 1100 : 900
+          let base = 900
+          if (type === 'boss') base = this.bossPhase === 2 ? 480 : 680
+          else if (type === 'tank') base = 1100
+          else if (type === 'turret') base = Math.max(650, 1250 - this.level * 90)
           enemy.setData('shootTimer', base)
         } else {
           enemy.setData('shootTimer', timer)
@@ -695,6 +896,7 @@ export class MainScene extends Phaser.Scene {
       if (!b) continue
       b.setActive(true).setVisible(true)
       b.setScale(1.3)
+      b.setDepth(19)
       b.body?.reset(enemy.x, enemy.y)
       const spread = (i - (count - 1) / 2) * 0.16
       const ang = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y) + spread
@@ -713,7 +915,7 @@ export class MainScene extends Phaser.Scene {
     bullet.setActive(false).setVisible(false)
 
     const dmg = this.weapon === 'laser' ? 3 : this.weapon === 'fire' ? 2 : 1
-    let hp = (enemy.getData('hp') as number) - dmg
+    const hp = (enemy.getData('hp') as number) - dmg
     enemy.setData('hp', hp)
 
     enemy.setTint(0xffffff)
@@ -723,7 +925,7 @@ export class MainScene extends Phaser.Scene {
 
     if (hp <= 0) {
       const type = enemy.getData('type') as string
-      let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'flyer' ? 250 : 120
+      let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'turret' ? 350 : type === 'flyer' ? 250 : 120
 
       this.combo++
       this.comboTimer = 2400
@@ -738,7 +940,7 @@ export class MainScene extends Phaser.Scene {
       this.particles.emitParticleAt(enemy.x, enemy.y, 32)
       this.cameras.main.shake(90, 0.016)
 
-      if (type === 'tank' || type === 'boss') {
+      if (type === 'tank' || type === 'boss' || type === 'turret') {
         this.cameras.main.flash(100, 200, 100, 255, false)
       }
 
@@ -820,42 +1022,41 @@ export class MainScene extends Phaser.Scene {
     } else {
       this.weapon = kind as typeof this.weapon
       const labels: Record<string, string> = {
-        spread: 'SPREAD', rapid: 'RAPID', laser: 'LASER', fire: 'FIRE'
+        spread: 'SPREAD', rapid: 'RAPID', laser: 'LASER', fire: 'FIRE',
       }
       this.weaponText.setText('GUN  ' + (labels[kind] || 'NORMAL'))
     }
   }
 
   private updateHealth() {
-    const h = '\u2665'.repeat(Math.max(0, this.health)) + '\u2661'.repeat(Math.max(0, this.maxHealth - this.health))
+    const h = '♥'.repeat(Math.max(0, this.health)) + '♡'.repeat(Math.max(0, this.maxHealth - this.health))
     this.healthText.setText('HP  ' + h)
   }
 
   private onLevelClear() {
     if (this.levelTransition) return
     this.levelTransition = true
-    const names = ['', 'NEON STREETS', 'INDUSTRIAL RISE', 'SKY RAIL', 'CORE ACCESS', 'APEX THRONE']
 
     if (this.level < 5) {
       const next = this.level + 1
-      const msg = this.add.text(400, 260, `LEVEL ${next}\n${names[next]}`, {
-        fontFamily: 'monospace', fontSize: '24px', color: '#22d3ee', align: 'center'
+      const msg = this.add.text(400, 260, `LEVEL ${next}\n${LEVELS[next - 1].name}`, {
+        fontFamily: 'monospace', fontSize: '24px', color: '#22d3ee', align: 'center',
       }).setOrigin(0.5).setScrollFactor(0).setDepth(200)
 
       this.time.delayedCall(1300, () => {
         msg.destroy()
         this.level = next
         this.levelText.setText('LEVEL  ' + next)
-        this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H)
-        this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H)
-        this.player.setPosition(80, 480)
+        this.player.setPosition(80, 500)
         this.player.setVelocity(0, 0)
         this.jumpCount = 0
+        this.lastGroundX = 80
+        this.lastGroundY = 480
         this.health = Math.min(this.maxHealth, this.health + 1)
         this.updateHealth()
         this.buildLevel(next)
         this.levelTransition = false
-        this.showBanner('LEVEL ' + next, names[next])
+        this.showBanner('LEVEL ' + next, LEVELS[next - 1].name)
       })
     } else {
       this.showVictory()
@@ -871,7 +1072,7 @@ export class MainScene extends Phaser.Scene {
     this.add.text(400, 270, 'Score: ' + this.score, { fontFamily: 'monospace', fontSize: '18px', color: '#e879f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(400, 310, 'Reached Level ' + this.level, { fontFamily: 'monospace', fontSize: '13px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     const btn = this.add.text(400, 370, '[ CLICK / TAP TO RESTART ]', {
-      fontFamily: 'monospace', fontSize: '14px', color: '#c4b5fd'
+      fontFamily: 'monospace', fontSize: '14px', color: '#c4b5fd',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.scene.restart())
   }
@@ -883,10 +1084,10 @@ export class MainScene extends Phaser.Scene {
     this.add.text(400, 180, 'SECTOR DOMINATED', { fontFamily: 'monospace', fontSize: '28px', color: '#22d3ee' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(400, 240, 'Final Score: ' + this.score, { fontFamily: 'monospace', fontSize: '18px', color: '#e879f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(400, 290, 'The Huntress claims the Apex.', {
-      fontFamily: 'monospace', fontSize: '13px', color: '#a1a1aa'
+      fontFamily: 'monospace', fontSize: '13px', color: '#a1a1aa',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     const btn = this.add.text(400, 360, '[ CLICK / TAP TO PLAY AGAIN ]', {
-      fontFamily: 'monospace', fontSize: '14px', color: '#c4b5fd'
+      fontFamily: 'monospace', fontSize: '14px', color: '#c4b5fd',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.scene.restart())
   }

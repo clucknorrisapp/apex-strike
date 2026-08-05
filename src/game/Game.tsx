@@ -48,7 +48,7 @@ export function Game() {
       <div className="w-full max-w-4xl">
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
-          <span className="text-violet-400/70 text-xs">v0.9 — Heavy Firepower</span>
+          <span className="text-violet-400/70 text-xs">v1.0 — Contra Rebuild</span>
         </div>
 
         <div
@@ -58,8 +58,8 @@ export function Game() {
         />
 
         <div className="mt-3 text-center text-xs text-zinc-500 space-y-1">
-          <div><span className="text-violet-400">Hold fire</span> for continuous shots · Grab SPREAD / RAPID / LASER / FIRE</div>
-          <div>Push right to the cyan goal · Survive to Level 5 boss</div>
+          <div><span className="text-violet-400">Aim ↑ / ↕ diagonals</span> · hold <span className="text-violet-400">Down</span> to crouch · <span className="text-violet-400">double-jump</span> the pits</div>
+          <div>Hold fire for continuous shots · Grab SPREAD / RAPID / LASER / FIRE · reach the extraction gate</div>
         </div>
       </div>
     </div>
