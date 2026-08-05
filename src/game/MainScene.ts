@@ -305,6 +305,7 @@ export class MainScene extends Phaser.Scene {
   private bgStars!: Phaser.GameObjects.TileSprite
   private bgImage!: Phaser.GameObjects.Image
   private bgScrim!: Phaser.GameObjects.Rectangle
+  private uiCam?: Phaser.Cameras.Scene2D.Camera  // crisp HUD camera (hi-res render)
   private decor: Phaser.GameObjects.GameObject[] = []
   private sfx?: Sfx
   private lastSfxShot = 0
@@ -585,6 +586,42 @@ export class MainScene extends Phaser.Scene {
     } else {
       this.started = false
       this.showTitle()
+    }
+
+    this.initHiResCameras()
+  }
+
+  // Render at 2x on the real game (1024x768) while keeping every coordinate in
+  // the 512x384 design space: the world camera zooms to show the SAME view at 2x
+  // pixels, and a non-scrolling UI camera (same zoom) draws the HUD crisp on top.
+  // RES is 1 in the Level Lab (512-wide), so it behaves exactly as before there.
+  private initHiResCameras() {
+    const RES = this.scale.width / 512
+    this.cameras.main.setZoom(RES)
+    this.uiCam = this.cameras.add(0, 0, this.scale.width, this.scale.height)
+    this.uiCam.setZoom(RES)
+    // Anchor the UI camera's zoom at the top-left so the HUD's 512x384-space
+    // coordinates scale straight to the 1024x768 canvas (design x,y -> x*RES,y*RES)
+    // instead of zooming around the canvas centre and flying off to the corner.
+    this.uiCam.setOrigin(0, 0)
+    this.uiCam.setScroll(0, 0)
+    this.routeCameras()
+  }
+
+  // Assign each display object to exactly one camera: screen-pinned HUD/overlays
+  // (scrollFactor 0, depth >= 100) render on the UI camera; everything else
+  // (world + backgrounds) on the main camera. Runs each frame so dynamically
+  // spawned objects (bullets, enemies, hit FX, transient overlays) get routed.
+  private routeCameras() {
+    if (!this.uiCam) return
+    const list = this.children.list
+    for (let i = 0; i < list.length; i++) {
+      const go = list[i] as Phaser.GameObjects.GameObject & { _routed?: boolean; depth?: number; scrollFactorX?: number }
+      if (go._routed) continue
+      go._routed = true
+      const isUI = go.scrollFactorX === 0 && (go.depth ?? 0) >= 100
+      if (isUI) this.cameras.main.ignore(go)
+      else this.uiCam.ignore(go)
     }
   }
 
@@ -1129,6 +1166,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number) {
+    this.routeCameras()  // route any newly-spawned objects to the right camera
     if (this.gameOver) return
     if (!this.started) {
       const gp = this.input.gamepad?.getPad(0)

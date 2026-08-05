@@ -33,9 +33,11 @@ export function Game() {
     if (!containerRef.current || gameRef.current) return
     const config: Phaser.Types.Core.GameConfig = {
       type: Phaser.AUTO,
-      // Low internal resolution scaled up (Contra/Normie trick) — the hero reads BIG.
-      width: 512,
-      height: 384,
+      // Internal resolution. Rendered 2x (1024x768) for crispness; the scene
+      // zooms its world + UI cameras by width/512 so the design space and feel
+      // stay identical to the classic 512x384 layout (Contra/Normie big-hero look).
+      width: 1024,
+      height: 768,
       parent: containerRef.current,
       backgroundColor: '#0a0612',
       physics: { default: 'arcade', arcade: { gravity: { x: 0, y: 1000 }, debug: false } },
@@ -141,7 +143,7 @@ export function Game() {
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
           <div className="flex items-center gap-3">
-            <span className="text-violet-400/70 text-xs">v1.19 — One Huntress</span>
+            <span className="text-violet-400/70 text-xs">v1.20 — Hi-Def</span>
             <button
               onClick={toggleFullscreen}
               className="text-xs text-violet-200 px-2 py-1 rounded-md border border-violet-700/60 hover:border-fuchsia-500/70 hover:text-fuchsia-200 transition-colors"
