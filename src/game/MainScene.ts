@@ -3,6 +3,7 @@ import Phaser from 'phaser'
 const ASSETS = {
   huntress: '/assets/huntress.png',
   huntress_run: '/assets/huntress_run.png',
+  huntress_run2: '/assets/huntress_run2.png',
   huntress_jump: '/assets/huntress_jump.png',
   huntress_crouch: '/assets/huntress_crouch.png',
   enemy_soldier: '/assets/enemy_soldier.png',
@@ -339,6 +340,10 @@ export class MainScene extends Phaser.Scene {
   private uiCam?: Phaser.Cameras.Scene2D.Camera  // crisp HUD camera (hi-res render)
   private decor: Phaser.GameObjects.GameObject[] = []
   private shadowGfx!: Phaser.GameObjects.Graphics  // per-frame drop shadows (grounding)
+  private runFrameT = 0     // run-cycle timer (2-frame bounding run)
+  private runFrame = 0      // which run frame (0/1)
+  private landRecoverUntil = 0  // brief crouch-on-landing window
+  private airborneT = 0     // ms spent airborne (for landing detection)
   private sfx?: Sfx
   private lastSfxShot = 0
   private lastFired = 0
@@ -466,6 +471,7 @@ export class MainScene extends Phaser.Scene {
     // aligned to a shared canvas so they swap without jitter (ready/run/jump/crouch).
     this.load.image('huntress', ASSETS.huntress)
     this.load.image('huntress_run', ASSETS.huntress_run)
+    this.load.image('huntress_run2', ASSETS.huntress_run2)
     this.load.image('huntress_jump', ASSETS.huntress_jump)
     this.load.image('huntress_crouch', ASSETS.huntress_crouch)
     this.load.image('enemy_soldier', ASSETS.enemy_soldier)
@@ -692,7 +698,7 @@ export class MainScene extends Phaser.Scene {
 
   private sizePlayer() {
     const k = this.player.texture.key
-    if (k === 'huntress' || k === 'huntress_run' || k === 'huntress_jump' || k === 'huntress_crouch') {
+    if (k === 'huntress' || k === 'huntress_run' || k === 'huntress_run2' || k === 'huntress_jump' || k === 'huntress_crouch') {
       // All hero poses share one aligned 1024x900 canvas (body-axis centred at
       // x=512, feet at y=760, head at y=300) so they swap without size/position
       // jitter. Display so the ~460px-tall character reads ~80px in design space.
@@ -1369,8 +1375,9 @@ export class MainScene extends Phaser.Scene {
       if (this.player.y < this.levelH) { this.lastGroundX = this.player.x; this.lastGroundY = this.player.y }
     }
     if (landed && this.fallSpeed > 380) this.landingDust(this.fallSpeed)
+    if (landed && this.airborneT > 170) this.landRecoverUntil = time + 100   // brief crouch after a real jump/fall
     this.prevOnGround = this.onGround
-    if (!this.onGround) this.fallSpeed = body.velocity.y
+    if (!this.onGround) { this.fallSpeed = body.velocity.y; this.airborneT += delta } else this.airborneT = 0
     this.drawShadows()
 
     // Fell into a pit (below the content floor)
@@ -1387,13 +1394,20 @@ export class MainScene extends Phaser.Scene {
       if (this.comboTimer <= 0) { this.combo = 0; this.comboText.setText('') }
     }
 
-    // Pose: jump (airborne) → crouch (holding down) → run (moving) → ready.
+    // Pose: land-recover → jump (airborne) → crouch (down) → run (2-frame bound) → ready.
     if (this.textures.exists('huntress')) {
       const moving = Math.abs(body.velocity.x) > 24
       let key = 'huntress'
-      if (!this.onGround && this.textures.exists('huntress_jump')) key = 'huntress_jump'
+      if (time < this.landRecoverUntil && this.textures.exists('huntress_crouch')) key = 'huntress_crouch'
+      else if (!this.onGround && this.textures.exists('huntress_jump')) key = 'huntress_jump'
       else if (this.prone && this.textures.exists('huntress_crouch')) key = 'huntress_crouch'
-      else if (moving && this.textures.exists('huntress_run')) key = 'huntress_run'
+      else if (moving && this.textures.exists('huntress_run')) {
+        // Bounding run: alternate the extended lunge and the gathered frame (the
+        // height difference between them reads as a natural running bob).
+        this.runFrameT += delta
+        if (this.runFrameT > 115) { this.runFrameT = 0; this.runFrame ^= 1 }
+        key = (this.runFrame === 1 && this.textures.exists('huntress_run2')) ? 'huntress_run2' : 'huntress_run'
+      } else { this.runFrame = 0; this.runFrameT = 0 }
       if (this.player.texture.key !== key) { this.player.setTexture(key); this.sizePlayer() }
     }
 
