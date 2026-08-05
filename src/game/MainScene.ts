@@ -530,8 +530,9 @@ export class MainScene extends Phaser.Scene {
     this.movers = this.physics.add.staticGroup()
     this.hazards = this.physics.add.staticGroup()
     this.bouncers = this.physics.add.staticGroup()
-    this.bullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 120 })
-    this.enemyBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 80 })
+    // Projectiles ignore world gravity so they fly straight + flat (no droop).
+    this.bullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 120, allowGravity: false })
+    this.enemyBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 80, allowGravity: false })
     this.enemies = this.physics.add.group()
     this.powerups = this.physics.add.group()
     this.shards = this.physics.add.group({ allowGravity: false, immovable: true })
@@ -1609,13 +1610,14 @@ export class MainScene extends Phaser.Scene {
       if (!b) return
       b.setActive(true).setVisible(true); b.setScale(scale); b.setDepth(20)
       b.body?.reset(baseX, baseY)
+      ;(b.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)   // pooled bodies: keep them flat
       const rad = Phaser.Math.DegToRad(ang)
       const isVert = ang === -90 || ang === 90
       const vx = isVert ? 0 : Math.cos(rad) * dir * spd
       const vy = Math.sin(rad) * spd
       b.setVelocity(vx, vy)
       b.setRotation(Math.atan2(vy, vx))   // bolt points where it flies
-      this.time.delayedCall(1100, () => { if (b.active) b.setActive(false).setVisible(false) })
+      this.time.delayedCall(1400, () => { if (b.active) b.setActive(false).setVisible(false) })   // longer reach
     }
 
     this.particles.emitParticleAt(baseX, baseY, 3)
@@ -1796,6 +1798,7 @@ export class MainScene extends Phaser.Scene {
       if (!b) continue
       b.setActive(true).setVisible(true); b.setScale(0.75); b.setDepth(19)
       b.body?.reset(enemy.x, enemy.y)
+      ;(b.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
       const spread = (i - (count - 1) / 2) * 0.16
       const ang = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y) + spread
       const spd = count > 1 ? 220 : 270
