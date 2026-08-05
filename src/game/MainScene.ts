@@ -339,6 +339,11 @@ export class MainScene extends Phaser.Scene {
   private onGround = false
   private prone = false
   private touch: TouchState = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
+  // On-screen touch controls: collected so they can be toggled off (e.g. when a
+  // keyboard or controller is attached). Preference persists across sessions.
+  private touchUI: Phaser.GameObjects.GameObject[] = []
+  private touchHidden = false
+  private touchToggle?: Phaser.GameObjects.Text
   private weapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' = 'normal'
   // Two-weapon carry: a backup slot you can swap into (Q / touch / gamepad Y).
   private altWeapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' = 'normal'
@@ -881,6 +886,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private createTouchControls() {
+    this.touchUI = []
     // Enough simultaneous touches for move + aim + jump + fire at once.
     this.input.addPointer(4)
     const btn = (
@@ -889,13 +895,14 @@ export class MainScene extends Phaser.Scene {
     ) => {
       const bg = this.add.rectangle(x, y, w, h, tint, 0.42).setScrollFactor(0).setDepth(150).setInteractive()
       bg.setStrokeStyle(2, rim, 0.75)
-      this.add.text(x, y, label, { fontFamily: 'monospace', fontSize: fs, color: '#f5f3ff', fontStyle: 'bold' })
+      const txt = this.add.text(x, y, label, { fontFamily: 'monospace', fontSize: fs, color: '#f5f3ff', fontStyle: 'bold' })
         .setOrigin(0.5).setScrollFactor(0).setDepth(151)
       const press = () => { this.touch[key] = true; bg.setFillStyle(rim, 0.55) }
       const release = () => { this.touch[key] = false; bg.setFillStyle(tint, 0.42) }
       bg.on('pointerdown', press)
       bg.on('pointerup', release)
       bg.on('pointerout', release)
+      this.touchUI.push(bg, txt)
     }
     // Left thumb — move (violet) + 8-way aim (cyan). Cross layout, bottom-left.
     btn(78, 268, 56, 38, '▲', 'up', 0x134e4a, 0x22d3ee)
@@ -905,16 +912,46 @@ export class MainScene extends Phaser.Scene {
     // Right thumb — jump (green) + fire (red). Big targets, bottom-right.
     btn(452, 266, 96, 46, 'JUMP', 'jump', 0x14532d, 0x4ade80, '12px')
     btn(452, 338, 96, 66, 'FIRE', 'shoot', 0x4c0519, 0xf43f5e, '13px')
-    // Pause + mute, tucked in the gap between the thumb clusters.
+    // Pause + mute + swap, tucked in the gap between the thumb clusters.
     const tapBtn = (x: number, label: string, cb: () => void) => {
       const bg = this.add.rectangle(x, 361, 42, 26, 0x1e1b4b, 0.4).setScrollFactor(0).setDepth(150).setInteractive()
       bg.setStrokeStyle(1, 0xa855f7, 0.6)
-      this.add.text(x, 361, label, { fontFamily: 'monospace', fontSize: '11px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(151)
+      const txt = this.add.text(x, 361, label, { fontFamily: 'monospace', fontSize: '11px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(151)
       bg.on('pointerdown', cb)
+      this.touchUI.push(bg, txt)
     }
     tapBtn(228, 'II', () => this.togglePause())
     tapBtn(284, '♪', () => this.toggleMute())
     tapBtn(340, '⇄', () => this.swapWeapon())
+
+    // Toggle to hide/show the on-screen controls — handy on an iPad with a
+    // keyboard or controller attached. Choice is remembered across sessions.
+    try { this.touchHidden = localStorage.getItem('apex_touch') === 'off' } catch { /* ignore */ }
+    const toggle = this.add.text(502, 38, '', {
+      fontFamily: 'monospace', fontSize: '10px', color: '#c4b5fd',
+      backgroundColor: '#0a0612', padding: { x: 6, y: 3 },
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(160).setInteractive({ useHandCursor: true })
+    toggle.on('pointerdown', () => this.setTouchControlsHidden(!this.touchHidden))
+    this.touchToggle = toggle
+    this.applyTouchControls()
+  }
+
+  private setTouchControlsHidden(hidden: boolean) {
+    this.touchHidden = hidden
+    try { localStorage.setItem('apex_touch', hidden ? 'off' : 'on') } catch { /* ignore */ }
+    // Drop any held inputs so nothing sticks when the pads vanish.
+    if (hidden) this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
+    this.applyTouchControls()
+  }
+
+  private applyTouchControls() {
+    const vis = !this.touchHidden
+    this.touchUI.forEach((o) => {
+      const go = o as Phaser.GameObjects.GameObject & { setVisible?: (v: boolean) => void; input?: { enabled: boolean } | null }
+      go.setVisible?.(vis)
+      if (go.input) go.input.enabled = vis  // hidden pads must not swallow taps
+    })
+    this.touchToggle?.setText(this.touchHidden ? '⌨ Controls: OFF' : '⌨ Controls: ON')
   }
 
   private controllerToast() {
