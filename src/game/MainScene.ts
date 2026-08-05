@@ -184,119 +184,132 @@ export interface LevelDef {
   bouncers?: [number, number, number][]       // [cx, topY, w] — launch pads that spring you upward
 }
 
-// Multi-directional stages: you climb UP, drop DOWN, and push FORWARD.
+// Horizontal Contra-style run-and-gun stages: push RIGHT through distinct
+// sections — cross pits, ride movers, climb staircases, gun waves of enemies —
+// to the extraction at the far right. Each stage has its own structural
+// character (streets staircases / industrial conveyors+rise / sky rails+gaps /
+// core hazard-corridors) and ends on the throne boss. Ground top is 600 so the
+// pulled-back camera frames the action; pits are ~180px (jumpable, some
+// mover-bridged); staircases climb in staged ~110px steps.
 export const LEVELS: LevelDef[] = [
   {
-    // Horizontal run-and-gun corridor (Contra flow): push RIGHT across solid
-    // ground with two pits, over thick stepped terrain, gunning waves of enemies,
-    // to the extraction at the far right. Wide + shallow, not a vertical climb.
-    name: 'NEON STREETS', theme: 'streets', w: 3200, h: 760, spawn: [120, 500], goal: [3090, 540],
-    ground: [[0, 820, 600], [950, 1760, 600], [1890, 3200, 600]],
-    // Elevated platforms sit high with ground clearance — you run UNDER them and
-    // can jump ON to take the high line / pick off flyers.
-    plats: [[280, 440, 140], [1150, 430, 150], [1780, 410, 140], [2050, 440, 140], [2980, 360, 150]],
-    // Thick solid steps you run up and over — the Contra staircase, neon-rimmed.
+    // NEON STREETS — the opening run. Rubble staircases, two mover-bridged pits,
+    // a high catwalk line, turret nests. Longer + sectioned vs the old stub.
+    name: 'NEON STREETS', theme: 'streets', w: 3800, h: 780, spawn: [120, 500], goal: [3700, 540],
+    ground: [[0, 760, 600], [940, 1560, 600], [1740, 2560, 600], [2740, 3800, 600]],
+    plats: [[280, 430, 150], [1900, 410, 150], [2200, 390, 150], [3600, 360, 150]],
     walls: [
-      [460, 550, 200, 100], [660, 500, 200, 200],           // intro staircase (adjacent blocks)
-      [1300, 540, 220, 120], [1510, 480, 200, 280],          // mid staircase (adjacent)
-      [2160, 550, 200, 100], [2360, 490, 200, 220], [2560, 430, 200, 340],  // end 3-step staircase (adjacent)
+      [420, 550, 180, 120], [600, 490, 180, 240],                              // S1 entry staircase
+      [1160, 540, 190, 130], [1350, 470, 190, 300],                            // S2 mid staircase
+      [2980, 550, 190, 110], [3170, 490, 190, 230], [3360, 430, 190, 350],     // S4 end 3-step climb
     ],
-    turrets: [[660, 500], [1510, 480], [2560, 430]],
+    turrets: [[600, 490], [1350, 470], [3360, 430]],
     enemies: [
-      { kind: 'soldier', x: 200, y: 566, hp: 2, speed: 70 }, { kind: 'soldier', x: 660, y: 466, hp: 2, speed: 65 },
-      { kind: 'soldier', x: 1150, y: 566, hp: 2, speed: 70 }, { kind: 'soldier', x: 1360, y: 506, hp: 3, speed: 65 },
-      { kind: 'tank', x: 1680, y: 560, hp: 6, speed: 30 }, { kind: 'charger', x: 2000, y: 566, hp: 4, speed: 64 },
-      { kind: 'soldier', x: 2360, y: 456, hp: 3, speed: 65 },
-      { kind: 'tank', x: 2820, y: 560, hp: 7, speed: 30 }, { kind: 'soldier', x: 2950, y: 566, hp: 3, speed: 70 },
-      { kind: 'flyer', x: 900, y: 300, hp: 2, speed: 48 }, { kind: 'flyer', x: 1700, y: 280, hp: 3, speed: 52 },
-      { kind: 'flyer', x: 2400, y: 300, hp: 3, speed: 52 },
+      { kind: 'soldier', x: 250, y: 566, hp: 2, speed: 70 }, { kind: 'soldier', x: 600, y: 456, hp: 2, speed: 65 },
+      { kind: 'soldier', x: 1160, y: 506, hp: 3, speed: 65 }, { kind: 'tank', x: 1500, y: 560, hp: 6, speed: 30 },
+      { kind: 'charger', x: 1800, y: 566, hp: 4, speed: 64 }, { kind: 'soldier', x: 2400, y: 566, hp: 3, speed: 70 },
+      { kind: 'tank', x: 2500, y: 560, hp: 6, speed: 30 }, { kind: 'soldier', x: 2800, y: 566, hp: 3, speed: 70 },
+      { kind: 'soldier', x: 3550, y: 566, hp: 3, speed: 70 }, { kind: 'soldier', x: 3700, y: 566, hp: 3, speed: 70 },
+      { kind: 'flyer', x: 700, y: 300, hp: 2, speed: 48 }, { kind: 'flyer', x: 1650, y: 280, hp: 3, speed: 52 },
+      { kind: 'flyer', x: 2450, y: 300, hp: 3, speed: 52 }, { kind: 'flyer', x: 3250, y: 280, hp: 3, speed: 52 },
     ],
-    pods: [[660, 470, 'spread'], [1510, 440, 'health'], [2560, 400, 'rapid']],
-    movers: [[885, 590, 120, 'h', 85, 0.9]],
-    hazards: [[1050, 600, 120]],
+    pods: [[600, 460, 'spread'], [1350, 440, 'health'], [3360, 400, 'rapid']],
+    movers: [[850, 590, 120, 'h', 85, 0.9], [1650, 590, 130, 'h', 95, 0.9]],
+    hazards: [[1000, 600, 110], [2350, 600, 120]],
+    bouncers: [[2050, 600, 90]],
   },
   {
-    name: 'INDUSTRIAL RISE', theme: 'industrial', w: 2600, h: 1320, spawn: [80, 1180], goal: [2460, 360],
-    ground: [[0, 600, 1260], [740, 1360, 1260], [1500, 2600, 1260]],
-    plats: [
-      [230, 1160, 120], [430, 1050, 120], [620, 950, 120], [430, 840, 120], [640, 740, 130],
-      [900, 700, 140], [1160, 640, 130], [1380, 760, 130], [1250, 920, 130],
-      [1620, 1080, 130], [1850, 960, 130], [2060, 840, 130], [2260, 700, 140], [2420, 540, 140], [2260, 400, 150],
+    // INDUSTRIAL RISE — factory. Long conveyor shuttles bridge the pits, a
+    // vertical lift climbs the "rise", spike vents on the floor, divers overhead.
+    name: 'INDUSTRIAL RISE', theme: 'industrial', w: 3900, h: 800, spawn: [120, 500], goal: [3800, 540],
+    ground: [[0, 700, 600], [880, 1440, 600], [1620, 2200, 600], [2380, 3900, 600]],
+    plats: [[250, 430, 150], [1150, 420, 170], [2950, 400, 160], [3450, 400, 150]],
+    walls: [
+      [450, 540, 200, 140],                                    // S1 machine housing
+      [1750, 520, 160, 200], [1950, 440, 160, 320],            // S3 the RISE (staircase up)
+      [2600, 540, 180, 120], [2790, 470, 180, 260],            // S4 staircase
     ],
-    walls: [[860, 1160, 90, 180], [1720, 1160, 90, 150]],
-    turrets: [[900, 700], [1160, 640], [2260, 700], [2260, 400]],
+    turrets: [[1950, 440], [2790, 470]],
     enemies: [
-      { kind: 'soldier', x: 300, y: 1210, hp: 3, speed: 65 }, { kind: 'tank', x: 1000, y: 1210, hp: 6, speed: 28 },
-      { kind: 'charger', x: 700, y: 1210, hp: 4, speed: 60 }, { kind: 'charger', x: 1750, y: 1210, hp: 4, speed: 62 },
-      { kind: 'diver', x: 1050, y: 540, hp: 3, speed: 100 }, { kind: 'diver', x: 2050, y: 560, hp: 4, speed: 104 },
-      { kind: 'soldier', x: 640, y: 700, hp: 3, speed: 70 }, { kind: 'soldier', x: 1160, y: 600, hp: 3, speed: 70 },
-      { kind: 'tank', x: 1900, y: 1210, hp: 7, speed: 30 }, { kind: 'soldier', x: 2100, y: 800, hp: 3, speed: 70 },
-      { kind: 'flyer', x: 500, y: 260, hp: 3, speed: 55 }, { kind: 'flyer', x: 1200, y: 220, hp: 3, speed: 60 },
-      { kind: 'flyer', x: 1900, y: 300, hp: 3, speed: 55 }, { kind: 'flyer', x: 2400, y: 250, hp: 3, speed: 55 },
+      { kind: 'soldier', x: 250, y: 566, hp: 3, speed: 65 }, { kind: 'tank', x: 630, y: 560, hp: 6, speed: 28 },
+      { kind: 'soldier', x: 1150, y: 386, hp: 3, speed: 70 }, { kind: 'charger', x: 1300, y: 566, hp: 4, speed: 62 },
+      { kind: 'diver', x: 1050, y: 300, hp: 3, speed: 100 }, { kind: 'soldier', x: 1750, y: 486, hp: 3, speed: 70 },
+      { kind: 'tank', x: 2120, y: 560, hp: 7, speed: 30 }, { kind: 'diver', x: 2050, y: 300, hp: 4, speed: 104 },
+      { kind: 'soldier', x: 2600, y: 506, hp: 3, speed: 70 }, { kind: 'tank', x: 3050, y: 560, hp: 7, speed: 30 },
+      { kind: 'soldier', x: 3500, y: 566, hp: 3, speed: 70 },
+      { kind: 'flyer', x: 850, y: 300, hp: 3, speed: 55 }, { kind: 'flyer', x: 2350, y: 280, hp: 3, speed: 55 },
+      { kind: 'flyer', x: 3300, y: 280, hp: 3, speed: 55 },
     ],
-    pods: [[430, 800, 'rapid'], [1160, 600, 'health'], [2060, 800, 'laser']],
-    movers: [[680, 1160, 130, 'v', 175, 0.65], [1430, 1080, 130, 'h', 100, 0.9]],
-    hazards: [[500, 1260, 120], [2200, 1260, 140]],
-    bouncers: [[1150, 1260, 90]],
+    pods: [[450, 500, 'rapid'], [1950, 400, 'health'], [2790, 430, 'laser']],
+    movers: [[790, 590, 140, 'h', 90, 0.85], [1530, 590, 130, 'h', 95, 0.9], [2290, 500, 120, 'v', 150, 0.7]],
+    hazards: [[1000, 600, 130], [2450, 600, 120]],
+    bouncers: [[1250, 600, 90]],
   },
   {
-    name: 'SKY RAIL', theme: 'sky', w: 2700, h: 1400, spawn: [80, 1260], goal: [2500, 300],
-    ground: [[0, 520, 1340], [660, 1180, 1340], [1320, 1820, 1340], [1960, 2700, 1340]],
-    plats: [
-      [220, 1230, 110], [420, 1120, 110], [300, 1000, 110], [520, 900, 120], [760, 820, 130],
-      [1000, 740, 130], [860, 600, 120], [1180, 640, 130], [1420, 560, 130], [1240, 420, 120],
-      [1560, 900, 130], [1780, 780, 130], [2020, 660, 130], [2260, 520, 140], [2460, 380, 150], [2260, 260, 140],
-    ],
-    walls: [],
-    turrets: [[1000, 740], [1420, 560], [2020, 660], [2260, 260]],
+    // SKY RAIL — high altitude. Frequent pits over the void, floating rail
+    // platforms, mover-rails and bounce pads to cross + climb, aerial-heavy.
+    name: 'SKY RAIL', theme: 'sky', w: 4000, h: 820, spawn: [120, 500], goal: [3900, 540],
+    ground: [[0, 640, 600], [820, 1300, 600], [1480, 1960, 600], [2140, 2620, 600], [2800, 4000, 600]],
+    plats: [[300, 420, 140], [520, 350, 140], [1000, 410, 150], [1650, 400, 150], [1850, 320, 150], [2400, 400, 150], [3150, 380, 150], [3500, 320, 150]],
+    walls: [[1100, 540, 180, 120], [3300, 520, 180, 180]],
+    turrets: [[520, 350], [1850, 320], [3500, 320]],
     enemies: [
-      { kind: 'soldier', x: 260, y: 1290, hp: 3, speed: 70 }, { kind: 'tank', x: 900, y: 1290, hp: 7, speed: 30 },
-      { kind: 'charger', x: 560, y: 1290, hp: 5, speed: 64 }, { kind: 'charger', x: 1600, y: 1290, hp: 5, speed: 66 },
-      { kind: 'diver', x: 900, y: 520, hp: 4, speed: 104 }, { kind: 'diver', x: 1900, y: 540, hp: 4, speed: 108 },
-      { kind: 'soldier', x: 760, y: 780, hp: 3, speed: 75 }, { kind: 'soldier', x: 1180, y: 600, hp: 3, speed: 75 },
-      { kind: 'soldier', x: 1780, y: 740, hp: 4, speed: 70 }, { kind: 'tank', x: 2100, y: 1290, hp: 8, speed: 32 },
-      { kind: 'flyer', x: 450, y: 300, hp: 3, speed: 65 }, { kind: 'flyer', x: 1000, y: 240, hp: 3, speed: 70 },
-      { kind: 'flyer', x: 1600, y: 280, hp: 4, speed: 65 }, { kind: 'flyer', x: 2200, y: 200, hp: 4, speed: 70 },
+      { kind: 'soldier', x: 300, y: 566, hp: 3, speed: 70 }, { kind: 'charger', x: 560, y: 566, hp: 5, speed: 64 },
+      { kind: 'soldier', x: 870, y: 566, hp: 3, speed: 75 }, { kind: 'tank', x: 1600, y: 560, hp: 7, speed: 30 },
+      { kind: 'soldier', x: 1750, y: 566, hp: 3, speed: 75 }, { kind: 'charger', x: 2300, y: 566, hp: 5, speed: 66 },
+      { kind: 'soldier', x: 2900, y: 566, hp: 4, speed: 70 }, { kind: 'tank', x: 3550, y: 560, hp: 8, speed: 32 },
+      { kind: 'diver', x: 900, y: 300, hp: 4, speed: 104 }, { kind: 'diver', x: 2000, y: 300, hp: 4, speed: 108 },
+      { kind: 'diver', x: 3000, y: 300, hp: 4, speed: 108 },
+      { kind: 'flyer', x: 450, y: 260, hp: 3, speed: 65 }, { kind: 'flyer', x: 1150, y: 240, hp: 3, speed: 70 },
+      { kind: 'flyer', x: 1700, y: 260, hp: 4, speed: 65 }, { kind: 'flyer', x: 2500, y: 240, hp: 4, speed: 70 },
+      { kind: 'flyer', x: 3400, y: 240, hp: 4, speed: 70 },
     ],
-    pods: [[520, 860, 'laser'], [1180, 600, 'health'], [2020, 620, 'fire']],
-    movers: [[590, 1320, 120, 'h', 80, 0.9], [1890, 1180, 120, 'v', 180, 0.7]],
-    hazards: [[380, 1340, 120], [2320, 1340, 140]],
-    bouncers: [[1120, 1340, 90]],
+    pods: [[520, 320, 'laser'], [1650, 370, 'health'], [3150, 350, 'fire']],
+    movers: [[730, 590, 130, 'h', 95, 0.9], [1390, 590, 130, 'h', 95, 0.9], [2050, 500, 120, 'v', 160, 0.7], [2710, 590, 130, 'h', 95, 0.9]],
+    hazards: [[950, 600, 110]],
+    bouncers: [[400, 600, 90], [1700, 600, 90], [3200, 600, 90]],
   },
   {
-    name: 'CORE ACCESS', theme: 'core', w: 2700, h: 1360, spawn: [80, 1220], goal: [2500, 640],
-    ground: [[0, 620, 1300], [760, 1300, 1300], [1440, 2000, 1300], [2140, 2700, 1300]],
-    plats: [
-      [250, 1200, 120], [470, 1090, 120], [680, 980, 120], [470, 870, 120], [700, 780, 130],
-      [960, 720, 130], [1220, 660, 130], [1460, 780, 130], [1320, 940, 130],
-      [1700, 1060, 130], [1920, 940, 130], [1740, 800, 120], [2020, 720, 130], [2280, 660, 140], [2480, 720, 150],
+    // CORE ACCESS — reactor interior. Hazard-heavy (spike vents everywhere),
+    // tight walls/chokes, mover-bridged pits, intense run-up to the throne.
+    name: 'CORE ACCESS', theme: 'core', w: 3900, h: 780, spawn: [120, 500], goal: [3800, 540],
+    ground: [[0, 760, 600], [940, 1520, 600], [1700, 2360, 600], [2540, 3900, 600]],
+    plats: [[280, 430, 140], [1300, 410, 150], [2200, 400, 150], [3600, 380, 150]],
+    walls: [
+      [500, 500, 160, 200],                                    // S1 choke
+      [1200, 480, 180, 240], [1400, 540, 180, 120],            // S2 tiered
+      [2000, 480, 180, 240],                                   // S3 choke
+      [2900, 500, 180, 220], [3100, 440, 180, 320],            // S4 staircase
     ],
-    walls: [[900, 1200, 90, 180], [1600, 1200, 90, 160], [2260, 1200, 90, 140]],
-    turrets: [[960, 720], [1220, 660], [1920, 940], [2280, 660]],
+    turrets: [[1200, 480], [2000, 480], [3100, 440]],
     enemies: [
-      { kind: 'soldier', x: 300, y: 1250, hp: 4, speed: 70 }, { kind: 'tank', x: 560, y: 1250, hp: 8, speed: 30 },
-      { kind: 'soldier', x: 700, y: 740, hp: 4, speed: 75 }, { kind: 'tank', x: 1500, y: 1250, hp: 8, speed: 32 },
-      { kind: 'soldier', x: 1920, y: 900, hp: 4, speed: 75 }, { kind: 'tank', x: 2300, y: 1250, hp: 9, speed: 32 },
-      { kind: 'flyer', x: 420, y: 260, hp: 4, speed: 75 }, { kind: 'flyer', x: 1000, y: 220, hp: 4, speed: 80 },
-      { kind: 'flyer', x: 1700, y: 280, hp: 4, speed: 75 }, { kind: 'flyer', x: 2300, y: 240, hp: 4, speed: 80 },
+      { kind: 'soldier', x: 250, y: 566, hp: 4, speed: 70 }, { kind: 'tank', x: 720, y: 560, hp: 8, speed: 30 },
+      { kind: 'soldier', x: 1000, y: 566, hp: 4, speed: 75 }, { kind: 'charger', x: 1600, y: 566, hp: 5, speed: 66 },
+      { kind: 'tank', x: 1850, y: 560, hp: 8, speed: 32 }, { kind: 'soldier', x: 2200, y: 566, hp: 4, speed: 75 },
+      { kind: 'soldier', x: 2650, y: 566, hp: 4, speed: 75 }, { kind: 'tank', x: 3400, y: 560, hp: 9, speed: 32 },
+      { kind: 'soldier', x: 3600, y: 566, hp: 4, speed: 75 },
+      { kind: 'flyer', x: 850, y: 280, hp: 4, speed: 75 }, { kind: 'flyer', x: 1650, y: 260, hp: 4, speed: 80 },
+      { kind: 'flyer', x: 2450, y: 280, hp: 4, speed: 75 }, { kind: 'flyer', x: 3300, y: 260, hp: 4, speed: 80 },
     ],
-    pods: [[470, 830, 'rapid'], [1220, 620, 'health'], [1740, 760, 'laser'], [2280, 620, 'fire']],
-    movers: [[690, 1280, 120, 'h', 75, 0.95], [2070, 1160, 120, 'v', 165, 0.72]],
-    hazards: [[1000, 1300, 120], [1750, 1300, 120]],
-    bouncers: [[1180, 1300, 90]],
+    pods: [[500, 460, 'rapid'], [1400, 500, 'health'], [2000, 440, 'laser'], [3100, 400, 'fire']],
+    movers: [[850, 590, 120, 'h', 85, 0.9], [1610, 590, 130, 'h', 95, 0.9], [2450, 590, 120, 'h', 85, 0.9]],
+    hazards: [[650, 600, 110], [1050, 600, 120], [1780, 600, 120], [2700, 600, 120], [3450, 600, 120]],
+    bouncers: [[1500, 600, 90]],
   },
   {
-    name: 'APEX THRONE', theme: 'throne', w: 1600, h: 1000, spawn: [80, 860], goal: [0, 0],
-    ground: [[0, 1600, 940]],
-    plats: [[250, 820, 130], [560, 700, 140], [900, 700, 140], [1200, 820, 130], [720, 540, 150], [400, 560, 120], [1050, 540, 130]],
-    walls: [[120, 900, 80, 80], [1400, 900, 80, 80]],
-    turrets: [[120, 860], [1400, 860]],
+    // APEX THRONE — the boss arena. A short flat stage where the Apex boss looms
+    // (kept low enough to stay in the pulled-back frame); clear the boss to win.
+    name: 'APEX THRONE', theme: 'throne', w: 2000, h: 760, spawn: [120, 500], goal: [0, 0],
+    ground: [[0, 2000, 600]],
+    plats: [[350, 440, 150], [750, 400, 160], [1250, 400, 160], [1650, 440, 150]],
+    walls: [[120, 560, 100, 120], [1880, 560, 100, 120]],
+    turrets: [[120, 500], [1880, 500]],
     enemies: [
-      { kind: 'boss', x: 780, y: 200, hp: 64, speed: 55 },
-      { kind: 'flyer', x: 220, y: 180, hp: 3, speed: 55 }, { kind: 'flyer', x: 1320, y: 180, hp: 3, speed: 55 },
-      { kind: 'tank', x: 320, y: 900, hp: 8, speed: 28 }, { kind: 'tank', x: 1220, y: 900, hp: 8, speed: 28 },
+      { kind: 'boss', x: 1000, y: 330, hp: 64, speed: 55 },
+      { kind: 'flyer', x: 300, y: 250, hp: 3, speed: 55 }, { kind: 'flyer', x: 1700, y: 250, hp: 3, speed: 55 },
+      { kind: 'tank', x: 450, y: 560, hp: 8, speed: 28 }, { kind: 'tank', x: 1550, y: 560, hp: 8, speed: 28 },
     ],
-    pods: [[300, 780, 'health'], [780, 500, 'laser'], [1200, 780, 'fire']],
+    pods: [[350, 400, 'health'], [1000, 360, 'laser'], [1650, 400, 'fire']],
   },
 ]
 
@@ -891,7 +904,7 @@ export class MainScene extends Phaser.Scene {
     this.bossRef = undefined
     this.shardsGot = 0
     this.shardsTotal = 0
-    this.decor.forEach((d) => d.destroy())
+    this.decor.forEach((d) => { this.tweens.killTweensOf(d); d.destroy() })
     this.decor = []
     this.spawnTimer = 0
     this.bossPhase = 1
@@ -919,6 +932,10 @@ export class MainScene extends Phaser.Scene {
       this.bgFar.setVisible(true).setTexture('far_' + def.theme)
       this.bgMid.setVisible(true).setTexture('mid_' + def.theme)
     }
+
+    // Per-theme environmental set-dressing (procedural, behind + around the terrain)
+    // so each stage reads as a distinct place, not just a recolour.
+    this.decorateLevel(def, theme)
 
     // A solid terrain block: textured tech-plate body (tiled → no stretch), shaded
     // mass toward the bottom, dimensional side edges, and a bright walkable top.
@@ -992,6 +1009,198 @@ export class MainScene extends Phaser.Scene {
     def.enemies.forEach((e) => this.spawnEnemy(e.kind, e.x, e.y, e.hp, e.speed))
     def.pods.forEach(([x, y, kind]) => this.spawnPowerup(x, y, kind as string))
     this.placeShards(def)
+  }
+
+  // Per-theme environmental set-dressing. Procedural props (no art assets) that give
+  // each stage a distinct sense of place — city neon+windows, factory pipes+gears, sky
+  // clouds+pylons, reactor conduits+coils, throne columns+braziers. All non-colliding,
+  // parallaxed, and pushed to `decor` so they clear on rebuild. Depth < 5 sits behind
+  // the terrain; depth 9 is a thin foreground haze that never covers the play space.
+  private decorateLevel(def: LevelDef, theme: Theme) {
+    const w = def.w
+    const gy = 600                                   // standard walk surface (horizontal levels)
+    const ADD = Phaser.BlendModes.ADD
+    // Deterministic per-stage RNG so each layout is stable + hand-tunable across runs.
+    let s = (0x9e3779b9 ^ def.name.length) >>> 0
+    for (let i = 0; i < def.name.length; i++) s = Math.imul(s ^ def.name.charCodeAt(i), 0x85ebca6b) >>> 0
+    const rnd = () => { s = Math.imul(s ^ (s >>> 15), 0x2c1b3c6d) >>> 0; s = Math.imul(s ^ (s >>> 13), 0x297a2d39) >>> 0; return ((s ^ (s >>> 16)) >>> 0) / 4294967296 }
+    const R = (a: number, b: number) => a + rnd() * (b - a)
+    const RI = (a: number, b: number) => Math.floor(R(a, b + 0.999))
+    const keep = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.decor.push(o); return o }
+    const rect = (x: number, y: number, rw: number, rh: number, c: number, a = 1, d = 4, sf = 1) =>
+      keep(this.add.rectangle(x, y, rw, rh, c, a).setDepth(d).setScrollFactor(sf))
+    const glow = (x: number, y: number, rw: number, rh: number, c: number, a: number, d = 4, sf = 1) =>
+      keep(this.add.rectangle(x, y, rw, rh, c, a).setDepth(d).setScrollFactor(sf).setBlendMode(ADD))
+    const gc = (x: number, y: number, r: number, c: number, a = 1, d = 4, sf = 1) =>
+      keep(this.add.circle(x, y, r, c, a).setDepth(d).setScrollFactor(sf))
+    const pulse = (o: Phaser.GameObjects.GameObject, from: number, to: number, dur: number) =>
+      this.tweens.add({ targets: o, alpha: { from, to }, duration: dur, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+    const A = theme.accent, RIM = theme.rim, LED = theme.ledge
+
+    switch (def.theme) {
+      case 'streets': {
+        // Back tower faces with lit-window grids (slow parallax; extended below the
+        // ground so vertical parallax never reveals a gap under the terrain).
+        for (let x = 240; x < w - 160; x += RI(320, 470)) {
+          const bw = R(120, 220), bh = R(180, 330), top = gy - bh
+          rect(x, (top + gy + 160) / 2, bw, bh + 160, 0x140c26, 0.92, 3, 0.6)
+          glow(x, top + 3, bw, 5, A, 0.4, 3, 0.6)
+          for (let wy = top + 18; wy < gy - 16; wy += 24)
+            for (let wx = x - bw / 2 + 14; wx < x + bw / 2 - 12; wx += 22)
+              if (rnd() > 0.62) glow(wx, wy, 7, 11, rnd() > 0.72 ? RIM : 0xfbbf24, R(0.22, 0.55), 3, 0.6)
+        }
+        // Blinking vertical neon signs hung on the faces.
+        for (let x = 320; x < w - 220; x += RI(520, 820)) {
+          const sy = gy - R(150, 260), sh = R(70, 120), col = rnd() > 0.5 ? RIM : A
+          glow(x, sy, 22, sh + 12, col, 0.12, 3, 0.72)
+          const sign = glow(x, sy, 11, sh, col, 0.8, 4, 0.72)
+          if (rnd() > 0.45) pulse(sign, 0.32, 0.85, R(560, 1150))
+        }
+        // Street lamps rising from the walkway, each with a soft down-cone.
+        for (let x = 280; x < w - 150; x += RI(360, 520)) {
+          const dir = rnd() > 0.5 ? 1 : -1
+          rect(x, gy - 62, 5, 128, 0x0e0a1a, 0.95, 4)
+          rect(x + 13 * dir, gy - 120, 30, 6, LED, 1, 4)
+          glow(x + 24 * dir, gy - 114, 10, 6, 0xfff1a8, 0.85, 5)
+          keep(this.add.triangle(x + 24 * dir, gy - 40, -15, -72, 15, -72, 0, 0, 0xfff1a8, 0.06).setDepth(4).setBlendMode(ADD))
+        }
+        // Drifting ground steam (thin foreground band).
+        for (let x = 320; x < w - 150; x += RI(440, 660)) {
+          const h = keep(this.add.ellipse(x, gy - 8, R(70, 130), 26, 0x6d5a9a, 0.10).setDepth(9).setBlendMode(ADD))
+          this.tweens.add({ targets: h, y: gy - 44, alpha: 0, scaleX: 1.6, duration: R(2600, 4200), repeat: -1, ease: 'Sine.easeOut' })
+        }
+        break
+      }
+
+      case 'industrial': {
+        // Fat vertical pipes running the back wall, with band highlights + valves.
+        for (let x = 240; x < w - 160; x += RI(280, 440)) {
+          const pw = R(26, 44), top = gy - R(160, 300)
+          rect(x, (top + gy + 140) / 2, pw, (gy + 140) - top, 0x2a1c10, 0.95, 3, 0.7)
+          rect(x - pw / 2 + 3, (top + gy) / 2, 3, gy - top, 0xffd9a0, 0.14, 3, 0.7)   // lit edge
+          rect(x + pw / 2 - 3, (top + gy) / 2, 4, gy - top, 0x000000, 0.3, 3, 0.7)    // shade edge
+          for (let vy = top + 30; vy < gy - 20; vy += RI(70, 120)) rect(x, vy, pw + 10, 9, LED, 0.9, 3, 0.7)  // couplings
+        }
+        // A long overhead pipe run with joint boxes.
+        {
+          const py = gy - R(300, 350)
+          rect(w / 2, py, w, 14, 0x241a10, 0.9, 3, 0.7)
+          rect(w / 2, py - 8, w, 3, 0xffd9a0, 0.12, 3, 0.7)
+          for (let x = 200; x < w; x += RI(260, 420)) rect(x, py, 26, 24, LED, 0.95, 3, 0.7)
+        }
+        // Slow-turning gears (spokes poke past the rim to read as cogs).
+        for (let x = 380; x < w - 200; x += RI(560, 900)) {
+          const r = R(34, 60), y = gy - R(120, 240)
+          const parts: Phaser.GameObjects.GameObject[] = [
+            this.add.circle(0, 0, r + 5, RIM, 0.16).setBlendMode(ADD),
+            this.add.circle(0, 0, r, 0x241a10, 0.96),
+            this.add.circle(0, 0, r * 0.5, LED, 0.9),
+            this.add.circle(0, 0, r * 0.18, 0x120c06, 1),
+            this.add.rectangle(0, 0, r * 2.3, 6, RIM, 0.45),
+            this.add.rectangle(0, 0, 6, r * 2.3, RIM, 0.45),
+            this.add.rectangle(0, 0, r * 2.3, 6, RIM, 0.45).setRotation(Math.PI / 4),
+            this.add.rectangle(0, 0, r * 2.3, 6, RIM, 0.45).setRotation(-Math.PI / 4),
+          ]
+          const gear = keep(this.add.container(x, y, parts).setDepth(3).setScrollFactor(0.75))
+          this.tweens.add({ targets: gear, angle: rnd() > 0.5 ? 360 : -360, duration: R(9000, 16000), repeat: -1 })
+        }
+        // Steam vents puffing off the floor.
+        for (let x = 300; x < w - 150; x += RI(500, 760)) {
+          const v = keep(this.add.ellipse(x, gy - 10, 40, 20, 0xffd9a0, 0.12).setDepth(9).setBlendMode(ADD))
+          this.tweens.add({ targets: v, y: gy - 70, scaleX: 2, scaleY: 2.4, alpha: 0, duration: R(1500, 2400), repeat: -1, ease: 'Sine.easeOut' })
+        }
+        break
+      }
+
+      case 'sky': {
+        // Drifting cloud banks (deep parallax) built from stacked soft ellipses.
+        for (let i = 0; i < 10; i++) {
+          const cx = R(200, w - 200), cy = R(80, 360), cw = R(120, 240)
+          const puffs: Phaser.GameObjects.GameObject[] = []
+          for (let j = 0; j < 4; j++) puffs.push(keep(this.add.ellipse(cx + R(-cw / 2, cw / 2), cy + R(-14, 14), R(70, 130), R(34, 56), 0xbfe6ff, R(0.05, 0.12)).setDepth(2).setScrollFactor(0.35).setBlendMode(ADD)))
+          this.tweens.add({ targets: puffs, x: '+=' + R(40, 90), duration: R(9000, 16000), yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+        }
+        // Tall lattice pylons rising behind the rails (legs + rungs + X-braces).
+        for (let x = 300; x < w - 200; x += RI(500, 780)) {
+          const top = gy - R(220, 340), half = R(26, 40)
+          rect(x - half, (top + gy + 120) / 2, 5, (gy + 120) - top, 0x18344a, 0.9, 3, 0.6)
+          rect(x + half, (top + gy + 120) / 2, 5, (gy + 120) - top, 0x18344a, 0.9, 3, 0.6)
+          const bl = Math.hypot(half * 2, 44), ba = Math.atan2(44, half * 2)
+          for (let ry = top + 24; ry < gy; ry += RI(52, 74)) {
+            rect(x, ry, half * 2, 4, 0x1d3a57, 0.9, 3, 0.6)                                   // rung
+            keep(this.add.rectangle(x, ry + 22, bl, 3, 0x2a4a63, 0.5).setRotation(ba).setDepth(3).setScrollFactor(0.6))   // X-brace
+            keep(this.add.rectangle(x, ry + 22, bl, 3, 0x2a4a63, 0.5).setRotation(-ba).setDepth(3).setScrollFactor(0.6))
+          }
+        }
+        // Blinking beacon masts.
+        for (let x = 360; x < w - 200; x += RI(600, 900)) {
+          const mh = R(120, 200)
+          rect(x, gy - mh / 2, 4, mh, 0x14283a, 0.9, 4)
+          const light = gc(x, gy - mh, 6, 0xff5566, 0.95, 5)
+          glow(x, gy - mh, 16, 16, 0xff5566, 0.4, 4)
+          pulse(light, 0.25, 1, R(500, 800))
+        }
+        break
+      }
+
+      case 'core': {
+        // Pulsing vertical energy conduits threading the back wall.
+        for (let x = 220; x < w - 140; x += RI(200, 320)) {
+          const top = gy - R(180, 320)
+          rect(x, (top + gy + 140) / 2, 10, (gy + 140) - top, 0x2a0d13, 0.95, 3, 0.7)
+          const vein = glow(x, (top + gy) / 2, 4, gy - top, rnd() > 0.5 ? RIM : A, 0.6, 3, 0.7)
+          pulse(vein, 0.25, 0.85, R(900, 1700))
+          for (let cy = top + 26; cy < gy - 16; cy += RI(60, 100)) glow(x, cy, 16, 5, A, 0.5, 3, 0.7)  // couplings
+        }
+        // Reactor coil rings that breathe (concentric strokes, pulsing scale).
+        for (let x = 420; x < w - 220; x += RI(560, 900)) {
+          const y = gy - R(150, 260)
+          const halo = gc(x, y, R(60, 90), A, 0.06, 3, 0.75)
+          for (let k = 0; k < 3; k++) {
+            const ring = keep(this.add.circle(x, y, 26 + k * 16, 0x000000, 0).setStrokeStyle(3, k === 1 ? RIM : A, 0.7).setDepth(3).setScrollFactor(0.75).setBlendMode(ADD))
+            this.tweens.add({ targets: ring, scale: { from: 0.85, to: 1.12 }, duration: R(1400, 2200), yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: k * 160 })
+          }
+          this.tweens.add({ targets: halo, scale: { from: 0.9, to: 1.2 }, alpha: { from: 0.05, to: 0.12 }, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+        }
+        // Warning chevrons stencilled on the floor.
+        for (let x = 300; x < w - 150; x += RI(360, 560)) {
+          keep(this.add.text(x, gy - 12, '▶▶', { fontFamily: 'monospace', fontSize: '13px', color: '#' + (RIM >>> 0).toString(16).padStart(6, '0') }).setOrigin(0.5).setAlpha(0.28).setDepth(4))
+        }
+        break
+      }
+
+      case 'throne': {
+        // Fluted columns framing the hall (base + shaft highlights + capital).
+        for (let x = 260; x < w - 160; x += RI(300, 420)) {
+          const top = gy - R(240, 340), cw = R(40, 60)
+          rect(x, (top + gy + 120) / 2, cw, (gy + 120) - top, 0x2a2040, 0.92, 3, 0.8)
+          rect(x - cw / 2 + 5, (top + gy) / 2, 4, gy - top, 0xffe9b0, 0.12, 3, 0.8)
+          rect(x + cw / 2 - 5, (top + gy) / 2, 4, gy - top, 0x000000, 0.28, 3, 0.8)
+          rect(x, top + 8, cw + 20, 18, LED, 0.95, 3, 0.8)     // capital
+          glow(x, top + 8, cw + 26, 20, RIM, 0.14, 3, 0.8)
+        }
+        // Hanging banners with an emblem, gently swaying from the top.
+        for (let x = 360; x < w - 200; x += RI(420, 640)) {
+          const by = gy - R(300, 360), bh = R(120, 180)
+          const banner = keep(this.add.rectangle(x, by, 46, bh, A, 0.28).setOrigin(0.5, 0).setDepth(4).setScrollFactor(0.85))
+          const emblem = keep(this.add.star(x, by + 34, 4, 5, 13, RIM, 0.7).setOrigin(0.5, 0).setDepth(4).setScrollFactor(0.85))
+          this.tweens.add({ targets: [banner, emblem], angle: { from: -2.5, to: 2.5 }, duration: R(2400, 3400), yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+        }
+        // Braziers with a flickering flame + rising embers.
+        for (let x = 320; x < w - 150; x += RI(440, 640)) {
+          rect(x, gy - 26, 22, 12, 0x3a2a1a, 1, 4)               // bowl
+          rect(x, gy - 14, 8, 22, 0x2a1f14, 1, 4)                // stand
+          const flame = keep(this.add.ellipse(x, gy - 40, 20, 34, 0xffb347, 0.7).setDepth(5).setBlendMode(ADD))
+          glow(x, gy - 40, 44, 50, 0xff7a1a, 0.18, 4)
+          this.tweens.add({ targets: flame, scaleY: { from: 0.8, to: 1.25 }, scaleX: { from: 1, to: 0.8 }, alpha: { from: 0.55, to: 0.85 }, duration: R(180, 320), yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+          for (let e = 0; e < 3; e++) {
+            const ember = keep(this.add.circle(x + R(-8, 8), gy - 40, R(1.5, 2.6), 0xffcf7a, 0.9).setDepth(9).setBlendMode(ADD))
+            this.tweens.add({ targets: ember, y: gy - R(120, 190), x: '+=' + R(-16, 16), alpha: 0, duration: R(1400, 2400), repeat: -1, ease: 'Sine.easeOut', delay: e * 500 })
+          }
+        }
+        break
+      }
+    }
   }
 
   private spawnEnemy(kind: string, x: number, y: number, hp: number, speed: number, type?: string) {
