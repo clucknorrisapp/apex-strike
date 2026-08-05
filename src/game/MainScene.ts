@@ -675,7 +675,9 @@ export class MainScene extends Phaser.Scene {
     if (this.player.texture.key === 'huntress' || this.player.texture.key === 'huntress_run') {
       // Lioness hero (~0.64 aspect). Tail + ponytail sprawl to the left, so the
       // body sits centre-right of the frame — the hitbox is offset right to it.
-      this.player.setDisplaySize(78, 122)
+      // Sized so she reads as a hero (a bit taller than a grunt) without eating
+      // the frame: ~23% of the 384-tall design space, ~1.4x a soldier.
+      this.player.setDisplaySize(56, 88)
       const tw = this.player.width, th = this.player.height
       this.player.body!.setSize(tw * 0.26, th * 0.72)
       ;(this.player.body as Phaser.Physics.Arcade.Body).setOffset(tw * 0.43, th * 0.24)
