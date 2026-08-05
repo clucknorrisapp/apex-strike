@@ -3,7 +3,6 @@ import Phaser from 'phaser'
 const ASSETS = {
   huntress: '/assets/huntress.png',
   huntress_run: '/assets/huntress_run.png',
-  huntress_run2: '/assets/huntress_run2.png',
   huntress_jump: '/assets/huntress_jump.png',
   huntress_crouch: '/assets/huntress_crouch.png',
   enemy_soldier: '/assets/enemy_soldier.png',
@@ -471,7 +470,6 @@ export class MainScene extends Phaser.Scene {
     // aligned to a shared canvas so they swap without jitter (ready/run/jump/crouch).
     this.load.image('huntress', ASSETS.huntress)
     this.load.image('huntress_run', ASSETS.huntress_run)
-    this.load.image('huntress_run2', ASSETS.huntress_run2)
     this.load.image('huntress_jump', ASSETS.huntress_jump)
     this.load.image('huntress_crouch', ASSETS.huntress_crouch)
     this.load.image('enemy_soldier', ASSETS.enemy_soldier)
@@ -698,10 +696,10 @@ export class MainScene extends Phaser.Scene {
 
   private sizePlayer() {
     const k = this.player.texture.key
-    if (k === 'huntress' || k === 'huntress_run' || k === 'huntress_run2' || k === 'huntress_jump' || k === 'huntress_crouch') {
-      // All hero poses share one aligned 1024x900 canvas (body-axis centred at
-      // x=512, feet at y=760, head at y=300) so they swap without size/position
-      // jitter. Display so the ~460px-tall character reads ~80px in design space.
+    if (k === 'huntress' || k === 'huntress_run' || k === 'huntress_jump' || k === 'huntress_crouch') {
+      // All hero poses share one aligned 1024x900 canvas — each already scaled to
+      // a consistent apparent size (crouch a touch shorter) and anchored feet@760
+      // — so one display size + hitbox keeps the physics stable across swaps.
       const DISP_H = 156
       this.player.setDisplaySize(DISP_H * (1024 / 900), DISP_H)
       const tw = this.player.width, th = this.player.height   // 1024 x 900
