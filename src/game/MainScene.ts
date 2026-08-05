@@ -557,8 +557,8 @@ export class MainScene extends Phaser.Scene {
 
     this.particles = this.add.particles(0, 0, 'spark', {
       speed: { min: 120, max: 380 },
-      scale: { start: 1.4, end: 0 },
-      lifespan: 500,
+      scale: { start: 0.8, end: 0 },
+      lifespan: 340,
       blendMode: 'ADD',
       emitting: false,
     })
@@ -649,29 +649,40 @@ export class MainScene extends Phaser.Scene {
       g.fillRect(0, 0, 32, 256)
       g.generateTexture('terrain', 32, 256); g.destroy()
     }
+    // Projectiles: crisp directional energy bolts (drawn pointing RIGHT, tip at
+    // the right edge) at hi-res so they stay sharp under the 2x render. Each bolt
+    // is rotated to its travel angle at spawn — clean "new-age" look, no blobs.
     if (!this.textures.exists('bullet')) {
       const g = this.make.graphics({ x: 0, y: 0 })
-      g.fillStyle(0x22d3ee, 1); g.fillRoundedRect(0, 2, 22, 10, 3)
-      g.fillStyle(0xffffff, 1); g.fillRoundedRect(2, 4, 14, 6, 2)
-      g.generateTexture('bullet', 22, 14); g.destroy()
+      g.fillStyle(0x0e7490, 1); g.fillRoundedRect(1, 3, 40, 12, 6)   // dark cyan shell
+      g.fillStyle(0x22d3ee, 1); g.fillRoundedRect(3, 4, 36, 10, 5)   // bright cyan
+      g.fillStyle(0xcffafe, 1); g.fillRoundedRect(7, 6, 26, 6, 3)    // pale inner
+      g.fillStyle(0xffffff, 1); g.fillCircle(40, 9, 6)               // hot leading tip
+      g.generateTexture('bullet', 48, 18); g.destroy()
     }
     if (!this.textures.exists('laser')) {
       const g = this.make.graphics({ x: 0, y: 0 })
-      g.fillStyle(0xe879f9, 1); g.fillRect(0, 0, 40, 8)
-      g.fillStyle(0xffffff, 1); g.fillRect(0, 2, 40, 4)
-      g.generateTexture('laser', 40, 8); g.destroy()
+      g.fillStyle(0x86198f, 1); g.fillRoundedRect(0, 4, 72, 7, 3)    // magenta shell
+      g.fillStyle(0xe879f9, 1); g.fillRoundedRect(2, 5, 68, 5, 2)    // bright magenta
+      g.fillStyle(0xfdf4ff, 1); g.fillRect(5, 6, 62, 2)             // white core line
+      g.fillStyle(0xffffff, 1); g.fillCircle(68, 7, 5)              // hot tip
+      g.generateTexture('laser', 72, 14); g.destroy()
     }
     if (!this.textures.exists('fireball')) {
       const g = this.make.graphics({ x: 0, y: 0 })
-      g.fillStyle(0xfb923c, 1); g.fillCircle(12, 12, 12)
-      g.fillStyle(0xfef08a, 1); g.fillCircle(12, 12, 6)
-      g.generateTexture('fireball', 24, 24); g.destroy()
+      g.fillStyle(0xc2410c, 1); g.fillEllipse(22, 12, 42, 20)        // deep-orange body
+      g.fillStyle(0xf97316, 1); g.fillEllipse(25, 12, 32, 16)        // orange
+      g.fillStyle(0xfacc15, 1); g.fillEllipse(29, 12, 20, 11)        // yellow core
+      g.fillStyle(0xfffbeb, 1); g.fillCircle(32, 12, 5)             // white-hot head
+      g.generateTexture('fireball', 44, 24); g.destroy()
     }
     if (!this.textures.exists('enemyBullet')) {
       const g = this.make.graphics({ x: 0, y: 0 })
-      g.fillStyle(0xf43f5e, 1); g.fillRoundedRect(0, 1, 16, 8, 2)
-      g.fillStyle(0xfecdd3, 1); g.fillRoundedRect(2, 3, 10, 4, 1)
-      g.generateTexture('enemyBullet', 16, 10); g.destroy()
+      g.fillStyle(0x9f1239, 1); g.fillRoundedRect(1, 3, 24, 9, 4)    // dark red shell
+      g.fillStyle(0xf43f5e, 1); g.fillRoundedRect(3, 4, 20, 7, 3)    // red
+      g.fillStyle(0xffe4e6, 1); g.fillRoundedRect(6, 5, 11, 4, 2)    // pink core
+      g.fillStyle(0xffffff, 1); g.fillCircle(24, 7, 4)              // tip
+      g.generateTexture('enemyBullet', 28, 14); g.destroy()
     }
     if (!this.textures.exists('turret')) {
       const g = this.make.graphics({ x: 0, y: 0 })
@@ -700,9 +711,13 @@ export class MainScene extends Phaser.Scene {
       }
     })
     if (!this.textures.exists('spark')) {
+      // Tight, crisp glint (hot core + minimal falloff) instead of a soft ball,
+      // so muzzle/impact sparks read sharp under the 2x render.
       const s = this.make.graphics({ x: 0, y: 0 })
-      s.fillStyle(0xffffff, 1); s.fillCircle(6, 6, 6)
-      s.generateTexture('spark', 12, 12); s.destroy()
+      s.fillStyle(0xffffff, 0.22); s.fillCircle(8, 8, 8)
+      s.fillStyle(0xffffff, 0.6); s.fillCircle(8, 8, 4)
+      s.fillStyle(0xffffff, 1); s.fillCircle(8, 8, 2)
+      s.generateTexture('spark', 16, 16); s.destroy()
     }
     if (!this.textures.exists('shard')) {
       const g = this.make.graphics({ x: 0, y: 0 })
@@ -1341,18 +1356,26 @@ export class MainScene extends Phaser.Scene {
     if (this.aimUp && !this.aimDown) angle = this.movingH ? -45 : -90
     else if (this.aimDown && !this.onGround) angle = this.movingH ? 45 : 90
 
-    const vertical = angle === -90 || angle === 90
-    const baseX = this.player.x + dir * (vertical ? 4 : 30)
-    const baseY = (this.prone ? this.player.y + 16 : this.player.y - 2) + (angle === 90 ? 12 : 0)
+    // Muzzle tracks the aim: reach the barrel out from the huntress's hands along
+    // the aim angle, so the flash + bullets emanate from where you're shooting.
+    const aimRad = Phaser.Math.DegToRad(angle)
+    const pivotX = this.player.x + dir * 6
+    const pivotY = this.prone ? this.player.y + 14 : this.player.y - 6
+    const barrel = this.prone ? 30 : 34
+    const baseX = pivotX + Math.cos(aimRad) * dir * barrel
+    const baseY = pivotY + Math.sin(aimRad) * barrel
 
-    const spawn = (ang: number, tex = 'bullet', spd = 800, scale = 1.3) => {
+    const spawn = (ang: number, tex = 'bullet', spd = 800, scale = 0.6) => {
       const b = this.bullets.get(baseX, baseY, tex) as Phaser.Physics.Arcade.Image
       if (!b) return
       b.setActive(true).setVisible(true); b.setScale(scale); b.setDepth(20)
       b.body?.reset(baseX, baseY)
       const rad = Phaser.Math.DegToRad(ang)
       const isVert = ang === -90 || ang === 90
-      b.setVelocity(isVert ? 0 : Math.cos(rad) * dir * spd, Math.sin(rad) * spd)
+      const vx = isVert ? 0 : Math.cos(rad) * dir * spd
+      const vy = Math.sin(rad) * spd
+      b.setVelocity(vx, vy)
+      b.setRotation(Math.atan2(vy, vx))   // bolt points where it flies
       this.time.delayedCall(1100, () => { if (b.active) b.setActive(false).setVisible(false) })
     }
 
@@ -1361,15 +1384,15 @@ export class MainScene extends Phaser.Scene {
     this.muzzleFlash(baseX, baseY, dir, angle)
 
     if (this.weapon === 'spread') {
-      spawn(angle - 20, 'bullet', 780, 1.2); spawn(angle, 'bullet', 820, 1.4); spawn(angle + 20, 'bullet', 780, 1.2)
+      spawn(angle - 20, 'bullet', 780, 0.55); spawn(angle, 'bullet', 820, 0.64); spawn(angle + 20, 'bullet', 780, 0.55)
     } else if (this.weapon === 'laser') {
-      spawn(angle, 'laser', 1120, 1.6); spawn(angle, 'laser', 1060, 1.2)
+      spawn(angle, 'laser', 1120, 0.9); spawn(angle, 'laser', 1060, 0.7)
     } else if (this.weapon === 'fire') {
-      spawn(angle, 'fireball', 640, 1.5); spawn(angle - 14, 'fireball', 600, 1.2); spawn(angle + 14, 'fireball', 600, 1.2)
+      spawn(angle, 'fireball', 640, 0.78); spawn(angle - 14, 'fireball', 600, 0.62); spawn(angle + 14, 'fireball', 600, 0.62)
     } else if (this.weapon === 'rapid') {
-      spawn(angle, 'bullet', 840, 1.15)
+      spawn(angle, 'bullet', 840, 0.5)
     } else {
-      spawn(angle, 'bullet', 800, 1.35)
+      spawn(angle, 'bullet', 800, 0.62)
     }
   }
 
@@ -1509,12 +1532,13 @@ export class MainScene extends Phaser.Scene {
     for (let i = 0; i < count; i++) {
       const b = this.enemyBullets.get(enemy.x, enemy.y, 'enemyBullet') as Phaser.Physics.Arcade.Image
       if (!b) continue
-      b.setActive(true).setVisible(true); b.setScale(1.3); b.setDepth(19)
+      b.setActive(true).setVisible(true); b.setScale(0.75); b.setDepth(19)
       b.body?.reset(enemy.x, enemy.y)
       const spread = (i - (count - 1) / 2) * 0.16
       const ang = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y) + spread
       const spd = count > 1 ? 220 : 270
       b.setVelocity(Math.cos(ang) * spd, Math.sin(ang) * spd)
+      b.setRotation(ang)   // bolt points toward the player
       this.time.delayedCall(2200, () => { if (b.active) b.setActive(false).setVisible(false) })
     }
   }
