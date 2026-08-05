@@ -613,6 +613,13 @@ export class MainScene extends Phaser.Scene {
     this.uiCam.setOrigin(0, 0)
     this.uiCam.setScroll(0, 0)
     this.routeCameras()
+    // Cinematic pass on the WORLD camera only (HUD stays crisp): a subtle bloom
+    // makes the neon/cyan tech glow pop like the reference vibe, and a soft
+    // vignette frames the action. Guarded — postFX needs the WebGL renderer.
+    try {
+      this.cameras.main.postFX.addBloom(0xffffff, 1, 1, 1, 0.55, 3)
+      this.cameras.main.postFX.addVignette(0.5, 0.5, 1.05, 0.16)
+    } catch { /* Canvas renderer / no postFX — skip gracefully */ }
   }
 
   // Assign each display object to exactly one camera: screen-pinned HUD/overlays
