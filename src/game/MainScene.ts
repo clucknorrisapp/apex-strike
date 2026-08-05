@@ -336,12 +336,12 @@ export class MainScene extends Phaser.Scene {
     this.powerups = this.physics.add.group()
 
     // Painted backdrop (used when its art loaded) sits behind everything, pinned to the camera.
-    this.bgImage = this.add.image(400, 300, 'stars').setScrollFactor(0).setDepth(-10).setVisible(false)
-    this.bgScrim = this.add.rectangle(400, 300, 800, 600, 0x05040a, 0.26).setScrollFactor(0).setDepth(-9).setVisible(false)
+    this.bgImage = this.add.image(256, 192, 'stars').setScrollFactor(0).setDepth(-10).setVisible(false)
+    this.bgScrim = this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.26).setScrollFactor(0).setDepth(-9).setVisible(false)
     // Procedural parallax fallback (both axes for the 2D world)
-    this.bgStars = this.add.tileSprite(400, 300, 800, 600, 'stars').setScrollFactor(0).setDepth(0)
-    this.bgFar = this.add.tileSprite(400, 300, 800, 600, 'far_streets').setScrollFactor(0).setDepth(1)
-    this.bgMid = this.add.tileSprite(400, 300, 800, 600, 'mid_streets').setScrollFactor(0).setDepth(2)
+    this.bgStars = this.add.tileSprite(256, 192, 512, 384, 'stars').setScrollFactor(0).setDepth(0)
+    this.bgFar = this.add.tileSprite(256, 192, 512, 384, 'far_streets').setScrollFactor(0).setDepth(1)
+    this.bgMid = this.add.tileSprite(256, 192, 512, 384, 'mid_streets').setScrollFactor(0).setDepth(2)
 
     this.buildLevel(1)
 
@@ -355,7 +355,7 @@ export class MainScene extends Phaser.Scene {
     this.player.setMaxVelocity(RUN, 1250)
 
     this.cameras.main.startFollow(this.player, true, 0.11, 0.11)
-    this.cameras.main.setDeadzone(140, 110)
+    this.cameras.main.setDeadzone(90, 72)
 
     this.physics.add.collider(this.player, this.platforms)
     this.physics.add.collider(this.enemies, this.platforms)
@@ -390,7 +390,8 @@ export class MainScene extends Phaser.Scene {
     this.particles.setDepth(24)
 
     this.createHUD()
-    this.createTouchControls()
+    // On-screen controls only where they're needed (touch devices) — keep desktop clean.
+    if (this.sys.game.device.input.touch) this.createTouchControls()
     this.showBanner('LEVEL 1', def.name)
   }
 
@@ -535,7 +536,7 @@ export class MainScene extends Phaser.Scene {
 
     const bgKey = 'bg_' + def.theme
     if (this.textures.exists(bgKey)) {
-      this.bgImage.setTexture(bgKey).setDisplaySize(800, 600).setVisible(true)
+      this.bgImage.setTexture(bgKey).setDisplaySize(512, 384).setVisible(true)
       this.bgScrim.setVisible(true)
       this.bgStars.setVisible(false); this.bgFar.setVisible(false); this.bgMid.setVisible(false)
     } else {
@@ -628,44 +629,44 @@ export class MainScene extends Phaser.Scene {
   }
 
   private createHUD() {
-    this.add.rectangle(100, 58, 180, 105, 0x0a0612, 0.75).setScrollFactor(0).setDepth(99).setStrokeStyle(1, 0xa855f7, 0.5)
-    this.scoreText = this.add.text(16, 10, 'SCORE  0', { fontFamily: 'monospace', fontSize: '14px', color: '#e879f9' }).setScrollFactor(0).setDepth(100)
-    this.healthText = this.add.text(16, 30, 'HP  ♥♥♥♥♥', { fontFamily: 'monospace', fontSize: '13px', color: '#f472b6' }).setScrollFactor(0).setDepth(100)
-    this.livesText = this.add.text(16, 48, 'LIVES  3', { fontFamily: 'monospace', fontSize: '12px', color: '#a1a1aa' }).setScrollFactor(0).setDepth(100)
-    this.levelText = this.add.text(16, 64, 'LEVEL  1', { fontFamily: 'monospace', fontSize: '12px', color: '#71717a' }).setScrollFactor(0).setDepth(100)
-    this.weaponText = this.add.text(16, 80, 'GUN  NORMAL', { fontFamily: 'monospace', fontSize: '12px', color: '#22d3ee' }).setScrollFactor(0).setDepth(100)
-    this.comboText = this.add.text(16, 96, '', { fontFamily: 'monospace', fontSize: '12px', color: '#fbbf24' }).setScrollFactor(0).setDepth(100)
-    this.add.text(788, 10, 'APEX STRIKE', { fontFamily: 'monospace', fontSize: '12px', color: '#a855f7' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100)
+    this.add.rectangle(76, 42, 146, 80, 0x0a0612, 0.75).setScrollFactor(0).setDepth(99).setStrokeStyle(1, 0xa855f7, 0.5)
+    this.scoreText = this.add.text(10, 7, 'SCORE  0', { fontFamily: 'monospace', fontSize: '11px', color: '#e879f9' }).setScrollFactor(0).setDepth(100)
+    this.healthText = this.add.text(10, 21, 'HP  ♥♥♥♥♥', { fontFamily: 'monospace', fontSize: '10px', color: '#f472b6' }).setScrollFactor(0).setDepth(100)
+    this.livesText = this.add.text(10, 33, 'LIVES  3', { fontFamily: 'monospace', fontSize: '9px', color: '#a1a1aa' }).setScrollFactor(0).setDepth(100)
+    this.levelText = this.add.text(10, 44, 'LEVEL  1', { fontFamily: 'monospace', fontSize: '9px', color: '#71717a' }).setScrollFactor(0).setDepth(100)
+    this.weaponText = this.add.text(10, 55, 'GUN  NORMAL', { fontFamily: 'monospace', fontSize: '9px', color: '#22d3ee' }).setScrollFactor(0).setDepth(100)
+    this.comboText = this.add.text(10, 66, '', { fontFamily: 'monospace', fontSize: '9px', color: '#fbbf24' }).setScrollFactor(0).setDepth(100)
+    this.add.text(502, 7, 'APEX STRIKE', { fontFamily: 'monospace', fontSize: '9px', color: '#a855f7' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100)
   }
 
   private createTouchControls() {
     const btn = (x: number, y: number, w: number, h: number, label: string, key: keyof TouchState) => {
       const bg = this.add.rectangle(x, y, w, h, 0x1e1b4b, 0.5).setScrollFactor(0).setDepth(150).setInteractive()
       bg.setStrokeStyle(1, 0xa855f7, 0.5)
-      this.add.text(x, y, label, { fontFamily: 'monospace', fontSize: '12px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(151)
+      this.add.text(x, y, label, { fontFamily: 'monospace', fontSize: '10px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(151)
       bg.on('pointerdown', () => { this.touch[key] = true; bg.setFillStyle(0x7c3aed, 0.7) })
       bg.on('pointerup', () => { this.touch[key] = false; bg.setFillStyle(0x1e1b4b, 0.5) })
       bg.on('pointerout', () => { this.touch[key] = false; bg.setFillStyle(0x1e1b4b, 0.5) })
       this.input.addPointer(4)
     }
-    btn(50, 530, 60, 48, '◀', 'left')
-    btn(120, 530, 60, 48, '▶', 'right')
-    btn(85, 470, 80, 44, 'JUMP', 'jump')
-    btn(50, 410, 60, 40, '▲', 'up')
-    btn(120, 410, 60, 40, '▼', 'down')
-    btn(730, 510, 90, 64, 'FIRE', 'shoot')
+    btn(40, 344, 48, 40, '◀', 'left')
+    btn(94, 344, 48, 40, '▶', 'right')
+    btn(67, 300, 60, 34, 'JUMP', 'jump')
+    btn(40, 262, 48, 32, '▲', 'up')
+    btn(94, 262, 48, 32, '▼', 'down')
+    btn(456, 340, 70, 52, 'FIRE', 'shoot')
   }
 
   private showBanner(title: string, subtitle: string) {
-    const t = this.add.text(400, 250, title + '\n' + subtitle, {
-      fontFamily: 'monospace', fontSize: '26px', color: '#22d3ee', align: 'center',
+    const t = this.add.text(256, 150, title + '\n' + subtitle, {
+      fontFamily: 'monospace', fontSize: '18px', color: '#22d3ee', align: 'center',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(200).setAlpha(0)
     this.tweens.add({ targets: t, alpha: 1, duration: 300, yoyo: true, hold: 700, onComplete: () => t.destroy() })
   }
 
   private popup(x: number, y: number, text: string, color = '#e879f9') {
-    const t = this.add.text(x, y, text, { fontFamily: 'monospace', fontSize: '16px', color }).setOrigin(0.5).setDepth(50)
-    this.tweens.add({ targets: t, y: y - 50, alpha: 0, duration: 600, onComplete: () => t.destroy() })
+    const t = this.add.text(x, y, text, { fontFamily: 'monospace', fontSize: '11px', color }).setOrigin(0.5).setDepth(50)
+    this.tweens.add({ targets: t, y: y - 36, alpha: 0, duration: 600, onComplete: () => t.destroy() })
   }
 
   update(time: number, delta: number) {
@@ -741,7 +742,7 @@ export class MainScene extends Phaser.Scene {
     if (this.spawnTimer > interval && this.enemies.countActive(true) < 12 + this.level) {
       this.spawnTimer = 0
       const camX = this.cameras.main.scrollX
-      const side = Phaser.Math.Clamp(Math.random() > 0.5 ? camX + 820 : camX - 20, 40, this.levelW - 40)
+      const side = Phaser.Math.Clamp(Math.random() > 0.5 ? camX + 540 : camX - 20, 40, this.levelW - 40)
       const camTop = this.cameras.main.scrollY
       if (Math.random() > 0.42) {
         this.spawnEnemy('flyer', side, Phaser.Math.Clamp(camTop + Phaser.Math.Between(60, 260), 40, this.levelH), 2 + Math.floor(this.level / 2), 48 + this.level * 6)
@@ -1068,8 +1069,8 @@ export class MainScene extends Phaser.Scene {
     this.sfx?.clear()
     if (this.level < 5) {
       const next = this.level + 1
-      const msg = this.add.text(400, 260, `LEVEL ${next}\n${LEVELS[next - 1].name}`, {
-        fontFamily: 'monospace', fontSize: '24px', color: '#22d3ee', align: 'center',
+      const msg = this.add.text(256, 150, `LEVEL ${next}\n${LEVELS[next - 1].name}`, {
+        fontFamily: 'monospace', fontSize: '16px', color: '#22d3ee', align: 'center',
       }).setOrigin(0.5).setScrollFactor(0).setDepth(200)
       this.time.delayedCall(1300, () => {
         msg.destroy()
@@ -1090,11 +1091,11 @@ export class MainScene extends Phaser.Scene {
   private triggerGameOver() {
     this.gameOver = true
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
-    this.add.rectangle(400, 300, 800, 600, 0x0a0612, 0.88).setScrollFactor(0).setDepth(200)
-    this.add.text(400, 210, 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '30px', color: '#f43f5e' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    this.add.text(400, 270, 'Score: ' + this.score, { fontFamily: 'monospace', fontSize: '18px', color: '#e879f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    this.add.text(400, 310, 'Reached Level ' + this.level, { fontFamily: 'monospace', fontSize: '13px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    const btn = this.add.text(400, 370, '[ CLICK / TAP TO RESTART ]', { fontFamily: 'monospace', fontSize: '14px', color: '#c4b5fd' })
+    this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.88).setScrollFactor(0).setDepth(200)
+    this.add.text(256, 130, 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '21px', color: '#f43f5e' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    this.add.text(256, 170, 'Score: ' + this.score, { fontFamily: 'monospace', fontSize: '13px', color: '#e879f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    this.add.text(256, 198, 'Reached Level ' + this.level, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    const btn = this.add.text(256, 240, '[ CLICK / TAP TO RESTART ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.scene.restart())
   }
@@ -1102,11 +1103,11 @@ export class MainScene extends Phaser.Scene {
   private showVictory() {
     this.gameOver = true
     this.player.setVelocity(0, 0)
-    this.add.rectangle(400, 300, 800, 600, 0x0a0612, 0.88).setScrollFactor(0).setDepth(200)
-    this.add.text(400, 180, 'SECTOR DOMINATED', { fontFamily: 'monospace', fontSize: '28px', color: '#22d3ee' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    this.add.text(400, 240, 'Final Score: ' + this.score, { fontFamily: 'monospace', fontSize: '18px', color: '#e879f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    this.add.text(400, 290, 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '13px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    const btn = this.add.text(400, 360, '[ CLICK / TAP TO PLAY AGAIN ]', { fontFamily: 'monospace', fontSize: '14px', color: '#c4b5fd' })
+    this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.88).setScrollFactor(0).setDepth(200)
+    this.add.text(256, 115, 'SECTOR DOMINATED', { fontFamily: 'monospace', fontSize: '19px', color: '#22d3ee' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    this.add.text(256, 152, 'Final Score: ' + this.score, { fontFamily: 'monospace', fontSize: '13px', color: '#e879f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    this.add.text(256, 184, 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    const btn = this.add.text(256, 230, '[ CLICK / TAP TO PLAY AGAIN ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.scene.restart())
   }

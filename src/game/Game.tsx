@@ -11,8 +11,9 @@ export function Game() {
 
     const config: Phaser.Types.Core.GameConfig = {
       type: Phaser.AUTO,
-      width: 800,
-      height: 600,
+      // Low internal resolution scaled up (Contra/Normie trick) — the hero reads BIG on screen.
+      width: 512,
+      height: 384,
       parent: containerRef.current,
       backgroundColor: '#0a0612',
       physics: {
@@ -48,7 +49,7 @@ export function Game() {
       <div className="w-full max-w-4xl">
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
-          <span className="text-violet-400/70 text-xs">v1.1 — Multi-Directional</span>
+          <span className="text-violet-400/70 text-xs">v1.3 — Big Graphics</span>
         </div>
 
         <div
