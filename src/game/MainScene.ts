@@ -174,6 +174,7 @@ export interface LevelDef {
   shards?: [number, number][]                 // optional explicit Apex Shard spots; auto-scattered when omitted
   movers?: [number, number, number, string, number, number][]  // [cx, top, w, axis 'h'|'v', dist, speed] — moving platforms
   hazards?: [number, number, number][]        // [cx, topY, w] — spike strips that damage on contact
+  bouncers?: [number, number, number][]       // [cx, topY, w] — launch pads that spring you upward
 }
 
 // Multi-directional stages: you climb UP, drop DOWN, and push FORWARD.
@@ -200,6 +201,7 @@ export const LEVELS: LevelDef[] = [
     pods: [[440, 910, 'spread'], [1200, 660, 'health'], [1980, 890, 'rapid']],
     movers: [[760, 1120, 120, 'h', 95, 0.85], [1560, 1030, 120, 'v', 150, 0.7]],
     hazards: [[1180, 1140, 130], [2000, 1140, 140]],
+    bouncers: [[1720, 1140, 90]],
   },
   {
     name: 'INDUSTRIAL RISE', theme: 'industrial', w: 2600, h: 1320, spawn: [80, 1180], goal: [2460, 360],
@@ -223,6 +225,7 @@ export const LEVELS: LevelDef[] = [
     pods: [[430, 800, 'rapid'], [1160, 600, 'health'], [2060, 800, 'laser']],
     movers: [[680, 1160, 130, 'v', 175, 0.65], [1430, 1080, 130, 'h', 100, 0.9]],
     hazards: [[500, 1260, 120], [2200, 1260, 140]],
+    bouncers: [[1150, 1260, 90]],
   },
   {
     name: 'SKY RAIL', theme: 'sky', w: 2700, h: 1400, spawn: [80, 1260], goal: [2500, 300],
@@ -244,6 +247,9 @@ export const LEVELS: LevelDef[] = [
       { kind: 'flyer', x: 1600, y: 280, hp: 4, speed: 65 }, { kind: 'flyer', x: 2200, y: 200, hp: 4, speed: 70 },
     ],
     pods: [[520, 860, 'laser'], [1180, 600, 'health'], [2020, 620, 'fire']],
+    movers: [[590, 1320, 120, 'h', 80, 0.9], [1890, 1180, 120, 'v', 180, 0.7]],
+    hazards: [[380, 1340, 120], [2320, 1340, 140]],
+    bouncers: [[1120, 1340, 90]],
   },
   {
     name: 'CORE ACCESS', theme: 'core', w: 2700, h: 1360, spawn: [80, 1220], goal: [2500, 640],
@@ -263,6 +269,9 @@ export const LEVELS: LevelDef[] = [
       { kind: 'flyer', x: 1700, y: 280, hp: 4, speed: 75 }, { kind: 'flyer', x: 2300, y: 240, hp: 4, speed: 80 },
     ],
     pods: [[470, 830, 'rapid'], [1220, 620, 'health'], [1740, 760, 'laser'], [2280, 620, 'fire']],
+    movers: [[690, 1280, 120, 'h', 75, 0.95], [2070, 1160, 120, 'v', 165, 0.72]],
+    hazards: [[1000, 1300, 120], [1750, 1300, 120]],
+    bouncers: [[1180, 1300, 90]],
   },
   {
     name: 'APEX THRONE', theme: 'throne', w: 1600, h: 1000, spawn: [80, 860], goal: [0, 0],
@@ -308,6 +317,7 @@ export class MainScene extends Phaser.Scene {
   private platforms!: Phaser.Physics.Arcade.StaticGroup
   private movers!: Phaser.Physics.Arcade.StaticGroup   // moving platforms (ride them)
   private hazards!: Phaser.Physics.Arcade.StaticGroup  // spike strips (damage on contact)
+  private bouncers!: Phaser.Physics.Arcade.StaticGroup // launch pads (spring you up)
   private powerups!: Phaser.Physics.Arcade.Group
   private bgFar!: Phaser.GameObjects.TileSprite
   private bgMid!: Phaser.GameObjects.TileSprite
@@ -503,6 +513,7 @@ export class MainScene extends Phaser.Scene {
     this.platforms = this.physics.add.staticGroup()
     this.movers = this.physics.add.staticGroup()
     this.hazards = this.physics.add.staticGroup()
+    this.bouncers = this.physics.add.staticGroup()
     this.bullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 120 })
     this.enemyBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 80 })
     this.enemies = this.physics.add.group()
@@ -540,6 +551,7 @@ export class MainScene extends Phaser.Scene {
     this.physics.add.collider(this.player, this.platforms)
     this.physics.add.collider(this.player, this.movers)
     this.physics.add.overlap(this.player, this.hazards, () => this.damagePlayer(), undefined, this)
+    this.physics.add.collider(this.player, this.bouncers, ((_p: unknown, pad: unknown) => this.bounce(pad as Phaser.Physics.Arcade.Sprite)) as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this)
     this.physics.add.collider(this.enemies, this.platforms)
     this.physics.add.collider(this.powerups, this.platforms)
 
@@ -764,6 +776,14 @@ export class MainScene extends Phaser.Scene {
       }
       g.generateTexture('spike', 64, 22); g.destroy()
     }
+    if (!this.textures.exists('pad')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      g.fillStyle(0x0f3d2e, 1); g.fillRoundedRect(0, 8, 64, 16, 5)        // dark housing
+      g.fillStyle(0x10b981, 1); g.fillRoundedRect(3, 4, 58, 12, 5)        // green spring face
+      g.fillStyle(0x6ee7b7, 1)
+      g.fillTriangle(20, 12, 26, 3, 32, 12); g.fillTriangle(34, 12, 40, 3, 46, 12)  // up chevrons
+      g.generateTexture('pad', 64, 26); g.destroy()
+    }
     if (!this.textures.exists('shard')) {
       const g = this.make.graphics({ x: 0, y: 0 })
       const diamond = (cx: number, cy: number, r: number) => { g.beginPath(); g.moveTo(cx, cy - r); g.lineTo(cx + r, cy); g.lineTo(cx, cy + r); g.lineTo(cx - r, cy); g.closePath(); g.fillPath() }
@@ -818,6 +838,7 @@ export class MainScene extends Phaser.Scene {
     this.enemyBullets.clear(true, true)
     this.movers.clear(true, true)
     this.hazards.clear(true, true)
+    this.bouncers.clear(true, true)
     this.shards?.getChildren().forEach((s) => this.tweens.killTweensOf(s))
     this.shards?.clear(true, true)
     this.destroyBossBar()
@@ -898,6 +919,15 @@ export class MainScene extends Phaser.Scene {
       m.setData('home', axis === 'v' ? cy : cx)
       m.setData('rider', [glow, rim, mark])
       this.decor.push(glow, rim, mark)
+    })
+
+    // Launch pads — land on one and spring high (reaches ledges a double-jump can't).
+    def.bouncers?.forEach(([cx, top, w]) => {
+      const s = this.bouncers.create(cx, top - 5, 'pad') as Phaser.Physics.Arcade.Sprite
+      s.setDisplaySize(w, 20).setDepth(9).refreshBody()
+      s.setData('lastPop', -9999); s.setData('sy', s.scaleY)
+      this.decor.push(this.add.rectangle(cx, top - 2, w, 4, 0x6ee7b7, 0.8).setDepth(9).setBlendMode(Phaser.BlendModes.ADD))
+      this.decor.push(this.add.rectangle(cx, top - 26, w + 10, 44, 0x10b981, 0.10).setDepth(8).setBlendMode(Phaser.BlendModes.ADD))
     })
 
     // Extraction beacon at the goal
@@ -1372,6 +1402,26 @@ export class MainScene extends Phaser.Scene {
         if (pb.velocity.y > 0) pb.setVelocityY(0)
       }
     })
+  }
+
+  // Launch pad: land on top → spring high and refresh air-jumps. Guarded so a
+  // side-brush doesn't fire, and rate-limited so one contact pops just once.
+  private bounce(pad: Phaser.Physics.Arcade.Sprite) {
+    const pb = this.player.body as Phaser.Physics.Arcade.Body
+    if (pb.velocity.y < -20) return                       // already rising — not a landing
+    const padTop = (pad.body as Phaser.Physics.Arcade.StaticBody).top
+    if (pb.bottom > padTop + 18) return                   // must contact near the top face
+    const now = this.time.now
+    if (now - (pad.getData('lastPop') as number) < 250) return
+    pad.setData('lastPop', now)
+    pb.setVelocityY(-820)                                 // double-jump apex is ~ -560; this clears higher
+    this.jumpsLeft = MAX_JUMPS                            // give the air-jumps back after a launch
+    this.sfx?.jump()
+    const sy = (pad.getData('sy') as number) || pad.scaleY
+    this.tweens.killTweensOf(pad)
+    pad.scaleY = sy * 0.55                                // squash, then spring back
+    this.tweens.add({ targets: pad, scaleY: sy, duration: 200, ease: 'Back.out' })
+    this.particles?.emitParticleAt(this.player.x, padTop, 8)
   }
 
   private pitFall() {
