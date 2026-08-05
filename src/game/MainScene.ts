@@ -413,11 +413,14 @@ export class MainScene extends Phaser.Scene {
     const color = this.weapon === 'laser' ? 0xe879f9 : this.weapon === 'fire' ? 0xfb923c : 0x22d3ee
     const rad = Phaser.Math.DegToRad(angle)
     const isVert = angle === -90 || angle === 90
-    const ox = (isVert ? 0 : Math.cos(rad) * dir) * 13
-    const oy = Math.sin(rad) * 13
-    const flash = this.add.star(x + ox, y + oy, 4, 3, 12, color, 1).setDepth(21).setBlendMode(Phaser.BlendModes.ADD)
-    const core = this.add.circle(x + ox, y + oy, 5, 0xffffff, 0.9).setDepth(21).setBlendMode(Phaser.BlendModes.ADD)
-    this.tweens.add({ targets: [flash, core], scaleX: 0.2, scaleY: 0.2, alpha: 0, duration: 85, onComplete: () => { flash.destroy(); core.destroy() } })
+    const dx = isVert ? 0 : Math.cos(rad) * dir
+    const dy = Math.sin(rad)
+    const fx = x + dx * 10, fy = y + dy * 10
+    const spin = Math.atan2(dy, dx)
+    // Directional cone pointing along the shot + a hot white core — sharp, not a soft blob.
+    const cone = this.add.triangle(fx, fy, 0, -5, 20, 0, 0, 5, color, 1).setRotation(spin).setDepth(21).setBlendMode(Phaser.BlendModes.ADD)
+    const core = this.add.circle(fx, fy, 4.5, 0xffffff, 1).setDepth(22).setBlendMode(Phaser.BlendModes.ADD)
+    this.tweens.add({ targets: [cone, core], scaleX: 0.15, scaleY: 0.15, alpha: 0, duration: 80, onComplete: () => { cone.destroy(); core.destroy() } })
   }
   // Kicked-up dust when you hit the ground hard.
   private landingDust(speed: number) {
