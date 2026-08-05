@@ -3,6 +3,8 @@ import Phaser from 'phaser'
 const ASSETS = {
   huntress: '/assets/huntress.png',
   huntress_run: '/assets/huntress_run.png',
+  huntress_jump: '/assets/huntress_jump.png',
+  huntress_crouch: '/assets/huntress_crouch.png',
   enemy_soldier: '/assets/enemy_soldier.png',
   enemy_flyer: '/assets/enemy_flyer.png',
   enemy_tank: '/assets/enemy_tank.png',
@@ -460,12 +462,12 @@ export class MainScene extends Phaser.Scene {
   }
 
   preload() {
+    // Hero pose set — one consistent side-view lioness across all states, each
+    // aligned to a shared canvas so they swap without jitter (ready/run/jump/crouch).
     this.load.image('huntress', ASSETS.huntress)
-    // Run sprite temporarily disabled: the old huntress_run.png was a different
-    // character (blue/caped) than the purple/gold standing huntress, so the two
-    // looked nothing alike mid-run. Use one consistent sprite until a matching
-    // purple/gold run pose exists — then re-enable this line.
-    // this.load.image('huntress_run', ASSETS.huntress_run)
+    this.load.image('huntress_run', ASSETS.huntress_run)
+    this.load.image('huntress_jump', ASSETS.huntress_jump)
+    this.load.image('huntress_crouch', ASSETS.huntress_crouch)
     this.load.image('enemy_soldier', ASSETS.enemy_soldier)
     this.load.image('enemy_flyer', ASSETS.enemy_flyer)
     this.load.image('enemy_tank', ASSETS.enemy_tank)
@@ -689,15 +691,17 @@ export class MainScene extends Phaser.Scene {
   }
 
   private sizePlayer() {
-    if (this.player.texture.key === 'huntress' || this.player.texture.key === 'huntress_run') {
-      // Lioness hero (~0.64 aspect). Tail + ponytail sprawl to the left, so the
-      // body sits centre-right of the frame — the hitbox is offset right to it.
-      // Sized so she reads as a hero (a bit taller than a grunt) without eating
-      // the frame: ~23% of the 384-tall design space, ~1.4x a soldier.
-      this.player.setDisplaySize(56, 88)
-      const tw = this.player.width, th = this.player.height
-      this.player.body!.setSize(tw * 0.26, th * 0.72)
-      ;(this.player.body as Phaser.Physics.Arcade.Body).setOffset(tw * 0.43, th * 0.24)
+    const k = this.player.texture.key
+    if (k === 'huntress' || k === 'huntress_run' || k === 'huntress_jump' || k === 'huntress_crouch') {
+      // All hero poses share one aligned 1024x900 canvas (body-axis centred at
+      // x=512, feet at y=760, head at y=300) so they swap without size/position
+      // jitter. Display so the ~460px-tall character reads ~88px in design space.
+      const DISP_H = 172
+      this.player.setDisplaySize(DISP_H * (1024 / 900), DISP_H)
+      const tw = this.player.width, th = this.player.height   // 1024 x 900
+      const b = this.player.body as Phaser.Physics.Arcade.Body
+      b.setSize(tw * 0.11, th * 0.44)          // torso+legs column
+      b.setOffset(tw * 0.445, th * 0.40)       // centred x, from mid-torso down to the feet
     }
   }
 
@@ -1383,10 +1387,13 @@ export class MainScene extends Phaser.Scene {
       if (this.comboTimer <= 0) { this.combo = 0; this.comboText.setText('') }
     }
 
-    // Pose
+    // Pose: jump (airborne) → crouch (holding down) → run (moving) → ready.
     if (this.textures.exists('huntress')) {
       const moving = Math.abs(body.velocity.x) > 24
-      const key = (!this.prone && moving && this.textures.exists('huntress_run')) ? 'huntress_run' : 'huntress'
+      let key = 'huntress'
+      if (!this.onGround && this.textures.exists('huntress_jump')) key = 'huntress_jump'
+      else if (this.prone && this.textures.exists('huntress_crouch')) key = 'huntress_crouch'
+      else if (moving && this.textures.exists('huntress_run')) key = 'huntress_run'
       if (this.player.texture.key !== key) { this.player.setTexture(key); this.sizePlayer() }
     }
 
@@ -1623,11 +1630,11 @@ export class MainScene extends Phaser.Scene {
     const g = this.shadowGfx
     if (!g) return
     g.clear()
-    const groundY = this.lastGroundY + 44
-    const pFeet = this.player.y + 44
+    const groundY = this.lastGroundY + 58   // feet sit ~58px below the sprite centre now
+    const pFeet = this.player.y + 58
     const lift = Phaser.Math.Clamp((groundY - pFeet) / 140, 0, 1)  // 0 grounded → 1 high
     g.fillStyle(0x000000, 0.34 * (1 - lift * 0.75))
-    g.fillEllipse(this.player.x, Math.max(groundY, pFeet), 46 * (1 - lift * 0.4), 12 * (1 - lift * 0.4))
+    g.fillEllipse(this.player.x, Math.max(groundY, pFeet), 52 * (1 - lift * 0.4), 13 * (1 - lift * 0.4))
     const grounded = GROUND_ENEMIES
     this.enemies.getChildren().forEach((c) => {
       const e = c as Phaser.Physics.Arcade.Sprite
