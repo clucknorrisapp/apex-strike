@@ -823,7 +823,18 @@ export class MainScene extends Phaser.Scene {
     }
 
     def.ground.forEach(([x1, x2, top]) => solid((x1 + x2) / 2, top, x2 - x1, def.h + 400 - top, theme.fill, theme.rim))
-    def.plats.forEach(([cx, top, w]) => solid(cx, top, w, 20, theme.ledge, theme.rim))
+    // Landings vary in visual depth so climbs don't read as identical bars: a
+    // darker extruded "mass" of per-platform height hangs below the lit ledge.
+    // Collision stays a thin ledge (top surface unchanged) — purely visual depth.
+    def.plats.forEach(([cx, top, w]) => {
+      const seed = Math.abs(Math.round(cx * 2.3 + top * 1.7))
+      const depth = 10 + (seed % 5) * 9        // 10..46px of mass, varied per platform
+      const inset = 3 + (seed % 3) * 2         // slight width taper on the body
+      this.decor.push(this.add.rectangle(cx, top + 12 + depth / 2, w - inset, depth, theme.fill, 0.94).setDepth(4))
+      this.decor.push(this.add.rectangle(cx, top + 12 + depth, w - inset, 3, 0x000000, 0.32).setDepth(4))       // under-shade
+      this.decor.push(this.add.rectangle(cx - (w - inset) / 2 + 2, top + 12 + depth / 2, 3, depth, theme.rim, 0.18).setDepth(4).setBlendMode(Phaser.BlendModes.ADD)) // lit left edge
+      solid(cx, top, w, 20, theme.ledge, theme.rim)
+    })
     def.walls.forEach(([cx, top, w, h]) => solid(cx, top, w, h, theme.ledge, theme.accent))
 
     // Extraction beacon at the goal
