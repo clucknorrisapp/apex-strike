@@ -46,7 +46,10 @@ class Sfx {
     } catch { this.ctx = null }
   }
   resume() { this.ctx?.resume?.() }
-  setMuted(v: boolean) { this.muted = v }
+  setMuted(v: boolean) {
+    this.muted = v
+    if (this.musicGain && this.ctx) this.musicGain.gain.setTargetAtTime(v ? 0 : this.MUSIC_VOL, this.ctx.currentTime, 0.02)
+  }
   private tone(f0: number, f1: number, dur: number, type: OscillatorType, gain: number) {
     const c = this.ctx; if (!c || this.muted) return
     const t = c.currentTime
@@ -80,6 +83,54 @@ class Sfx {
   hurt() { this.tone(300, 70, 0.28, 'sawtooth', 0.08) }
   stomp() { this.tone(520, 150, 0.1, 'square', 0.06) }
   clear() { this.tone(520, 940, 0.14, 'square', 0.05) }
+
+  // ---- Procedural background music: a subtle driving synth loop ----
+  private musicGain: GainNode | null = null
+  private musicTimer: ReturnType<typeof setInterval> | null = null
+  private musicStep = 0
+  private readonly MUSIC_VOL = 0.05
+  startMusic() {
+    const c = this.ctx
+    if (!c || this.musicTimer !== null) return
+    this.musicGain = c.createGain()
+    this.musicGain.gain.value = this.muted ? 0 : this.MUSIC_VOL
+    this.musicGain.connect(c.destination)
+    this.musicStep = 0
+    const bpm = 138, stepDur = (60 / bpm) / 2 // eighth-note pulse
+    const bass = [55, 55, 82.41, 55, 65.41, 55, 82.41, 97.99]       // A-minor drive
+    const lead = [220, 0, 261.63, 0, 329.63, 0, 261.63, 391.995]    // arp on top half of the phrase
+    const tick = () => {
+      const cc = this.ctx
+      if (!cc || !this.musicGain) return
+      const t = cc.currentTime + 0.06
+      const s = this.musicStep % 8
+      this.musicNote(bass[s], t, stepDur * 0.92, 'sawtooth', 0.5)
+      if (lead[s] > 0 && this.musicStep % 16 < 8) this.musicNote(lead[s], t, stepDur * 0.5, 'square', 0.13)
+      this.musicStep++
+    }
+    tick()
+    this.musicTimer = setInterval(tick, stepDur * 1000)
+  }
+  private musicNote(freq: number, t: number, dur: number, type: OscillatorType, gain: number) {
+    const c = this.ctx
+    if (!c || !this.musicGain) return
+    const o = c.createOscillator(); const g = c.createGain()
+    o.type = type; o.frequency.setValueAtTime(freq, t)
+    g.gain.setValueAtTime(0.0001, t)
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.015)
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+    o.connect(g); g.connect(this.musicGain)
+    o.start(t); o.stop(t + dur + 0.02)
+  }
+  stopMusic() {
+    if (this.musicTimer !== null) { clearInterval(this.musicTimer); this.musicTimer = null }
+    if (this.musicGain) { try { this.musicGain.disconnect() } catch { /* noop */ } this.musicGain = null }
+  }
+  dispose() {
+    this.stopMusic()
+    try { this.ctx?.close?.() } catch { /* noop */ }
+    this.ctx = null
+  }
 }
 
 export type ThemeName = 'streets' | 'industrial' | 'sky' | 'core' | 'throne'
@@ -404,7 +455,9 @@ export class MainScene extends Phaser.Scene {
     this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
 
     this.physics.world.gravity.y = GRAV
+    this.sfx?.dispose()   // kill any prior music/context before a fresh restart
     this.sfx = new Sfx()
+    this.events.once('shutdown', () => this.sfx?.dispose())  // stop music on restart / unmount
     this.createTextures()
     this.createThemeTextures()
 
@@ -970,6 +1023,7 @@ export class MainScene extends Phaser.Scene {
     if (this.started) return
     this.started = true
     this.sfx?.resume()
+    this.sfx?.startMusic()
     this.titleUI.forEach((o) => o.destroy())
     this.titleUI = []
     this.physics.resume()
@@ -1506,6 +1560,7 @@ export class MainScene extends Phaser.Scene {
 
   private triggerGameOver() {
     this.gameOver = true
+    this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
     const { best, record } = this.saveBest()
     this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200)
@@ -1520,6 +1575,7 @@ export class MainScene extends Phaser.Scene {
 
   private showVictory() {
     this.gameOver = true
+    this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
     const { best, record } = this.saveBest()
     this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200)
