@@ -22,6 +22,7 @@ const WORLD_BG: Record<string, string> = {
 }
 
 // ---- Feel kit (Contra run-and-gun + Mario-grade jump) ----
+const GROUND_ENEMIES = new Set(['soldier', 'tank', 'charger', 'turret'])  // get drop shadows
 const RUN = 275          // horizontal top speed
 const ACCEL = 1500       // ground acceleration (doubled when reversing = snappy turns)
 const AIR_ACCEL = 950
@@ -307,6 +308,7 @@ export class MainScene extends Phaser.Scene {
   private bgScrim!: Phaser.GameObjects.Rectangle
   private uiCam?: Phaser.Cameras.Scene2D.Camera  // crisp HUD camera (hi-res render)
   private decor: Phaser.GameObjects.GameObject[] = []
+  private shadowGfx!: Phaser.GameObjects.Graphics  // per-frame drop shadows (grounding)
   private sfx?: Sfx
   private lastSfxShot = 0
   private lastFired = 0
@@ -505,6 +507,8 @@ export class MainScene extends Phaser.Scene {
     this.bgStars = this.add.tileSprite(256, 192, 512, 384, 'stars').setScrollFactor(0).setDepth(0)
     this.bgFar = this.add.tileSprite(256, 192, 512, 384, 'far_streets').setScrollFactor(0).setDepth(1)
     this.bgMid = this.add.tileSprite(256, 192, 512, 384, 'mid_streets').setScrollFactor(0).setDepth(2)
+    // Drop shadows drawn fresh each frame (grounds the player + enemies on the busy art).
+    this.shadowGfx = this.add.graphics().setDepth(8)
 
     this.buildLevel(1)
 
@@ -876,6 +880,15 @@ export class MainScene extends Phaser.Scene {
     enemy.setData('shootTimer', Phaser.Math.Between(200, 900))
     enemy.setDepth(18)
 
+    // Materialize: pop in with a quick scale-up + white flash so spawns read with
+    // presence instead of blinking into existence. Boss keeps its own entrance.
+    if (t !== 'boss') {
+      const bsx = enemy.scaleX, bsy = enemy.scaleY
+      enemy.setScale(bsx * 0.25, bsy * 0.25).setTint(0xffffff)
+      this.tweens.add({ targets: enemy, scaleX: bsx, scaleY: bsy, duration: 210, ease: 'Back.easeOut' })
+      this.time.delayedCall(110, () => this.restoreTint(enemy))
+    }
+
     if (t === 'boss') { this.bossRef = enemy; this.createBossBar(hp) }
 
     if (t === 'flyer' || t === 'boss' || t === 'diver') {
@@ -1209,6 +1222,7 @@ export class MainScene extends Phaser.Scene {
     if (landed && this.fallSpeed > 380) this.landingDust(this.fallSpeed)
     this.prevOnGround = this.onGround
     if (!this.onGround) this.fallSpeed = body.velocity.y
+    this.drawShadows()
 
     // Fell into a pit (below the content floor)
     if (this.player.y > this.levelH + 150) { this.pitFall(); return }
@@ -1394,6 +1408,27 @@ export class MainScene extends Phaser.Scene {
     } else {
       spawn(angle, 'bullet', 800, 0.62)
     }
+  }
+
+  // Soft elliptical drop shadows, redrawn each frame — grounds the player and
+  // ground enemies against the busy backdrops. One Graphics object, no per-entity
+  // lifecycle to leak. Player shadow rides the last ground height and fades on jumps.
+  private drawShadows() {
+    const g = this.shadowGfx
+    if (!g) return
+    g.clear()
+    const groundY = this.lastGroundY + 44
+    const pFeet = this.player.y + 44
+    const lift = Phaser.Math.Clamp((groundY - pFeet) / 140, 0, 1)  // 0 grounded → 1 high
+    g.fillStyle(0x000000, 0.34 * (1 - lift * 0.75))
+    g.fillEllipse(this.player.x, Math.max(groundY, pFeet), 46 * (1 - lift * 0.4), 12 * (1 - lift * 0.4))
+    const grounded = GROUND_ENEMIES
+    this.enemies.getChildren().forEach((c) => {
+      const e = c as Phaser.Physics.Arcade.Sprite
+      if (!e.active || !grounded.has(e.getData('type') as string)) return
+      g.fillStyle(0x000000, 0.3)
+      g.fillEllipse(e.x, e.y + e.displayHeight * 0.44, e.displayWidth * 0.55, e.displayHeight * 0.13)
+    })
   }
 
   private updateEnemies(delta: number) {
