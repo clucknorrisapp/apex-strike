@@ -309,6 +309,9 @@ export class MainScene extends Phaser.Scene {
   private shardsGot = 0
   private shardsTotal = 0
   private shardText!: Phaser.GameObjects.Text
+  // Title / start gate (skipped in the Level Lab)
+  private started = false
+  private titleUI: Phaser.GameObjects.GameObject[] = []
 
   constructor() {
     super({ key: 'MainScene' })
@@ -494,7 +497,15 @@ export class MainScene extends Phaser.Scene {
     this.createHUD()
     // On-screen controls only where they're needed (touch devices) — keep desktop clean.
     if (this.sys.game.device.input.touch) this.createTouchControls()
-    this.showBanner('LEVEL 1', def.name)
+
+    // Real game opens on a title screen; the Level Lab drops straight into play.
+    if (LAB_LEVELS) {
+      this.started = true
+      this.showBanner('LEVEL 1', def.name)
+    } else {
+      this.started = false
+      this.showTitle()
+    }
   }
 
   private sizePlayer() {
@@ -826,7 +837,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private togglePause() {
-    if (this.gameOver || this.levelTransition || !this.player?.active) return
+    if (!this.started || this.gameOver || this.levelTransition || !this.player?.active) return
     this.userPaused = !this.userPaused
     if (this.userPaused) {
       this.physics.pause()
@@ -930,6 +941,42 @@ export class MainScene extends Phaser.Scene {
     this.tweens.add({ targets: t, alpha: 1, duration: 300, yoyo: true, hold: 700, onComplete: () => t.destroy() })
   }
 
+  private showTitle() {
+    this.physics.pause()
+    let best = 0
+    try { best = parseInt(localStorage.getItem('apex_best') || '0', 10) || 0 } catch { best = 0 }
+    const els: Phaser.GameObjects.GameObject[] = []
+    els.push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.68).setScrollFactor(0).setDepth(240))
+    if (this.textures.exists('logo')) {
+      const logo = this.add.image(256, 132, 'logo').setScrollFactor(0).setDepth(241)
+      const src = this.textures.get('logo').getSourceImage() as { width: number; height: number }
+      const sc = Math.min(320 / (src.width || 320), 168 / (src.height || 168))
+      logo.setScale(sc)
+      els.push(logo)
+    }
+    els.push(this.add.text(256, 214, 'APEX  STRIKE', { fontFamily: 'monospace', fontSize: '22px', color: '#e879f9', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    els.push(this.add.text(256, 236, 'a Cluck Norris production', { fontFamily: 'monospace', fontSize: '8px', color: '#7c6f9c' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    if (best > 0) els.push(this.add.text(256, 256, 'BEST  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#67e8f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    const prompt = this.add.text(256, 292, this.sys.game.device.input.touch ? '▶  TAP TO START' : '▶  PRESS ANY KEY TO START', { fontFamily: 'monospace', fontSize: '12px', color: '#f5f3ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)
+    this.tweens.add({ targets: prompt, alpha: 0.32, duration: 620, yoyo: true, repeat: -1 })
+    els.push(prompt)
+    els.push(this.add.text(256, 322, 'move · double-jump · 8-way aim · hold to fire', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    this.titleUI = els
+    this.input.keyboard!.once('keydown', () => this.beginPlay())
+    this.input.once('pointerdown', () => this.beginPlay())
+  }
+
+  private beginPlay() {
+    if (this.started) return
+    this.started = true
+    this.sfx?.resume()
+    this.titleUI.forEach((o) => o.destroy())
+    this.titleUI = []
+    this.physics.resume()
+    const d = this.levels()[this.level - 1]
+    this.showBanner('LEVEL 1', d?.name || '')
+  }
+
   private popup(x: number, y: number, text: string, color = '#e879f9') {
     const t = this.add.text(x, y, text, { fontFamily: 'monospace', fontSize: '11px', color }).setOrigin(0.5).setDepth(50)
     this.tweens.add({ targets: t, y: y - 36, alpha: 0, duration: 600, onComplete: () => t.destroy() })
@@ -937,6 +984,11 @@ export class MainScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     if (this.gameOver) return
+    if (!this.started) {
+      const gp = this.input.gamepad?.getPad(0)
+      if (gp && (gp.A || gp.buttons[0]?.pressed || gp.buttons[9]?.pressed)) this.beginPlay()
+      return
+    }
     // Gamepad Start / Select toggles pause (edge-detected) — polled even while paused.
     const spad = this.input.gamepad?.getPad(0)
     const startNow = !!(spad && (spad.buttons[9]?.pressed || spad.buttons[8]?.pressed))
