@@ -190,7 +190,9 @@ export const LEVELS: LevelDef[] = [
     // to the extraction at the far right. Wide + shallow, not a vertical climb.
     name: 'NEON STREETS', theme: 'streets', w: 3200, h: 760, spawn: [120, 500], goal: [3090, 540],
     ground: [[0, 820, 600], [950, 1760, 600], [1890, 3200, 600]],
-    plats: [[1050, 450, 140], [1780, 410, 140], [2980, 360, 150]],
+    // Elevated platforms sit high with ground clearance — you run UNDER them and
+    // can jump ON to take the high line / pick off flyers.
+    plats: [[280, 440, 140], [1150, 430, 150], [1780, 410, 140], [2050, 440, 140], [2980, 360, 150]],
     // Thick solid steps you run up and over — the Contra staircase, neon-rimmed.
     walls: [
       [460, 550, 200, 100], [660, 500, 200, 200],           // intro staircase (adjacent blocks)
@@ -712,6 +714,24 @@ export class MainScene extends Phaser.Scene {
       g.fillRect(0, 0, 32, 256)
       g.generateTexture('terrain', 32, 256); g.destroy()
     }
+    // Tileable armored tech-plate — the terrain surface. Light base so a per-theme
+    // tint colours it; panel seams + bevels + rivets + brushed sheen give real
+    // texture (tiled across any platform size = no stretch, no "cheap flat bar").
+    if (!this.textures.exists('slab')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      g.fillStyle(0xb7bccf, 1); g.fillRect(0, 0, 64, 64)                              // metallic base
+      // brushed vertical sheen
+      g.fillStyle(0xffffff, 0.05); g.fillRect(7, 0, 3, 64); g.fillRect(39, 0, 3, 64)
+      g.fillStyle(0x000000, 0.06); g.fillRect(21, 0, 2, 64); g.fillRect(53, 0, 2, 64)
+      // panel seams on a 32px grid (wrap seamlessly when tiled)
+      g.fillStyle(0x353947, 1); g.fillRect(0, 30, 64, 4); g.fillRect(30, 0, 4, 64)
+      g.fillStyle(0xe9ecf5, 0.45); g.fillRect(0, 28, 64, 2); g.fillRect(28, 0, 2, 64) // raised bevel (lit)
+      g.fillStyle(0x1d2029, 0.5); g.fillRect(0, 34, 64, 2); g.fillRect(34, 0, 2, 64)  // groove shadow
+      // rivets (top-left of each sub-panel) — bolt + tiny specular
+      const rivet = (x: number, y: number) => { g.fillStyle(0x2a2d38, 1); g.fillCircle(x, y, 2.4); g.fillStyle(0xeef1f8, 0.6); g.fillCircle(x - 0.7, y - 0.7, 1) }
+      ;[[9, 9], [41, 9], [9, 41], [41, 41], [24, 24], [56, 56]].forEach(([x, y]) => rivet(x, y))
+      g.generateTexture('slab', 64, 64); g.destroy()
+    }
     // Projectiles: crisp directional energy bolts (drawn pointing RIGHT, tip at
     // the right edge) at hi-res so they stay sharp under the 2x render. Each bolt
     // is rotated to its travel angle at spawn — clean "new-age" look, no blobs.
@@ -891,27 +911,27 @@ export class MainScene extends Phaser.Scene {
       this.bgMid.setVisible(true).setTexture('mid_' + def.theme)
     }
 
+    // A solid terrain block: textured tech-plate body (tiled → no stretch), shaded
+    // mass toward the bottom, dimensional side edges, and a bright walkable top.
     const solid = (cx: number, top: number, w: number, h: number, tint: number, rim: number) => {
       const s = this.platforms.create(cx, top + h / 2, 'terrain') as Phaser.Physics.Arcade.Sprite
-      s.setDisplaySize(w, h); s.setTint(tint); s.setDepth(5); s.refreshBody()
-      // neon edge glow (soft, wide), a crisp lit rim, and a lit top face → depth, not a flat block
-      this.decor.push(this.add.rectangle(cx, top + 5, w + 6, 14, rim, 0.12).setDepth(5).setBlendMode(Phaser.BlendModes.ADD))
-      this.decor.push(this.add.rectangle(cx, top + 6, w - 4, 7, 0xffffff, 0.07).setDepth(6))
-      this.decor.push(this.add.rectangle(cx, top + 1, w, 3, rim, 1).setDepth(7))
+      s.setDisplaySize(w, h); s.setDepth(5); s.refreshBody(); s.setVisible(false)              // collision only
+      this.decor.push(this.add.tileSprite(cx, top + h / 2, w, h, 'slab').setTint(tint).setDepth(5))
+      this.decor.push(this.add.rectangle(cx, top + h * 0.66, w, h * 0.68, 0x000000, 0.32).setDepth(5))            // mass shade (darker low)
+      this.decor.push(this.add.rectangle(cx - w / 2 + 2, top + h / 2, 3, h, 0xffffff, 0.10).setDepth(6))          // lit left edge
+      this.decor.push(this.add.rectangle(cx + w / 2 - 2, top + h / 2, 3, h, 0x000000, 0.28).setDepth(6))          // shadow right edge
+      this.decor.push(this.add.rectangle(cx, top + 6, w + 10, 20, rim, 0.14).setDepth(4).setBlendMode(Phaser.BlendModes.ADD))  // top glow halo
+      this.decor.push(this.add.rectangle(cx, top + 5, w - 2, 9, 0xffffff, 0.12).setDepth(6))                      // top sheen
+      this.decor.push(this.add.rectangle(cx, top + 1, w, 3, rim, 1).setDepth(7))                                  // crisp neon lip
     }
 
     def.ground.forEach(([x1, x2, top]) => solid((x1 + x2) / 2, top, x2 - x1, def.h + 400 - top, theme.fill, theme.rim))
-    // Landings vary in visual depth so climbs don't read as identical bars: a
-    // darker extruded "mass" of per-platform height hangs below the lit ledge.
-    // Collision stays a thin ledge (top surface unchanged) — purely visual depth.
+    // Elevated platforms: real chunky solid slabs (varied thickness) you run UNDER
+    // and land ON — substantial terrain, not floating bars.
     def.plats.forEach(([cx, top, w]) => {
       const seed = Math.abs(Math.round(cx * 2.3 + top * 1.7))
-      const depth = 10 + (seed % 5) * 9        // 10..46px of mass, varied per platform
-      const inset = 3 + (seed % 3) * 2         // slight width taper on the body
-      this.decor.push(this.add.rectangle(cx, top + 12 + depth / 2, w - inset, depth, theme.fill, 0.94).setDepth(4))
-      this.decor.push(this.add.rectangle(cx, top + 12 + depth, w - inset, 3, 0x000000, 0.32).setDepth(4))       // under-shade
-      this.decor.push(this.add.rectangle(cx - (w - inset) / 2 + 2, top + 12 + depth / 2, 3, depth, theme.rim, 0.18).setDepth(4).setBlendMode(Phaser.BlendModes.ADD)) // lit left edge
-      solid(cx, top, w, 20, theme.ledge, theme.rim)
+      const th = 34 + (seed % 4) * 8           // 34..58px thick, varied
+      solid(cx, top, w, th, theme.ledge, theme.rim)
     })
     def.walls.forEach(([cx, top, w, h]) => solid(cx, top, w, h, theme.ledge, theme.accent))
 
@@ -925,17 +945,18 @@ export class MainScene extends Phaser.Scene {
 
     // Moving platforms — sine-driven lifts/shuttles you ride across gaps and up shafts.
     def.movers?.forEach(([cx, top, w, axis, dist, spd]) => {
-      const cy = top + 9
-      const m = this.movers.create(cx, cy, 'terrain') as Phaser.Physics.Arcade.Sprite
-      m.setDisplaySize(w, 18).setTint(theme.ledge).setDepth(18).refreshBody()
-      const glow = this.add.rectangle(cx, cy, w + 8, 22, theme.accent, 0.16).setDepth(17).setBlendMode(Phaser.BlendModes.ADD)
-      const rim = this.add.rectangle(cx, cy - 8, w, 3, theme.accent, 1).setDepth(19)
+      const cy = top + 10
+      const m = this.movers.create(cx, cy, 'slab') as Phaser.Physics.Arcade.Sprite
+      m.setDisplaySize(w, 22).setTint(theme.ledge).setDepth(18).refreshBody()   // textured tech platform
+      const glow = this.add.rectangle(cx, cy, w + 12, 30, theme.accent, 0.18).setDepth(17).setBlendMode(Phaser.BlendModes.ADD)
+      const rim = this.add.rectangle(cx, cy - 10, w, 3, theme.accent, 1).setDepth(19)
+      const under = this.add.rectangle(cx, cy + 11, w - 6, 4, theme.accent, 0.85).setDepth(19).setBlendMode(Phaser.BlendModes.ADD)  // powered underside
       const chev = axis === 'v' ? '↕' : '↔'
-      const mark = this.add.text(cx, cy, chev, { fontFamily: 'monospace', fontSize: '13px', color: '#' + theme.accent.toString(16).padStart(6, '0') }).setOrigin(0.5).setDepth(19)
+      const mark = this.add.text(cx, cy, chev, { fontFamily: 'monospace', fontSize: '12px', color: '#' + theme.accent.toString(16).padStart(6, '0') }).setOrigin(0.5).setAlpha(0.7).setDepth(19)
       m.setData('axis', axis); m.setData('dist', dist); m.setData('spd', spd); m.setData('t', 0)
       m.setData('home', axis === 'v' ? cy : cx)
-      m.setData('rider', [glow, rim, mark])
-      this.decor.push(glow, rim, mark)
+      m.setData('rider', [glow, rim, under, mark])
+      this.decor.push(glow, rim, under, mark)
     })
 
     // Launch pads — land on one and spring high (reaches ledges a double-jump can't).
