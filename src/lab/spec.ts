@@ -69,6 +69,7 @@ export const apexSpec: GameSpec = {
     { id: 'boss', label: 'Boss', category: 'enemy', color: '#dc2626', glyph: 'B', props: [{ key: 'hp', label: 'HP', min: 10, max: 300, step: 5, default: 64 }, { key: 'speed', label: 'Speed', min: 15, max: 120, step: 5, default: 55 }] },
     { id: 'turret', label: 'Turret', category: 'turret', color: '#22d3ee', glyph: 'U' },
     { id: 'pod', label: 'Weapon Pod', category: 'pod', color: '#4ade80', glyph: 'P', kinds: ['spread', 'rapid', 'laser', 'fire', 'health'] },
+    { id: 'shard', label: 'Apex Shard', category: 'marker', color: '#67e8f9', glyph: '◆' },
     { id: 'platform', label: 'Platform', category: 'platform', color: '#67e8f9', glyph: '▬', sized: true },
     { id: 'wall', label: 'Wall / Block', category: 'wall', color: '#8b5cf6', glyph: '▮', sized: true },
     { id: 'ground', label: 'Ground span', category: 'ground', color: '#3b2a63', glyph: '⬛', sized: true },
@@ -92,6 +93,7 @@ export const apexSpec: GameSpec = {
     ;(level.turrets || []).forEach(([x, y]) => items.push({ iid: nid(), type: 'turret', x, y, props: {} }))
     ;(level.enemies || []).forEach((e) => items.push({ iid: nid(), type: e.kind, x: e.x, y: e.y, props: { hp: e.hp, speed: e.speed } }))
     ;(level.pods || []).forEach(([x, y, kind]) => items.push({ iid: nid(), type: 'pod', x, y, props: { kind } }))
+    ;(level.shards || []).forEach(([x, y]) => items.push({ iid: nid(), type: 'shard', x, y, props: {} }))
     items.push({ iid: nid(), type: 'goal', x: level.goal[0], y: level.goal[1], props: {} })
     items.push({ iid: nid(), type: 'spawn', x: level.spawn[0], y: level.spawn[1], props: {} })
     return { items, meta: { name: level.name, theme: level.theme, w: level.w, h: level.h } }
@@ -107,13 +109,14 @@ export const apexSpec: GameSpec = {
     const turrets = items.filter((i) => i.type === 'turret').map((i) => [R(i.x), R(i.y)] as [number, number])
     const enemies = items.filter((i) => i.type in ENEMY_WEIGHT).map((i) => ({ kind: i.type, x: R(i.x), y: R(i.y), hp: Number(i.props.hp) || 3, speed: Number(i.props.speed) || 60 }))
     const pods = items.filter((i) => i.type === 'pod').map((i) => [R(i.x), R(i.y), String(i.props.kind || 'spread')] as [number, number, string])
+    const shards = items.filter((i) => i.type === 'shard').map((i) => [R(i.x), R(i.y)] as [number, number])
     const goal = items.find((i) => i.type === 'goal')
     const spawn = items.find((i) => i.type === 'spawn')
     return {
       name: meta.name, theme: meta.theme as ThemeName, w: meta.w, h: meta.h,
       spawn: [spawn ? R(spawn.x) : 80, spawn ? R(spawn.y) : meta.h - 140],
       goal: [goal ? R(goal.x) : meta.w - 200, goal ? R(goal.y) : 620],
-      ground, plats, walls, turrets, enemies, pods,
+      ground, plats, walls, turrets, enemies, pods, shards,
     }
   },
 

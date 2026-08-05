@@ -170,6 +170,7 @@ export interface LevelDef {
   enemies: EnemySpawn[]
   pods: [number, number, string][]            // [x, y, kind]
   goal: [number, number]                      // reach this point to clear
+  shards?: [number, number][]                 // optional explicit Apex Shard spots; auto-scattered when omitted
 }
 
 // Multi-directional stages: you climb UP, drop DOWN, and push FORWARD.
@@ -981,13 +982,19 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  // Reward exploration — a shard hovers over most ledges + wide ground spans.
+  // Reward exploration — explicit shard spots (e.g. from the Level Lab) win;
+  // otherwise a shard hovers over most ledges + wide ground spans.
   private placeShards(def: LevelDef) {
-    const spots: [number, number][] = []
-    def.plats.forEach(([cx, top]) => spots.push([cx, top - 26]))
-    def.ground.forEach(([x1, x2, top]) => { if (x2 - x1 > 320) spots.push([(x1 + x2) / 2, top - 30]) })
-    Phaser.Utils.Array.Shuffle(spots)
-    const chosen = spots.filter(([x]) => Math.abs(x - def.spawn[0]) > 130).slice(0, 12)
+    let chosen: [number, number][]
+    if (def.shards && def.shards.length) {
+      chosen = def.shards
+    } else {
+      const spots: [number, number][] = []
+      def.plats.forEach(([cx, top]) => spots.push([cx, top - 26]))
+      def.ground.forEach(([x1, x2, top]) => { if (x2 - x1 > 320) spots.push([(x1 + x2) / 2, top - 30]) })
+      Phaser.Utils.Array.Shuffle(spots)
+      chosen = spots.filter(([x]) => Math.abs(x - def.spawn[0]) > 130).slice(0, 12)
+    }
     chosen.forEach(([x, y]) => this.spawnShard(x, y))
     this.shardsTotal = chosen.length
     this.shardText?.setText('◆ 0/' + this.shardsTotal)
