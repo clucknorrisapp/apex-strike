@@ -197,7 +197,7 @@ export const LEVELS: LevelDef[] = [
     // a high catwalk line, turret nests. Longer + sectioned vs the old stub.
     name: 'NEON STREETS', theme: 'streets', w: 3800, h: 780, spawn: [120, 500], goal: [3700, 540],
     ground: [[0, 760, 600], [940, 1560, 600], [1740, 2560, 600], [2740, 3800, 600]],
-    plats: [[280, 430, 150], [1900, 410, 150], [2200, 390, 150], [3600, 360, 150]],
+    plats: [[200, 430, 150], [1900, 410, 150], [2200, 390, 150], [3600, 360, 150]],
     walls: [
       [420, 550, 180, 120], [600, 490, 180, 240],                              // S1 entry staircase
       [1160, 540, 190, 130], [1350, 470, 190, 300],                            // S2 mid staircase
@@ -223,7 +223,7 @@ export const LEVELS: LevelDef[] = [
     // vertical lift climbs the "rise", spike vents on the floor, divers overhead.
     name: 'INDUSTRIAL RISE', theme: 'industrial', w: 3900, h: 800, spawn: [120, 500], goal: [3800, 540],
     ground: [[0, 700, 600], [880, 1440, 600], [1620, 2200, 600], [2380, 3900, 600]],
-    plats: [[250, 430, 150], [1150, 420, 170], [2950, 400, 160], [3450, 400, 150]],
+    plats: [[250, 430, 150], [1150, 420, 170], [3010, 400, 160], [3450, 400, 150]],
     walls: [
       [450, 540, 200, 140],                                    // S1 machine housing
       [1750, 520, 160, 200], [1950, 440, 160, 320],            // S3 the RISE (staircase up)
@@ -250,7 +250,7 @@ export const LEVELS: LevelDef[] = [
     // platforms, mover-rails and bounce pads to cross + climb, aerial-heavy.
     name: 'SKY RAIL', theme: 'sky', w: 4000, h: 820, spawn: [120, 500], goal: [3900, 540],
     ground: [[0, 640, 600], [820, 1300, 600], [1480, 1960, 600], [2140, 2620, 600], [2800, 4000, 600]],
-    plats: [[300, 420, 140], [520, 350, 140], [1000, 410, 150], [1650, 400, 150], [1850, 320, 150], [2400, 400, 150], [3150, 380, 150], [3500, 320, 150]],
+    plats: [[300, 420, 140], [520, 350, 140], [920, 410, 150], [1650, 400, 150], [1850, 320, 150], [2400, 400, 150], [3120, 380, 150], [3500, 320, 150]],
     walls: [[1100, 540, 180, 120], [3300, 520, 180, 180]],
     turrets: [[520, 350], [1850, 320], [3500, 320]],
     enemies: [
@@ -274,7 +274,7 @@ export const LEVELS: LevelDef[] = [
     // tight walls/chokes, mover-bridged pits, intense run-up to the throne.
     name: 'CORE ACCESS', theme: 'core', w: 3900, h: 780, spawn: [120, 500], goal: [3800, 540],
     ground: [[0, 760, 600], [940, 1520, 600], [1700, 2360, 600], [2540, 3900, 600]],
-    plats: [[280, 430, 140], [1300, 410, 150], [2200, 400, 150], [3600, 380, 150]],
+    plats: [[280, 430, 140], [1020, 410, 150], [2200, 400, 150], [3600, 380, 150]],
     walls: [
       [500, 500, 160, 200],                                    // S1 choke
       [1200, 480, 180, 240], [1400, 540, 180, 120],            // S2 tiered
@@ -718,8 +718,17 @@ export class MainScene extends Phaser.Scene {
       this.player.setDisplaySize(DISP_H * (1024 / 900), DISP_H)
       const tw = this.player.width, th = this.player.height   // 1024 x 900
       const b = this.player.body as Phaser.Physics.Arcade.Body
-      b.setSize(tw * 0.11, th * 0.44)          // torso+legs column
-      b.setOffset(tw * 0.445, th * 0.40)       // centred x, from mid-torso down to the feet
+      if (k === 'huntress_crouch') {
+        // Crouch: collapse the hitbox to ~60% height with the FEET planted (body
+        // bottom fixed at th*0.84) so the head drops — the huntress fits under low
+        // overhangs and enemy fire passes over the lowered profile.
+        const bh = th * 0.26
+        b.setSize(tw * 0.13, bh)
+        b.setOffset(tw * 0.435, th * 0.84 - bh)
+      } else {
+        b.setSize(tw * 0.11, th * 0.44)        // torso+legs column
+        b.setOffset(tw * 0.445, th * 0.40)     // centred x, from mid-torso down to the feet
+      }
     }
   }
 
