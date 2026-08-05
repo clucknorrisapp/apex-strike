@@ -172,6 +172,8 @@ export interface LevelDef {
   pods: [number, number, string][]            // [x, y, kind]
   goal: [number, number]                      // reach this point to clear
   shards?: [number, number][]                 // optional explicit Apex Shard spots; auto-scattered when omitted
+  movers?: [number, number, number, string, number, number][]  // [cx, top, w, axis 'h'|'v', dist, speed] — moving platforms
+  hazards?: [number, number, number][]        // [cx, topY, w] — spike strips that damage on contact
 }
 
 // Multi-directional stages: you climb UP, drop DOWN, and push FORWARD.
@@ -196,6 +198,8 @@ export const LEVELS: LevelDef[] = [
       { kind: 'flyer', x: 2050, y: 420, hp: 3, speed: 50 },
     ],
     pods: [[440, 910, 'spread'], [1200, 660, 'health'], [1980, 890, 'rapid']],
+    movers: [[760, 1120, 120, 'h', 95, 0.85], [1560, 1030, 120, 'v', 150, 0.7]],
+    hazards: [[1180, 1140, 130], [2000, 1140, 140]],
   },
   {
     name: 'INDUSTRIAL RISE', theme: 'industrial', w: 2600, h: 1320, spawn: [80, 1180], goal: [2460, 360],
@@ -217,6 +221,8 @@ export const LEVELS: LevelDef[] = [
       { kind: 'flyer', x: 1900, y: 300, hp: 3, speed: 55 }, { kind: 'flyer', x: 2400, y: 250, hp: 3, speed: 55 },
     ],
     pods: [[430, 800, 'rapid'], [1160, 600, 'health'], [2060, 800, 'laser']],
+    movers: [[680, 1160, 130, 'v', 175, 0.65], [1430, 1080, 130, 'h', 100, 0.9]],
+    hazards: [[500, 1260, 120], [2200, 1260, 140]],
   },
   {
     name: 'SKY RAIL', theme: 'sky', w: 2700, h: 1400, spawn: [80, 1260], goal: [2500, 300],
@@ -300,6 +306,8 @@ export class MainScene extends Phaser.Scene {
   private enemyBullets!: Phaser.Physics.Arcade.Group
   private enemies!: Phaser.Physics.Arcade.Group
   private platforms!: Phaser.Physics.Arcade.StaticGroup
+  private movers!: Phaser.Physics.Arcade.StaticGroup   // moving platforms (ride them)
+  private hazards!: Phaser.Physics.Arcade.StaticGroup  // spike strips (damage on contact)
   private powerups!: Phaser.Physics.Arcade.Group
   private bgFar!: Phaser.GameObjects.TileSprite
   private bgMid!: Phaser.GameObjects.TileSprite
@@ -493,6 +501,8 @@ export class MainScene extends Phaser.Scene {
     this.createThemeTextures()
 
     this.platforms = this.physics.add.staticGroup()
+    this.movers = this.physics.add.staticGroup()
+    this.hazards = this.physics.add.staticGroup()
     this.bullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 120 })
     this.enemyBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 80 })
     this.enemies = this.physics.add.group()
@@ -528,6 +538,8 @@ export class MainScene extends Phaser.Scene {
     this.cameras.main.setDeadzone(90, 72)
 
     this.physics.add.collider(this.player, this.platforms)
+    this.physics.add.collider(this.player, this.movers)
+    this.physics.add.overlap(this.player, this.hazards, () => this.damagePlayer(), undefined, this)
     this.physics.add.collider(this.enemies, this.platforms)
     this.physics.add.collider(this.powerups, this.platforms)
 
@@ -596,6 +608,14 @@ export class MainScene extends Phaser.Scene {
     }
 
     this.initHiResCameras()
+
+    // Test hook: ?probe exposes the scene for headless physics verification.
+    // Zero impact for players (only attaches when the URL opts in).
+    try {
+      if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('probe')) {
+        ;(window as unknown as { __scene?: MainScene }).__scene = this
+      }
+    } catch { /* ignore */ }
   }
 
   // Render at 2x on the real game (1024x768) while keeping every coordinate in
@@ -733,6 +753,17 @@ export class MainScene extends Phaser.Scene {
       s.fillStyle(0xffffff, 1); s.fillCircle(8, 8, 2)
       s.generateTexture('spark', 16, 16); s.destroy()
     }
+    if (!this.textures.exists('spike')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const n = 5, sw = 64 / n
+      for (let i = 0; i < n; i++) {
+        const x = i * sw
+        g.fillStyle(0x7f1d1d, 1); g.fillTriangle(x, 22, x + sw / 2, 1, x + sw, 22)             // dark base
+        g.fillStyle(0xef4444, 1); g.fillTriangle(x + 2, 22, x + sw / 2, 6, x + sw - 2, 22)     // red body
+        g.fillStyle(0xfecaca, 0.9); g.fillTriangle(x + sw / 2 - 1, 12, x + sw / 2, 4, x + sw / 2 + 2, 12) // glint
+      }
+      g.generateTexture('spike', 64, 22); g.destroy()
+    }
     if (!this.textures.exists('shard')) {
       const g = this.make.graphics({ x: 0, y: 0 })
       const diamond = (cx: number, cy: number, r: number) => { g.beginPath(); g.moveTo(cx, cy - r); g.lineTo(cx + r, cy); g.lineTo(cx, cy + r); g.lineTo(cx - r, cy); g.closePath(); g.fillPath() }
@@ -785,6 +816,8 @@ export class MainScene extends Phaser.Scene {
     this.powerups.clear(true, true)
     this.bullets.clear(true, true)
     this.enemyBullets.clear(true, true)
+    this.movers.clear(true, true)
+    this.hazards.clear(true, true)
     this.shards?.getChildren().forEach((s) => this.tweens.killTweensOf(s))
     this.shards?.clear(true, true)
     this.destroyBossBar()
@@ -843,6 +876,29 @@ export class MainScene extends Phaser.Scene {
       solid(cx, top, w, 20, theme.ledge, theme.rim)
     })
     def.walls.forEach(([cx, top, w, h]) => solid(cx, top, w, h, theme.ledge, theme.accent))
+
+    // Spike strips — throwback hazard, new-age look. Overlap = damage.
+    def.hazards?.forEach(([cx, top, w]) => {
+      const s = this.hazards.create(cx, top - 8, 'spike') as Phaser.Physics.Arcade.Sprite
+      s.setDisplaySize(w, 18).setDepth(8).refreshBody()
+      this.decor.push(this.add.rectangle(cx, top - 1, w, 3, 0xef4444, 0.7).setDepth(7).setBlendMode(Phaser.BlendModes.ADD))
+      this.decor.push(this.add.rectangle(cx, top + 6, w, 10, 0x7f1d1d, 0.55).setDepth(6))  // mounting base
+    })
+
+    // Moving platforms — sine-driven lifts/shuttles you ride across gaps and up shafts.
+    def.movers?.forEach(([cx, top, w, axis, dist, spd]) => {
+      const cy = top + 9
+      const m = this.movers.create(cx, cy, 'terrain') as Phaser.Physics.Arcade.Sprite
+      m.setDisplaySize(w, 18).setTint(theme.ledge).setDepth(18).refreshBody()
+      const glow = this.add.rectangle(cx, cy, w + 8, 22, theme.accent, 0.16).setDepth(17).setBlendMode(Phaser.BlendModes.ADD)
+      const rim = this.add.rectangle(cx, cy - 8, w, 3, theme.accent, 1).setDepth(19)
+      const chev = axis === 'v' ? '↕' : '↔'
+      const mark = this.add.text(cx, cy, chev, { fontFamily: 'monospace', fontSize: '13px', color: '#' + theme.accent.toString(16).padStart(6, '0') }).setOrigin(0.5).setDepth(19)
+      m.setData('axis', axis); m.setData('dist', dist); m.setData('spd', spd); m.setData('t', 0)
+      m.setData('home', axis === 'v' ? cy : cx)
+      m.setData('rider', [glow, rim, mark])
+      this.decor.push(glow, rim, mark)
+    })
 
     // Extraction beacon at the goal
     if (!(this.goalX === 0 && this.goalY === 0)) {
@@ -1273,8 +1329,49 @@ export class MainScene extends Phaser.Scene {
     }
 
     this.handleInput(time)
+    this.updateMovers(delta)
     this.updateEnemies(delta)
     this.maybeSpawnReinforcements(delta)
+  }
+
+  // Sine-driven moving platforms. Static bodies don't impart motion, so we
+  // reposition each one and manually carry the player. "Riding" is detected by
+  // foot proximity + not-jumping (NOT blocked.down, which flickers when a
+  // descending platform opens a gap under the feet). Each riding frame we snap
+  // the feet to the new surface and kill downward velocity → locked-in lifts,
+  // no jitter, no fall-through, and stepping off never launches you.
+  private updateMovers(delta: number) {
+    if (this.movers.getLength() === 0) return
+    const pb = this.player?.body as Phaser.Physics.Arcade.Body | undefined
+    this.movers.getChildren().forEach((c) => {
+      const m = c as Phaser.Physics.Arcade.Sprite
+      const mb = m.body as Phaser.Physics.Arcade.StaticBody
+      const axis = m.getData('axis') as string
+      const home = m.getData('home') as number
+      const dist = m.getData('dist') as number
+      const spd = m.getData('spd') as number
+      const t = (m.getData('t') as number) + delta * 0.001 * spd
+      m.setData('t', t)
+      const prevX = m.x, prevY = m.y
+      // Riding = feet near this platform's (pre-move) top, over it in x, and not
+      // launching upward. Wider than a blocked.down check so descents stay glued.
+      const feetGap = pb ? pb.bottom - mb.top : 999
+      const riding = !!pb && pb.velocity.y > -30 &&
+        feetGap > -12 && feetGap < 10 &&
+        pb.right > mb.left + 3 && pb.left < mb.right - 3
+      const off = Math.sin(t) * dist
+      if (axis === 'v') m.y = home + off; else m.x = home + off
+      const dx = m.x - prevX, dy = m.y - prevY
+      mb.updateFromGameObject()
+      const riders = m.getData('rider') as Array<{ x: number; y: number }> | undefined
+      if (riders) for (const r of riders) { r.x += dx; r.y += dy }
+      if (riding && pb) {
+        if (dx) this.player.x += dx
+        // Snap feet exactly onto the new surface (handles up + down identically).
+        this.player.y += mb.top - pb.bottom
+        if (pb.velocity.y > 0) pb.setVelocityY(0)
+      }
+    })
   }
 
   private pitFall() {
