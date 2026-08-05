@@ -34,6 +34,11 @@ const SHORT_HOP = -150   // released-early velocity clamp (variable height)
 const COYOTE = 110       // ms of grace after leaving a ledge
 const BUFFER = 130       // ms a jump press stays "remembered"
 const MAX_JUMPS = 2
+// How much WORLD width the main camera shows across the canvas. Bigger = pulled
+// back = more of the level on screen at once (the Contra "run-and-gun" wide
+// view: small hero, enemies visible as they approach). The HUD camera stays at
+// 512 so the interface keeps its crisp hi-res scale independent of this.
+const WORLD_VIEW_W = 720
 
 // Asset-free procedural sound — short Web-Audio blips, no files needed.
 class Sfx {
@@ -180,28 +185,31 @@ export interface LevelDef {
 // Multi-directional stages: you climb UP, drop DOWN, and push FORWARD.
 export const LEVELS: LevelDef[] = [
   {
-    name: 'NEON STREETS', theme: 'streets', w: 2600, h: 1200, spawn: [80, 1060], goal: [2470, 620],
-    ground: [[0, 700, 1140], [820, 1500, 1140], [1620, 2600, 1140]],
-    plats: [
-      [250, 1050, 120], [440, 950, 120], [300, 850, 120], [520, 770, 130], [720, 690, 140],
-      [960, 660, 150], [1200, 700, 150], [1450, 830, 140], [1300, 970, 130],
-      [1780, 1030, 130], [1980, 930, 130], [2180, 820, 140], [2380, 700, 150],
+    // Horizontal run-and-gun corridor (Contra flow): push RIGHT across solid
+    // ground with two pits, over thick stepped terrain, gunning waves of enemies,
+    // to the extraction at the far right. Wide + shallow, not a vertical climb.
+    name: 'NEON STREETS', theme: 'streets', w: 3200, h: 760, spawn: [120, 500], goal: [3090, 540],
+    ground: [[0, 820, 600], [950, 1760, 600], [1890, 3200, 600]],
+    plats: [[1050, 450, 140], [1780, 410, 140], [2980, 360, 150]],
+    // Thick solid steps you run up and over — the Contra staircase, neon-rimmed.
+    walls: [
+      [460, 550, 200, 100], [660, 500, 200, 200],           // intro staircase (adjacent blocks)
+      [1300, 540, 220, 120], [1510, 480, 200, 280],          // mid staircase (adjacent)
+      [2160, 550, 200, 100], [2360, 490, 200, 220], [2560, 430, 200, 340],  // end 3-step staircase (adjacent)
     ],
-    walls: [[1050, 1010, 90, 130]],
-    turrets: [[720, 690], [1200, 700], [2180, 820]],
+    turrets: [[660, 500], [1510, 480], [2560, 430]],
     enemies: [
-      { kind: 'soldier', x: 300, y: 1090, hp: 2, speed: 60 }, { kind: 'soldier', x: 900, y: 1090, hp: 2, speed: 65 },
-      { kind: 'soldier', x: 520, y: 720, hp: 2, speed: 55 }, { kind: 'soldier', x: 960, y: 610, hp: 2, speed: 60 },
-      { kind: 'soldier', x: 1900, y: 880, hp: 3, speed: 60 }, { kind: 'soldier', x: 2250, y: 1090, hp: 3, speed: 60 },
-      { kind: 'charger', x: 640, y: 1090, hp: 3, speed: 55 }, { kind: 'charger', x: 1650, y: 1090, hp: 4, speed: 58 },
-      { kind: 'diver', x: 850, y: 560, hp: 3, speed: 95 },
-      { kind: 'flyer', x: 600, y: 320, hp: 2, speed: 45 }, { kind: 'flyer', x: 1300, y: 260, hp: 2, speed: 50 },
-      { kind: 'flyer', x: 2050, y: 420, hp: 3, speed: 50 },
+      { kind: 'soldier', x: 200, y: 566, hp: 2, speed: 70 }, { kind: 'soldier', x: 660, y: 466, hp: 2, speed: 65 },
+      { kind: 'soldier', x: 1150, y: 566, hp: 2, speed: 70 }, { kind: 'soldier', x: 1360, y: 506, hp: 3, speed: 65 },
+      { kind: 'tank', x: 1680, y: 560, hp: 6, speed: 30 }, { kind: 'charger', x: 2000, y: 566, hp: 4, speed: 64 },
+      { kind: 'soldier', x: 2360, y: 456, hp: 3, speed: 65 },
+      { kind: 'tank', x: 2820, y: 560, hp: 7, speed: 30 }, { kind: 'soldier', x: 2950, y: 566, hp: 3, speed: 70 },
+      { kind: 'flyer', x: 900, y: 300, hp: 2, speed: 48 }, { kind: 'flyer', x: 1700, y: 280, hp: 3, speed: 52 },
+      { kind: 'flyer', x: 2400, y: 300, hp: 3, speed: 52 },
     ],
-    pods: [[440, 910, 'spread'], [1200, 660, 'health'], [1980, 890, 'rapid']],
-    movers: [[760, 1120, 120, 'h', 95, 0.85], [1560, 1030, 120, 'v', 150, 0.7]],
-    hazards: [[1180, 1140, 130], [2000, 1140, 140]],
-    bouncers: [[1720, 1140, 90]],
+    pods: [[660, 470, 'spread'], [1510, 440, 'health'], [2560, 400, 'rapid']],
+    movers: [[885, 590, 120, 'h', 85, 0.9]],
+    hazards: [[1050, 600, 120]],
   },
   {
     name: 'INDUSTRIAL RISE', theme: 'industrial', w: 2600, h: 1320, spawn: [80, 1180], goal: [2460, 360],
@@ -524,13 +532,15 @@ export class MainScene extends Phaser.Scene {
     try { this.muted = localStorage.getItem('apex_muted') === '1' } catch { /* ignore */ }
     this.sfx.setMuted(this.muted)
 
-    // Painted backdrop (used when its art loaded) sits behind everything, pinned to the camera.
-    this.bgImage = this.add.image(256, 192, 'stars').setScrollFactor(0).setDepth(-10).setVisible(false)
-    this.bgScrim = this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.26).setScrollFactor(0).setDepth(-9).setVisible(false)
+    // Backdrop pinned to the camera. Sized to the pulled-back world view (plus a
+    // margin) so it fills the wide run-and-gun frame instead of leaving black bars.
+    const vw = WORLD_VIEW_W, vh = WORLD_VIEW_W * 0.75, vcx = vw / 2, vcy = vh / 2
+    this.bgImage = this.add.image(vcx, vcy, 'stars').setScrollFactor(0).setDepth(-10).setVisible(false)
+    this.bgScrim = this.add.rectangle(vcx, vcy, vw + 60, vh + 60, 0x05040a, 0.16).setScrollFactor(0).setDepth(-9).setVisible(false)
     // Procedural parallax fallback (both axes for the 2D world)
-    this.bgStars = this.add.tileSprite(256, 192, 512, 384, 'stars').setScrollFactor(0).setDepth(0)
-    this.bgFar = this.add.tileSprite(256, 192, 512, 384, 'far_streets').setScrollFactor(0).setDepth(1)
-    this.bgMid = this.add.tileSprite(256, 192, 512, 384, 'mid_streets').setScrollFactor(0).setDepth(2)
+    this.bgStars = this.add.tileSprite(vcx, vcy, vw + 60, vh + 60, 'stars').setScrollFactor(0).setDepth(0)
+    this.bgFar = this.add.tileSprite(vcx, vcy, vw + 60, vh + 60, 'far_streets').setScrollFactor(0).setDepth(1)
+    this.bgMid = this.add.tileSprite(vcx, vcy, vw + 60, vh + 60, 'mid_streets').setScrollFactor(0).setDepth(2)
     // Drop shadows drawn fresh each frame (grounds the player + enemies on the busy art).
     this.shadowGfx = this.add.graphics().setDepth(8)
 
@@ -545,8 +555,11 @@ export class MainScene extends Phaser.Scene {
     this.player.setDepth(25)
     this.player.setMaxVelocity(RUN, 1250)
 
-    this.cameras.main.startFollow(this.player, true, 0.11, 0.11)
-    this.cameras.main.setDeadzone(90, 72)
+    this.cameras.main.startFollow(this.player, true, 0.12, 0.12)
+    this.cameras.main.setDeadzone(110, 90)
+    // Bias the view so the hero rides left-of-centre — you see the ground ahead
+    // and enemies approaching from the right (run-and-gun framing).
+    this.cameras.main.setFollowOffset(-140, 24)
 
     this.physics.add.collider(this.player, this.platforms)
     this.physics.add.collider(this.player, this.movers)
@@ -636,7 +649,9 @@ export class MainScene extends Phaser.Scene {
   // RES is 1 in the Level Lab (512-wide), so it behaves exactly as before there.
   private initHiResCameras() {
     const RES = this.scale.width / 512
-    this.cameras.main.setZoom(RES)
+    // World camera pulls back to show WORLD_VIEW_W of level (wide run-and-gun
+    // view); the HUD camera below stays at RES so the interface is unaffected.
+    this.cameras.main.setZoom(this.scale.width / WORLD_VIEW_W)
     this.uiCam = this.cameras.add(0, 0, this.scale.width, this.scale.height)
     this.uiCam.setZoom(RES)
     // Anchor the UI camera's zoom at the top-left so the HUD's 512x384-space
@@ -866,7 +881,7 @@ export class MainScene extends Phaser.Scene {
 
     const bgKey = 'bg_' + def.theme
     if (this.textures.exists(bgKey)) {
-      this.bgImage.setTexture(bgKey).setDisplaySize(512, 384).setVisible(true)
+      this.bgImage.setTexture(bgKey).setDisplaySize(WORLD_VIEW_W + 60, WORLD_VIEW_W * 0.75 + 60).setVisible(true)
       this.bgScrim.setVisible(true)
       this.bgStars.setVisible(false); this.bgFar.setVisible(false); this.bgMid.setVisible(false)
     } else {
