@@ -12,6 +12,15 @@ const ASSETS = {
   logo: '/assets/logo.png',
 }
 
+// Painted per-stage backdrops (real art — replaces the procedural skyline when present)
+const WORLD_BG: Record<string, string> = {
+  streets: '/assets/bg_streets.webp',
+  industrial: '/assets/bg_industrial.webp',
+  sky: '/assets/bg_sky.webp',
+  core: '/assets/bg_core.webp',
+  throne: '/assets/bg_throne.webp',
+}
+
 // ---- Feel kit (Contra run-and-gun + Mario-grade jump) ----
 const RUN = 275          // horizontal top speed
 const ACCEL = 1500       // ground acceleration (doubled when reversing = snappy turns)
@@ -24,6 +33,52 @@ const SHORT_HOP = -150   // released-early velocity clamp (variable height)
 const COYOTE = 110       // ms of grace after leaving a ledge
 const BUFFER = 130       // ms a jump press stays "remembered"
 const MAX_JUMPS = 2
+
+// Asset-free procedural sound — short Web-Audio blips, no files needed.
+class Sfx {
+  private ctx: AudioContext | null = null
+  constructor() {
+    try {
+      const AC = (window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext })
+      const Ctor = AC.AudioContext || AC.webkitAudioContext
+      this.ctx = Ctor ? new Ctor() : null
+    } catch { this.ctx = null }
+  }
+  resume() { this.ctx?.resume?.() }
+  private tone(f0: number, f1: number, dur: number, type: OscillatorType, gain: number) {
+    const c = this.ctx; if (!c) return
+    const t = c.currentTime
+    const o = c.createOscillator(); const g = c.createGain()
+    o.type = type
+    o.frequency.setValueAtTime(f0, t)
+    o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur)
+    g.gain.setValueAtTime(gain, t)
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+    o.connect(g); g.connect(c.destination)
+    o.start(t); o.stop(t + dur + 0.02)
+  }
+  private noise(dur: number, gain: number) {
+    const c = this.ctx; if (!c) return
+    const t = c.currentTime
+    const n = Math.floor(c.sampleRate * dur)
+    const buf = c.createBuffer(1, n, c.sampleRate)
+    const d = buf.getChannelData(0)
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n)
+    const src = c.createBufferSource(); src.buffer = buf
+    const g = c.createGain()
+    g.gain.setValueAtTime(gain, t)
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+    src.connect(g); g.connect(c.destination); src.start(t)
+  }
+  shoot() { this.tone(900, 320, 0.06, 'square', 0.028) }
+  jump() { this.tone(420, 780, 0.12, 'square', 0.05) }
+  hit() { this.tone(240, 140, 0.05, 'square', 0.035) }
+  explode() { this.noise(0.28, 0.09) }
+  pickup() { this.tone(620, 1240, 0.16, 'sine', 0.06) }
+  hurt() { this.tone(300, 70, 0.28, 'sawtooth', 0.08) }
+  stomp() { this.tone(520, 150, 0.1, 'square', 0.06) }
+  clear() { this.tone(520, 940, 0.14, 'square', 0.05) }
+}
 
 type ThemeName = 'streets' | 'industrial' | 'sky' | 'core' | 'throne'
 
@@ -182,7 +237,11 @@ export class MainScene extends Phaser.Scene {
   private bgFar!: Phaser.GameObjects.TileSprite
   private bgMid!: Phaser.GameObjects.TileSprite
   private bgStars!: Phaser.GameObjects.TileSprite
+  private bgImage!: Phaser.GameObjects.Image
+  private bgScrim!: Phaser.GameObjects.Rectangle
   private decor: Phaser.GameObjects.GameObject[] = []
+  private sfx?: Sfx
+  private lastSfxShot = 0
   private lastFired = 0
   private fireRate = 100
   private health = 5
@@ -238,6 +297,9 @@ export class MainScene extends Phaser.Scene {
     this.load.image('pickup_pod', ASSETS.pickup_pod)
     this.load.image('platform_tile', ASSETS.platform_tile)
     this.load.image('logo', ASSETS.logo)
+    // Painted backdrops; tolerate a missing file (falls back to procedural skyline)
+    Object.entries(WORLD_BG).forEach(([k, url]) => this.load.image('bg_' + k, url))
+    this.load.on('loaderror', (f: Phaser.Loader.File) => { if (f.key?.startsWith('bg_')) console.warn('bg missing', f.key) })
   }
 
   create() {
@@ -263,6 +325,7 @@ export class MainScene extends Phaser.Scene {
     this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
 
     this.physics.world.gravity.y = GRAV
+    this.sfx = new Sfx()
     this.createTextures()
     this.createThemeTextures()
 
@@ -272,7 +335,10 @@ export class MainScene extends Phaser.Scene {
     this.enemies = this.physics.add.group()
     this.powerups = this.physics.add.group()
 
-    // Parallax (fixed to camera; scrolled by tilePosition — both axes for the 2D world)
+    // Painted backdrop (used when its art loaded) sits behind everything, pinned to the camera.
+    this.bgImage = this.add.image(400, 300, 'stars').setScrollFactor(0).setDepth(-10).setVisible(false)
+    this.bgScrim = this.add.rectangle(400, 300, 800, 600, 0x05040a, 0.26).setScrollFactor(0).setDepth(-9).setVisible(false)
+    // Procedural parallax fallback (both axes for the 2D world)
     this.bgStars = this.add.tileSprite(400, 300, 800, 600, 'stars').setScrollFactor(0).setDepth(0)
     this.bgFar = this.add.tileSprite(400, 300, 800, 600, 'far_streets').setScrollFactor(0).setDepth(1)
     this.bgMid = this.add.tileSprite(400, 300, 800, 600, 'mid_streets').setScrollFactor(0).setDepth(2)
@@ -308,6 +374,11 @@ export class MainScene extends Phaser.Scene {
       right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
     }
     this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+
+    // Web-Audio needs a user gesture before it can play
+    const resumeAudio = () => this.sfx?.resume()
+    this.input.keyboard!.once('keydown', resumeAudio)
+    this.input.once('pointerdown', resumeAudio)
 
     this.particles = this.add.particles(0, 0, 'spark', {
       speed: { min: 120, max: 380 },
@@ -462,14 +533,25 @@ export class MainScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, def.w, def.h + 400)
     this.cameras.main.setBounds(0, 0, def.w, def.h)
 
-    this.bgStars.setTexture('stars')
-    this.bgFar.setTexture('far_' + def.theme)
-    this.bgMid.setTexture('mid_' + def.theme)
+    const bgKey = 'bg_' + def.theme
+    if (this.textures.exists(bgKey)) {
+      this.bgImage.setTexture(bgKey).setDisplaySize(800, 600).setVisible(true)
+      this.bgScrim.setVisible(true)
+      this.bgStars.setVisible(false); this.bgFar.setVisible(false); this.bgMid.setVisible(false)
+    } else {
+      this.bgImage.setVisible(false); this.bgScrim.setVisible(false)
+      this.bgStars.setVisible(true).setTexture('stars')
+      this.bgFar.setVisible(true).setTexture('far_' + def.theme)
+      this.bgMid.setVisible(true).setTexture('mid_' + def.theme)
+    }
 
     const solid = (cx: number, top: number, w: number, h: number, tint: number, rim: number) => {
       const s = this.platforms.create(cx, top + h / 2, 'terrain') as Phaser.Physics.Arcade.Sprite
       s.setDisplaySize(w, h); s.setTint(tint); s.setDepth(5); s.refreshBody()
-      this.decor.push(this.add.rectangle(cx, top + 2, w, 4, rim, 0.95).setDepth(6))
+      // neon edge glow (soft, wide), a crisp lit rim, and a lit top face → depth, not a flat block
+      this.decor.push(this.add.rectangle(cx, top + 5, w + 6, 14, rim, 0.12).setDepth(5).setBlendMode(Phaser.BlendModes.ADD))
+      this.decor.push(this.add.rectangle(cx, top + 6, w - 4, 7, 0xffffff, 0.07).setDepth(6))
+      this.decor.push(this.add.rectangle(cx, top + 1, w, 3, rim, 1).setDepth(7))
     }
 
     def.ground.forEach(([x1, x2, top]) => solid((x1 + x2) / 2, top, x2 - x1, def.h + 400 - top, theme.fill, theme.rim))
@@ -635,6 +717,7 @@ export class MainScene extends Phaser.Scene {
     this.player.setPosition(this.lastGroundX, this.lastGroundY - 48)
     this.cameras.main.shake(180, 0.02)
     this.cameras.main.flash(120, 120, 40, 200, false)
+    this.sfx?.hurt()
     this.health -= 2
     this.combo = 0; this.comboText.setText('')
     this.updateHealth()
@@ -712,6 +795,7 @@ export class MainScene extends Phaser.Scene {
     if (time - this.jumpBufferAt < BUFFER && this.jumpsLeft > 0) {
       this.player.setVelocityY(JUMP_V)
       this.jumpsLeft--; this.isJumping = true; this.jumpBufferAt = -9999
+      this.sfx?.jump()
     }
     if (this.isJumping && !jump && body.velocity.y < SHORT_HOP) this.player.setVelocityY(SHORT_HOP)
     if (body.velocity.y >= 0) this.isJumping = false
@@ -753,6 +837,7 @@ export class MainScene extends Phaser.Scene {
     }
 
     this.particles.emitParticleAt(baseX, baseY, 3)
+    if (this.time.now - this.lastSfxShot > 90) { this.sfx?.shoot(); this.lastSfxShot = this.time.now }
 
     if (this.weapon === 'spread') {
       spawn(angle - 20, 'bullet', 780, 1.2); spawn(angle, 'bullet', 820, 1.4); spawn(angle + 20, 'bullet', 780, 1.2)
@@ -852,6 +937,7 @@ export class MainScene extends Phaser.Scene {
     this.time.delayedCall(50, () => { if (enemy.active) enemy.clearTint() })
     this.cameras.main.shake(20, 0.005)
     this.particles.emitParticleAt(enemy.x, enemy.y, 5)
+    this.sfx?.hit()
 
     if (hp <= 0) {
       const type = enemy.getData('type') as string
@@ -867,6 +953,7 @@ export class MainScene extends Phaser.Scene {
       this.popup(enemy.x, enemy.y - 20, '+' + pts)
       this.particles.emitParticleAt(enemy.x, enemy.y, 32)
       this.cameras.main.shake(90, 0.016)
+      this.sfx?.explode()
       if (type === 'tank' || type === 'boss' || type === 'turret') this.cameras.main.flash(100, 200, 100, 255, false)
       if (Math.random() < 0.3 && type !== 'boss') {
         const kinds = ['health', 'spread', 'rapid', 'laser', 'fire']
@@ -879,8 +966,43 @@ export class MainScene extends Phaser.Scene {
 
   private hitPlayer(
     _p: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile,
-    _e: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile
-  ) { this.damagePlayer() }
+    eObj: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile
+  ) {
+    const enemy = eObj as Phaser.Physics.Arcade.Sprite
+    const type = enemy.getData('type') as string
+    const pb = this.player.body as Phaser.Physics.Arcade.Body
+    const eb = enemy.body as Phaser.Physics.Arcade.Body
+    // Mario stomp: falling onto a SOFT enemy from above kills it and bounces you.
+    const soft = type === 'walker' || type === 'flyer'
+    if (soft && pb.velocity.y > 60 && pb.bottom <= eb.top + 22) {
+      this.player.setVelocityY(-360)
+      this.isJumping = true
+      this.stompEnemy(enemy)
+      return
+    }
+    // Armored / turret / boss punish the stomp — you take the hit.
+    this.damagePlayer()
+  }
+
+  private stompEnemy(enemy: Phaser.Physics.Arcade.Sprite) {
+    const type = enemy.getData('type') as string
+    let pts = type === 'flyer' ? 250 : 120
+    this.combo++
+    this.comboTimer = 2400
+    if (this.combo > 1) { pts = Math.floor(pts * (1 + Math.min(this.combo, 15) * 0.12)); this.comboText.setText('COMBO x' + this.combo) }
+    this.score += pts
+    this.scoreText.setText('SCORE  ' + this.score)
+    this.popup(enemy.x, enemy.y - 20, 'STOMP +' + pts, '#fbbf24')
+    this.particles.emitParticleAt(enemy.x, enemy.y, 22)
+    this.cameras.main.shake(60, 0.012)
+    this.sfx?.stomp()
+    if (Math.random() < 0.3) {
+      const kinds = ['health', 'spread', 'rapid', 'laser', 'fire']
+      this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
+    }
+    enemy.destroy()
+    if (this.level === 5 && this.enemies.countActive(true) === 0) this.onLevelClear()
+  }
 
   private hitByEnemyBullet(
     _p: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile,
@@ -900,6 +1022,7 @@ export class MainScene extends Phaser.Scene {
     this.player.setTint(0xff0030)
     this.cameras.main.shake(140, 0.018)
     this.cameras.main.flash(100, 255, 30, 40, false)
+    this.sfx?.hurt()
     this.player.setVelocityY(-260)
     this.time.delayedCall(800, () => { this.invulnerable = false; if (this.player.active) this.player.clearTint() })
 
@@ -925,6 +1048,7 @@ export class MainScene extends Phaser.Scene {
     this.particles.emitParticleAt(pow.x, pow.y, 18)
     this.popup(pow.x, pow.y, kind.toUpperCase(), '#4ade80')
     this.cameras.main.flash(60, 100, 255, 150, false)
+    this.sfx?.pickup()
     if (kind === 'health') { this.health = Math.min(this.maxHealth, this.health + 1); this.updateHealth() }
     else {
       this.weapon = kind as typeof this.weapon
@@ -941,6 +1065,7 @@ export class MainScene extends Phaser.Scene {
   private onLevelClear() {
     if (this.levelTransition) return
     this.levelTransition = true
+    this.sfx?.clear()
     if (this.level < 5) {
       const next = this.level + 1
       const msg = this.add.text(400, 260, `LEVEL ${next}\n${LEVELS[next - 1].name}`, {
