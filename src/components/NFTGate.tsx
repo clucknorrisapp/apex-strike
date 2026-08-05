@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useAccount, useConnect, useDisconnect, useReadContract } from 'wagmi'
 import { APEX_HUNTRESS_CONTRACT, APEX_HUNTRESS_ABI } from '../config/chains'
 
@@ -21,15 +22,33 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
   })
 
   const hasNFT = balance !== undefined && balance > 0n
+
+  // Preview / testing mode — play without a wallet or NFT.
+  // Open the site once with ?dev (or ?preview / ?play) appended and it's
+  // remembered on this device, so the Preview button stays available for
+  // testing. Use ?dev=off to clear it. import.meta.env.DEV covers local
+  // `vite dev`. The public apexstrike.app stays gated for everyone else.
   const isDev = import.meta.env.DEV
+  const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')
+  const wantOff = ['dev', 'preview', 'play'].some((k) => params.get(k) === 'off')
+  const wantOn = !wantOff && (params.has('dev') || params.has('preview') || params.has('play'))
+  useEffect(() => {
+    try {
+      if (wantOff) localStorage.removeItem('apex_preview')
+      else if (wantOn) localStorage.setItem('apex_preview', '1')
+    } catch { /* ignore */ }
+  }, [wantOn, wantOff])
+  let previewSaved = false
+  try { previewSaved = !wantOff && localStorage.getItem('apex_preview') === '1' } catch { /* ignore */ }
+  const previewMode = isDev || wantOn || previewSaved
 
   const DevBypassButton = () =>
-    isDev ? (
+    previewMode ? (
       <button
         onClick={onAccessGranted}
         className="w-full py-3 px-6 rounded-xl border border-dashed border-yellow-500/60 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-300 font-medium transition-all mt-4"
       >
-        ⚠️ Skip Gate (Dev Mode)
+        ▶ Play without NFT (Preview)
       </button>
     ) : null
 
@@ -45,7 +64,7 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
         <img
           src="/assets/logo.png"
           alt="Apex Strike"
-          className="mx-auto mb-6 w-28 h-28 object-contain drop-shadow-[0_0_20px_rgba(168,85,247,0.45)]"
+          className="mx-auto mb-6 w-52 md:w-72 h-auto object-contain drop-shadow-[0_0_32px_rgba(168,85,247,0.55)]"
           onError={(e) => {
             ;(e.target as HTMLImageElement).style.display = 'none'
           }}
@@ -152,7 +171,7 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
       <img
         src="/assets/logo.png"
         alt="Apex"
-        className="mx-auto mb-4 w-24 h-24 object-contain drop-shadow-[0_0_16px_rgba(34,211,238,0.35)]"
+        className="mx-auto mb-4 w-40 md:w-48 h-auto object-contain drop-shadow-[0_0_22px_rgba(34,211,238,0.4)]"
         onError={(e) => {
           ;(e.target as HTMLImageElement).style.display = 'none'
         }}
