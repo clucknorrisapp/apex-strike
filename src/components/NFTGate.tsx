@@ -1,9 +1,48 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAccount, useConnect, useDisconnect, useReadContract } from 'wagmi'
 import { APEX_HUNTRESS_CONTRACT, APEX_HUNTRESS_ABI } from '../config/chains'
 
+// Beta access codes — share with testers who don't have an Apex Huntress NFT
+// yet. Soft gate: codes ship in the client bundle, which is fine for a closed
+// beta. Add/change codes here (or ask to wire them to an env var later).
+const BETA_CODES = ['CLKNbetatest']
+const normCode = (s: string) => s.trim().toLowerCase()
+
 interface NFTGateProps {
   onAccessGranted: () => void
+}
+
+// A small "enter your beta code" field. Valid code → onUnlock().
+function BetaCodeEntry({ onUnlock }: { onUnlock: () => void }) {
+  const [code, setCode] = useState('')
+  const [error, setError] = useState(false)
+  const submit = () => {
+    if (BETA_CODES.some((c) => normCode(c) === normCode(code))) onUnlock()
+    else setError(true)
+  }
+  return (
+    <div className="mt-4">
+      <p className="text-xs text-zinc-500 mb-2">Beta tester? Enter your access code to play without an NFT.</p>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={code}
+          onChange={(e) => { setCode(e.target.value); setError(false) }}
+          onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
+          placeholder="Beta access code"
+          aria-label="Beta access code"
+          className="flex-1 min-w-0 py-2.5 px-3 rounded-lg bg-zinc-900/70 border border-violet-800/50 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-fuchsia-500/70"
+        />
+        <button
+          onClick={submit}
+          className="shrink-0 py-2.5 px-4 rounded-lg bg-violet-700/80 hover:bg-violet-600 text-white text-sm font-semibold transition-colors"
+        >
+          Enter
+        </button>
+      </div>
+      {error && <p className="mt-1.5 text-xs text-red-400 text-left">That code isn&apos;t valid.</p>}
+    </div>
+  )
 }
 
 export function NFTGate({ onAccessGranted }: NFTGateProps) {
@@ -42,15 +81,21 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
   try { previewSaved = !wantOff && localStorage.getItem('apex_preview') === '1' } catch { /* ignore */ }
   const previewMode = isDev || wantOn || previewSaved
 
-  const DevBypassButton = () =>
+  // Access without a wallet: if already unlocked (via ?dev or a prior valid beta
+  // code) show a one-tap Enter button; otherwise offer the beta-code field.
+  const persistUnlock = () => { try { localStorage.setItem('apex_preview', '1') } catch { /* ignore */ } }
+
+  const AccessPanel = () =>
     previewMode ? (
       <button
         onClick={onAccessGranted}
         className="w-full py-3 px-6 rounded-xl border border-dashed border-yellow-500/60 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-300 font-medium transition-all mt-4"
       >
-        ▶ Play without NFT (Preview)
+        ▶ Enter Game (no NFT)
       </button>
-    ) : null
+    ) : (
+      <BetaCodeEntry onUnlock={() => { persistUnlock(); onAccessGranted() }} />
+    )
 
   const shell = (children: React.ReactNode) => (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#05030a] via-[#0a0612] to-black px-4">
@@ -93,7 +138,7 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
           )}
         </div>
 
-        <DevBypassButton />
+        <AccessPanel />
 
         <p className="mt-6 text-xs text-zinc-500">
           Requires at least 1 Apex Huntress NFT on Cronos
@@ -130,7 +175,7 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
           Disconnect
         </button>
         <div className="mt-6">
-          <DevBypassButton />
+          <AccessPanel />
         </div>
       </>
     )
@@ -154,7 +199,7 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
           Mint / Buy Apex Huntress
         </a>
 
-        <DevBypassButton />
+        <AccessPanel />
 
         <button
           onClick={() => disconnect()}
