@@ -641,12 +641,12 @@ export class MainScene extends Phaser.Scene {
 
   private sizePlayer() {
     if (this.player.texture.key === 'huntress' || this.player.texture.key === 'huntress_run') {
-      // Aspect-correct (3:4 art), big and bold on the tight frame.
-      this.player.setDisplaySize(66, 90)
-      // Fair Contra-ish hitbox: narrower than the sprite, feet-aligned.
+      // Lioness hero (~0.64 aspect). Tail + ponytail sprawl to the left, so the
+      // body sits centre-right of the frame — the hitbox is offset right to it.
+      this.player.setDisplaySize(78, 122)
       const tw = this.player.width, th = this.player.height
-      this.player.body!.setSize(tw * 0.36, th * 0.82)
-      ;(this.player.body as Phaser.Physics.Arcade.Body).setOffset(tw * 0.32, th * 0.15)
+      this.player.body!.setSize(tw * 0.26, th * 0.72)
+      ;(this.player.body as Phaser.Physics.Arcade.Body).setOffset(tw * 0.43, th * 0.24)
     }
   }
 
