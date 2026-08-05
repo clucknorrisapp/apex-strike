@@ -70,7 +70,7 @@ class Sfx {
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
     src.connect(g); g.connect(c.destination); src.start(t)
   }
-  shoot() { this.tone(900, 320, 0.06, 'square', 0.028) }
+  shoot() { this.tone(820 + Math.random() * 180, 300, 0.05, 'square', 0.045) }
   jump() { this.tone(420, 780, 0.12, 'square', 0.05) }
   hit() { this.tone(240, 140, 0.05, 'square', 0.035) }
   explode() { this.noise(0.28, 0.09) }
@@ -255,6 +255,11 @@ export class MainScene extends Phaser.Scene {
   private lives = 3
   private combo = 0
   private comboTimer = 0
+  private kills = 0
+  private maxCombo = 0
+  private prevOnGround = false
+  private fallSpeed = 0
+  private deathParticles!: Phaser.GameObjects.Particles.ParticleEmitter
   private healthText!: Phaser.GameObjects.Text
   private scoreText!: Phaser.GameObjects.Text
   private levelText!: Phaser.GameObjects.Text
@@ -298,6 +303,37 @@ export class MainScene extends Phaser.Scene {
     return !!d && d.goal[0] === 0 && d.goal[1] === 0
   }
 
+  // Brief physics freeze — makes meaningful impacts LAND (Contra crunch). Not on per-bullet ticks.
+  private hitstop(ms: number) {
+    if (this.physics.world.isPaused) return
+    this.physics.world.pause()
+    this.time.delayedCall(ms, () => this.physics.world.resume())
+  }
+  // Expanding neon ring on kills/impacts.
+  private shockwave(x: number, y: number, color: number, r = 30) {
+    const ring = this.add.circle(x, y, r, color, 0).setStrokeStyle(2, color, 0.9).setDepth(23).setScale(0.25)
+    this.tweens.add({ targets: ring, scale: 1, alpha: 0, duration: 260, onComplete: () => ring.destroy() })
+  }
+  // Weapon-colored muzzle burst at the gun tip — sells every shot.
+  private muzzleFlash(x: number, y: number, dir: number, angle: number) {
+    const color = this.weapon === 'laser' ? 0xe879f9 : this.weapon === 'fire' ? 0xfb923c : 0x22d3ee
+    const rad = Phaser.Math.DegToRad(angle)
+    const isVert = angle === -90 || angle === 90
+    const ox = (isVert ? 0 : Math.cos(rad) * dir) * 13
+    const oy = Math.sin(rad) * 13
+    const flash = this.add.star(x + ox, y + oy, 4, 3, 12, color, 1).setDepth(21).setBlendMode(Phaser.BlendModes.ADD)
+    const core = this.add.circle(x + ox, y + oy, 5, 0xffffff, 0.9).setDepth(21).setBlendMode(Phaser.BlendModes.ADD)
+    this.tweens.add({ targets: [flash, core], scaleX: 0.2, scaleY: 0.2, alpha: 0, duration: 85, onComplete: () => { flash.destroy(); core.destroy() } })
+  }
+  // Kicked-up dust when you hit the ground hard.
+  private landingDust(speed: number) {
+    const y = (this.player.body as Phaser.Physics.Arcade.Body).bottom
+    const n = Phaser.Math.Clamp(Math.floor(speed / 90), 3, 12)
+    this.deathParticles.setParticleTint(0xcbd5e1)
+    this.deathParticles.emitParticleAt(this.player.x, y, n)
+    if (speed > 760) this.cameras.main.shake(70, 0.008)
+  }
+
   preload() {
     this.load.image('huntress', ASSETS.huntress)
     this.load.image('huntress_run', ASSETS.huntress_run)
@@ -322,6 +358,10 @@ export class MainScene extends Phaser.Scene {
     this.level = 1
     this.combo = 0
     this.comboTimer = 0
+    this.kills = 0
+    this.maxCombo = 0
+    this.prevOnGround = false
+    this.fallSpeed = 0
     this.invulnerable = false
     this.facingRight = true
     this.weapon = 'normal'
@@ -399,6 +439,17 @@ export class MainScene extends Phaser.Scene {
       emitting: false,
     })
     this.particles.setDepth(24)
+
+    // Chunky debris burst on kills — arcs up and falls (gravity), reads as gibs not sparkle.
+    this.deathParticles = this.add.particles(0, 0, 'spark', {
+      speed: { min: 90, max: 300 },
+      angle: { min: 200, max: 340 },
+      gravityY: 520,
+      scale: { start: 1.7, end: 0 },
+      lifespan: 620,
+      emitting: false,
+    })
+    this.deathParticles.setDepth(22)
 
     this.createHUD()
     // On-screen controls only where they're needed (touch devices) — keep desktop clean.
@@ -610,6 +661,7 @@ export class MainScene extends Phaser.Scene {
 
     const enemy = this.enemies.create(x, y, tex) as Phaser.Physics.Arcade.Sprite
     enemy.setDisplaySize(displayW, displayH)
+    enemy.setData('bsx', enemy.scaleX); enemy.setData('bsy', enemy.scaleY)
     enemy.setBounce(0.02)
     enemy.setCollideWorldBounds(false)
     enemy.setData('hp', hp); enemy.setData('maxHp', hp); enemy.setData('speed', speed)
@@ -631,13 +683,21 @@ export class MainScene extends Phaser.Scene {
 
   private spawnPowerup(x: number, y: number, kind: string) {
     const usePod = this.textures.exists('pickup_pod')
+    // Per-kind color so a heal never reads like a weapon. Health owns green; guns own their bullet colors.
+    const tints: Record<string, number> = { health: 0x4ade80, spread: 0x22d3ee, rapid: 0xfbbf24, laser: 0xe879f9, fire: 0xfb923c }
+    const glyphs: Record<string, string> = { health: '+', spread: 'S', rapid: 'R', laser: 'L', fire: 'F' }
+    const color = tints[kind] || 0xffffff
     const tex = usePod ? 'pickup_pod' : ({
       health: 'pow_health', spread: 'pow_spread', rapid: 'pow_rapid', laser: 'pow_laser', fire: 'pow_fire',
     } as Record<string, string>)[kind]
     const p = this.powerups.create(x, y, tex) as Phaser.Physics.Arcade.Sprite
     p.setData('kind', kind)
-    if (usePod) p.setDisplaySize(40, 40)
+    if (usePod) { p.setDisplaySize(40, 40); p.setTint(color) }
     p.setBounce(0.5); p.setCollideWorldBounds(false); p.setVelocityY(-120); p.setDepth(14)
+    // Glyph badge that rides along with the pod.
+    const badge = this.add.text(x, y, glyphs[kind] || '?', { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold' }).setOrigin(0.5).setDepth(15)
+    p.setData('badge', badge)
+    ;(p as Phaser.GameObjects.Sprite).on('destroy', () => badge.destroy())
   }
 
   private createHUD() {
@@ -685,12 +745,16 @@ export class MainScene extends Phaser.Scene {
     if (this.gameOver || this.levelTransition || !this.player?.active) return
 
     const body = this.player.body as Phaser.Physics.Arcade.Body
+    const landed = !this.prevOnGround && body.blocked.down
     this.onGround = body.blocked.down
     if (this.onGround) {
       this.lastGroundAt = time
       this.jumpsLeft = MAX_JUMPS
       if (this.player.y < this.levelH) { this.lastGroundX = this.player.x; this.lastGroundY = this.player.y }
     }
+    if (landed && this.fallSpeed > 380) this.landingDust(this.fallSpeed)
+    this.prevOnGround = this.onGround
+    if (!this.onGround) this.fallSpeed = body.velocity.y
 
     // Fell into a pit (below the content floor)
     if (this.player.y > this.levelH + 150) { this.pitFall(); return }
@@ -850,7 +914,8 @@ export class MainScene extends Phaser.Scene {
     }
 
     this.particles.emitParticleAt(baseX, baseY, 3)
-    if (this.time.now - this.lastSfxShot > 90) { this.sfx?.shoot(); this.lastSfxShot = this.time.now }
+    if (this.time.now - this.lastSfxShot > 55) { this.sfx?.shoot(); this.lastSfxShot = this.time.now }
+    this.muzzleFlash(baseX, baseY, dir, angle)
 
     if (this.weapon === 'spread') {
       spawn(angle - 20, 'bullet', 780, 1.2); spawn(angle, 'bullet', 820, 1.4); spawn(angle + 20, 'bullet', 780, 1.2)
@@ -906,7 +971,9 @@ export class MainScene extends Phaser.Scene {
       if (type === 'tank' || type === 'flyer' || type === 'boss' || type === 'turret') {
         let timer = enemy.getData('shootTimer') as number
         timer -= delta
-        if (timer <= 0) {
+        // Don't let off-screen enemies snipe you — only fire when roughly on-screen (the boss always fires).
+        const near = type === 'boss' || (Math.abs(enemy.x - this.player.x) < 600 && Math.abs(enemy.y - this.player.y) < 380)
+        if (timer <= 0 && near) {
           let count = 1
           if (type === 'boss') count = this.bossPhase === 2 ? 9 : 6
           else if (type === 'turret') count = this.level >= 3 ? 2 : 1
@@ -916,7 +983,7 @@ export class MainScene extends Phaser.Scene {
           else if (type === 'tank') base = 1100
           else if (type === 'turret') base = Math.max(650, 1250 - this.level * 90)
           enemy.setData('shootTimer', base)
-        } else enemy.setData('shootTimer', timer)
+        } else enemy.setData('shootTimer', timer <= 0 ? 140 : timer)
       }
     })
   }
@@ -946,35 +1013,83 @@ export class MainScene extends Phaser.Scene {
     const dmg = this.weapon === 'laser' ? 3 : this.weapon === 'fire' ? 2 : 1
     const hp = (enemy.getData('hp') as number) - dmg
     enemy.setData('hp', hp)
-    enemy.setTint(0xffffff)
-    this.time.delayedCall(50, () => { if (enemy.active) enemy.clearTint() })
-    this.cameras.main.shake(20, 0.005)
+    enemy.setTintFill(0xffffff)
+    this.time.delayedCall(60, () => { if (enemy.active) enemy.clearTint() })
     this.particles.emitParticleAt(enemy.x, enemy.y, 5)
-    this.sfx?.hit()
 
-    if (hp <= 0) {
-      const type = enemy.getData('type') as string
-      let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'turret' ? 350 : type === 'flyer' ? 250 : 120
-      this.combo++
-      this.comboTimer = 2400
-      if (this.combo > 1) {
-        pts = Math.floor(pts * (1 + Math.min(this.combo, 15) * 0.12))
-        this.comboText.setText('COMBO x' + this.combo)
-      }
-      this.score += pts
-      this.scoreText.setText('SCORE  ' + this.score)
-      this.popup(enemy.x, enemy.y - 20, '+' + pts)
-      this.particles.emitParticleAt(enemy.x, enemy.y, 32)
-      this.cameras.main.shake(90, 0.016)
-      this.sfx?.explode()
-      if (type === 'tank' || type === 'boss' || type === 'turret') this.cameras.main.flash(100, 200, 100, 255, false)
-      if (Math.random() < 0.3 && type !== 'boss') {
-        const kinds = ['health', 'spread', 'rapid', 'laser', 'fire']
-        this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
-      }
-      enemy.destroy()
-      if (this.isBossLevel() && this.enemies.countActive(true) === 0) this.onLevelClear()
+    if (hp > 0) {
+      // Alive — flinch with a quick squash punch so non-lethal hits still read.
+      const bsx = enemy.getData('bsx') as number, bsy = enemy.getData('bsy') as number
+      this.tweens.killTweensOf(enemy)
+      this.tweens.add({ targets: enemy, scaleX: bsx * 1.18, scaleY: bsy * 0.84, duration: 55, yoyo: true, onComplete: () => { if (enemy.active) enemy.setScale(bsx, bsy) } })
+      this.sfx?.hit()
+      return
     }
+
+    // ---- Kill ----
+    const type = enemy.getData('type') as string
+    const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : 0xf43f5e
+    let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'turret' ? 350 : type === 'flyer' ? 250 : 120
+    this.combo++
+    this.comboTimer = 2400
+    this.maxCombo = Math.max(this.maxCombo, this.combo)
+    if (this.combo > 1) {
+      pts = Math.floor(pts * (1 + Math.min(this.combo, 15) * 0.12))
+      this.comboText.setText('COMBO x' + this.combo)
+    }
+    this.kills++
+    this.score += pts
+    this.scoreText.setText('SCORE  ' + this.score)
+    this.popup(enemy.x, enemy.y - 20, '+' + pts)
+
+    if (type === 'boss') { this.bossDeath(enemy); return }
+
+    this.deathParticles.setParticleTint(dcol)
+    this.deathParticles.emitParticleAt(enemy.x, enemy.y, 16)
+    this.particles.emitParticleAt(enemy.x, enemy.y, 26)
+    this.shockwave(enemy.x, enemy.y, dcol, 26)
+    this.hitstop(type === 'tank' || type === 'turret' ? 70 : 45)
+    this.cameras.main.shake(type === 'tank' || type === 'turret' ? 120 : 70, 0.014)
+    this.sfx?.explode()
+    if (type === 'tank' || type === 'turret') this.cameras.main.flash(90, 200, 120, 255, false)
+    if (Math.random() < 0.3) {
+      const kinds = ['health', 'spread', 'rapid', 'laser', 'fire']
+      this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
+    }
+    enemy.destroy()
+    if (this.isBossLevel() && this.enemies.countActive(true) === 0) this.onLevelClear()
+  }
+
+  // Multi-stage boss detonation — a run of blasts across the body, then a screen-filling finisher.
+  private bossDeath(boss: Phaser.Physics.Arcade.Sprite) {
+    boss.setData('hp', 0)
+    boss.setVelocity(0, 0)
+    ;(boss.body as Phaser.Physics.Arcade.Body).enable = false
+    this.hitstop(150)
+    let n = 0
+    const ev = this.time.addEvent({
+      delay: 135, repeat: 7, callback: () => {
+        n++
+        const ex = boss.x + Phaser.Math.Between(-72, 72), ey = boss.y + Phaser.Math.Between(-72, 72)
+        this.particles.emitParticleAt(ex, ey, 20)
+        this.deathParticles.setParticleTint(0xfb923c)
+        this.deathParticles.emitParticleAt(ex, ey, 10)
+        this.shockwave(ex, ey, 0xfbbf24, 22)
+        this.cameras.main.shake(120, 0.02)
+        this.sfx?.explode()
+        if (boss.active) boss.setTintFill(n % 2 ? 0xffffff : 0xff6030)
+        if (ev.repeatCount === 0) {
+          this.cameras.main.flash(320, 255, 210, 130, false)
+          this.shockwave(boss.x, boss.y, 0xffffff, 64)
+          this.deathParticles.setParticleTint(0xfbbf24)
+          this.deathParticles.emitParticleAt(boss.x, boss.y, 44)
+          this.particles.emitParticleAt(boss.x, boss.y, 60)
+          this.sfx?.clear()
+          boss.destroy()
+          if (this.enemies.countActive(true) === 0) this.onLevelClear()
+        }
+      },
+    })
   }
 
   private hitPlayer(
@@ -1002,11 +1117,17 @@ export class MainScene extends Phaser.Scene {
     let pts = type === 'flyer' ? 250 : 120
     this.combo++
     this.comboTimer = 2400
+    this.maxCombo = Math.max(this.maxCombo, this.combo)
     if (this.combo > 1) { pts = Math.floor(pts * (1 + Math.min(this.combo, 15) * 0.12)); this.comboText.setText('COMBO x' + this.combo) }
+    this.kills++
     this.score += pts
     this.scoreText.setText('SCORE  ' + this.score)
     this.popup(enemy.x, enemy.y - 20, 'STOMP +' + pts, '#fbbf24')
     this.particles.emitParticleAt(enemy.x, enemy.y, 22)
+    this.deathParticles.setParticleTint(type === 'flyer' ? 0xa855f7 : 0xf43f5e)
+    this.deathParticles.emitParticleAt(enemy.x, enemy.y, 14)
+    this.shockwave(enemy.x, enemy.y, 0xfbbf24, 24)
+    this.hitstop(28)
     this.cameras.main.shake(60, 0.012)
     this.sfx?.stomp()
     if (Math.random() < 0.3) {
@@ -1033,6 +1154,7 @@ export class MainScene extends Phaser.Scene {
     this.updateHealth()
     this.invulnerable = true
     this.player.setTint(0xff0030)
+    this.hitstop(70)
     this.cameras.main.shake(140, 0.018)
     this.cameras.main.flash(100, 255, 30, 40, false)
     this.sfx?.hurt()
@@ -1100,14 +1222,35 @@ export class MainScene extends Phaser.Scene {
     } else this.showVictory()
   }
 
+  // Persist the best score across sessions; report whether this run beat it.
+  private saveBest(): { best: number; record: boolean } {
+    let best = 0
+    try { best = parseInt(localStorage.getItem('apex_best') || '0', 10) || 0 } catch { best = 0 }
+    const record = this.score > best
+    if (record) { try { localStorage.setItem('apex_best', String(this.score)) } catch { /* ignore */ } best = this.score }
+    return { best, record }
+  }
+
+  // Shared results block: score, run stats, and a NEW RECORD flourish.
+  private resultsCard(record: boolean) {
+    this.add.text(256, 140, 'SCORE  ' + this.score, { fontFamily: 'monospace', fontSize: '15px', color: '#e879f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    this.add.text(256, 166, 'Kills ' + this.kills + '     Best Combo x' + this.maxCombo, { fontFamily: 'monospace', fontSize: '10px', color: '#22d3ee' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    if (record) {
+      const rec = this.add.text(256, 187, '★  NEW RECORD  ★', { fontFamily: 'monospace', fontSize: '12px', color: '#fbbf24' }).setOrigin(0.5).setScrollFactor(0).setDepth(202)
+      this.tweens.add({ targets: rec, alpha: 0.35, duration: 420, yoyo: true, repeat: -1 })
+    }
+  }
+
   private triggerGameOver() {
     this.gameOver = true
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
-    this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.88).setScrollFactor(0).setDepth(200)
-    this.add.text(256, 130, 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '21px', color: '#f43f5e' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    this.add.text(256, 170, 'Score: ' + this.score, { fontFamily: 'monospace', fontSize: '13px', color: '#e879f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    this.add.text(256, 198, 'Reached Level ' + this.level, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    const btn = this.add.text(256, 240, '[ CLICK / TAP TO RESTART ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
+    const { best, record } = this.saveBest()
+    this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200)
+    this.add.text(256, 96, 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '21px', color: '#f43f5e' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    this.resultsCard(record)
+    this.add.text(256, 212, 'Reached Level ' + this.level, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    const btn = this.add.text(256, 268, '[ CLICK / TAP TO RESTART ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.scene.restart())
   }
@@ -1115,11 +1258,13 @@ export class MainScene extends Phaser.Scene {
   private showVictory() {
     this.gameOver = true
     this.player.setVelocity(0, 0)
-    this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.88).setScrollFactor(0).setDepth(200)
-    this.add.text(256, 115, 'SECTOR DOMINATED', { fontFamily: 'monospace', fontSize: '19px', color: '#22d3ee' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    this.add.text(256, 152, 'Final Score: ' + this.score, { fontFamily: 'monospace', fontSize: '13px', color: '#e879f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    this.add.text(256, 184, 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    const btn = this.add.text(256, 230, '[ CLICK / TAP TO PLAY AGAIN ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
+    const { best, record } = this.saveBest()
+    this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200)
+    this.add.text(256, 92, 'SECTOR DOMINATED', { fontFamily: 'monospace', fontSize: '19px', color: '#22d3ee' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    this.resultsCard(record)
+    this.add.text(256, 212, 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    const btn = this.add.text(256, 268, '[ CLICK / TAP TO PLAY AGAIN ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.scene.restart())
   }

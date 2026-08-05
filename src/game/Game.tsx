@@ -49,7 +49,7 @@ export function Game() {
       <div className="w-full max-w-4xl">
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
-          <span className="text-violet-400/70 text-xs">v1.4 — Bold Art</span>
+          <span className="text-violet-400/70 text-xs">v1.5 — Full Contact</span>
         </div>
 
         <div

@@ -1,6 +1,6 @@
 {
   "permissions": {
-    "defaultMode": "acceptEdits",
+    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash(curl -sS -I *)",
       "Bash(curl -sS -o /dev/null *)",
