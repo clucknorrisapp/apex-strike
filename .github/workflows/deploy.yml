@@ -32,7 +32,10 @@ jobs:
       - name: Deploy to Railway
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+          # Defaults to the web service inferred from the public URL
+          # (apex-strike-production.up.railway.app). Override anytime by setting
+          # a repo variable RAILWAY_SERVICE to a different service name.
+          RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE || 'apex-strike' }}
         run: |
           if [ -z "$RAILWAY_TOKEN" ]; then
             echo "::error::RAILWAY_TOKEN secret is missing. Add it under repo Settings → Secrets and variables → Actions → New repository secret. Create the token in Railway → Project → Settings → Tokens (a project token)."
