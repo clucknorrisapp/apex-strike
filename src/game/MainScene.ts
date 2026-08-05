@@ -695,8 +695,8 @@ export class MainScene extends Phaser.Scene {
     if (k === 'huntress' || k === 'huntress_run' || k === 'huntress_jump' || k === 'huntress_crouch') {
       // All hero poses share one aligned 1024x900 canvas (body-axis centred at
       // x=512, feet at y=760, head at y=300) so they swap without size/position
-      // jitter. Display so the ~460px-tall character reads ~88px in design space.
-      const DISP_H = 172
+      // jitter. Display so the ~460px-tall character reads ~80px in design space.
+      const DISP_H = 156
       this.player.setDisplaySize(DISP_H * (1024 / 900), DISP_H)
       const tw = this.player.width, th = this.player.height   // 1024 x 900
       const b = this.player.body as Phaser.Physics.Arcade.Body
@@ -1630,8 +1630,10 @@ export class MainScene extends Phaser.Scene {
     const g = this.shadowGfx
     if (!g) return
     g.clear()
-    const groundY = this.lastGroundY + 58   // feet sit ~58px below the sprite centre now
-    const pFeet = this.player.y + 58
+    // Feet offset derived from the body so it tracks any display-size change.
+    const feetOff = (this.player.body as Phaser.Physics.Arcade.Body).bottom - this.player.y
+    const groundY = this.lastGroundY + feetOff
+    const pFeet = this.player.y + feetOff
     const lift = Phaser.Math.Clamp((groundY - pFeet) / 140, 0, 1)  // 0 grounded → 1 high
     g.fillStyle(0x000000, 0.34 * (1 - lift * 0.75))
     g.fillEllipse(this.player.x, Math.max(groundY, pFeet), 52 * (1 - lift * 0.4), 13 * (1 - lift * 0.4))
