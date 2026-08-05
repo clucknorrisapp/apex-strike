@@ -84,6 +84,7 @@ class Sfx {
   stomp() { this.tone(520, 150, 0.1, 'square', 0.06) }
   clear() { this.tone(520, 940, 0.14, 'square', 0.05) }
   dash() { this.tone(200, 520, 0.14, 'sawtooth', 0.05) }
+  swap() { this.tone(440, 720, 0.08, 'square', 0.05) }
 
   // ---- Procedural background music: a subtle driving synth loop ----
   private musicGain: GainNode | null = null
@@ -338,6 +339,9 @@ export class MainScene extends Phaser.Scene {
   private prone = false
   private touch: TouchState = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
   private weapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' = 'normal'
+  // Two-weapon carry: a backup slot you can swap into (Q / touch / gamepad Y).
+  private altWeapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' = 'normal'
+  private padSwapPrev = false
   private particles!: Phaser.GameObjects.Particles.ParticleEmitter
   private jumpsLeft = 2
   private lastGroundAt = 0
@@ -446,6 +450,8 @@ export class MainScene extends Phaser.Scene {
     this.invulnerable = false
     this.facingRight = true
     this.weapon = 'normal'
+    this.altWeapon = 'normal'
+    this.padSwapPrev = false
     this.fireRate = 100
     this.jumpsLeft = MAX_JUMPS
     this.jumpBufferAt = -9999
@@ -530,6 +536,7 @@ export class MainScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown-P', () => this.togglePause())
     this.input.keyboard!.on('keydown-ESC', () => this.togglePause())
     this.input.keyboard!.on('keydown-M', () => this.toggleMute())
+    this.input.keyboard!.on('keydown-Q', () => this.swapWeapon())
 
     // Controller: confirm the pad the instant it wakes up (browsers only surface
     // gamepads after the first input) — and if one is already active.
@@ -850,7 +857,7 @@ export class MainScene extends Phaser.Scene {
     this.add.text(502, 7, 'APEX STRIKE', { fontFamily: 'monospace', fontSize: '9px', color: '#a855f7' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100)
     this.muteIcon = this.add.text(502, 20, this.muted ? '♪ OFF' : '♪ ON', { fontFamily: 'monospace', fontSize: '9px', color: this.muted ? '#ef4444' : '#a5b4fc' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100)
     if (!this.sys.game.device.input.touch) {
-      this.add.text(256, 373, 'P / Start  pause      M  mute', { fontFamily: 'monospace', fontSize: '8px', color: '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(100)
+      this.add.text(256, 373, 'P pause   ·   M mute   ·   Q swap gun', { fontFamily: 'monospace', fontSize: '8px', color: '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(100)
     }
     // Extraction compass — points to the goal when it's off-screen.
     this.compass = this.add.triangle(256, 192, 0, -9, 18, 0, 0, 9, 0xfbbf24, 0.9).setScrollFactor(0).setDepth(120).setVisible(false)
@@ -905,6 +912,7 @@ export class MainScene extends Phaser.Scene {
     }
     tapBtn(228, 'II', () => this.togglePause())
     tapBtn(284, '♪', () => this.toggleMute())
+    tapBtn(340, '⇄', () => this.swapWeapon())
   }
 
   private controllerToast() {
@@ -1189,6 +1197,10 @@ export class MainScene extends Phaser.Scene {
       if (pad.A || pad.buttons[0]?.pressed) jump = true
       if (pad.up || (pad.axes[1] && pad.axes[1].getValue() < -0.3)) this.aimUp = true
       if (pad.down || (pad.axes[1] && pad.axes[1].getValue() > 0.3)) this.aimDown = true
+      // Y (button 3) swaps weapons, edge-triggered so a held button fires once.
+      const yNow = !!(pad.Y || pad.buttons[3]?.pressed)
+      if (yNow && !this.padSwapPrev) this.swapWeapon()
+      this.padSwapPrev = yNow
     }
 
     this.movingH = left || right
@@ -1611,10 +1623,28 @@ export class MainScene extends Phaser.Scene {
     this.sfx?.pickup()
     if (kind === 'health') { this.health = Math.min(this.maxHealth, this.health + 1); this.updateHealth() }
     else {
-      this.weapon = kind as typeof this.weapon
-      const labels: Record<string, string> = { spread: 'SPREAD', rapid: 'RAPID', laser: 'LASER', fire: 'FIRE' }
-      this.weaponText.setText('GUN  ' + (labels[kind] || 'NORMAL'))
+      // Two-weapon carry: the new gun becomes active; the previous one drops to the backup slot.
+      if (kind !== this.weapon) { this.altWeapon = this.weapon; this.weapon = kind as typeof this.weapon }
+      this.updateWeaponHUD()
     }
+  }
+
+  private wlabel(w: string) {
+    return ({ spread: 'SPREAD', rapid: 'RAPID', laser: 'LASER', fire: 'FIRE' } as Record<string, string>)[w] || 'NORMAL'
+  }
+
+  private updateWeaponHUD() {
+    // One backup weapon shown dim after the active one; a ▶ marks what's firing.
+    if (this.altWeapon === this.weapon) this.weaponText.setText('GUN  ' + this.wlabel(this.weapon))
+    else this.weaponText.setText('GUN ▶' + this.wlabel(this.weapon) + '  ·' + this.wlabel(this.altWeapon))
+  }
+
+  private swapWeapon() {
+    if (this.gameOver || !this.started || this.altWeapon === this.weapon) return
+    const t = this.weapon; this.weapon = this.altWeapon; this.altWeapon = t
+    this.updateWeaponHUD()
+    this.sfx?.swap()
+    this.popup(this.player.x, this.player.y - 44, '▶ ' + this.wlabel(this.weapon), '#22d3ee')
   }
 
   private updateHealth() {
