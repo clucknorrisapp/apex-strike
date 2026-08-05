@@ -363,6 +363,8 @@ export class MainScene extends Phaser.Scene {
   // Title / start gate (skipped in the Level Lab)
   private started = false
   private titleUI: Phaser.GameObjects.GameObject[] = []
+  // Extraction compass — edge arrow pointing to the goal when it's off-screen
+  private compass?: Phaser.GameObjects.Triangle
 
   constructor() {
     super({ key: 'MainScene' })
@@ -835,6 +837,23 @@ export class MainScene extends Phaser.Scene {
     if (!this.sys.game.device.input.touch) {
       this.add.text(256, 373, 'P / Start  pause      M  mute', { fontFamily: 'monospace', fontSize: '8px', color: '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(100)
     }
+    // Extraction compass — points to the goal when it's off-screen.
+    this.compass = this.add.triangle(256, 192, 0, -9, 18, 0, 0, 9, 0xfbbf24, 0.9).setScrollFactor(0).setDepth(120).setVisible(false)
+    this.compass.setStrokeStyle(2, 0x1a1004, 0.6)
+  }
+
+  private updateCompass() {
+    if (!this.compass) return
+    if (this.isBossLevel()) { this.compass.setVisible(false); return }
+    const cam = this.cameras.main
+    const gx = this.goalX - cam.scrollX, gy = this.goalY - cam.scrollY
+    const m = 44
+    if (gx > m && gx < 512 - m && gy > m && gy < 384 - m) { this.compass.setVisible(false); return }
+    const ang = Math.atan2(gy - 192, gx - 256)
+    const cos = Math.cos(ang), sin = Math.sin(ang)
+    const halfW = 256 - 26, halfH = 192 - 26
+    const d = Math.min(cos !== 0 ? halfW / Math.abs(cos) : Infinity, sin !== 0 ? halfH / Math.abs(sin) : Infinity)
+    this.compass.setPosition(256 + cos * d, 192 + sin * d).setRotation(ang).setVisible(true)
   }
 
   private createTouchControls() {
@@ -1051,6 +1070,7 @@ export class MainScene extends Phaser.Scene {
     if (this.userPaused) return
     if (this.levelTransition || !this.player?.active) return
     if (this.bossRef) this.updateBossBar()
+    this.updateCompass()
 
     const body = this.player.body as Phaser.Physics.Arcade.Body
     const landed = !this.prevOnGround && body.blocked.down
