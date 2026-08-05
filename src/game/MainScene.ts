@@ -427,7 +427,11 @@ export class MainScene extends Phaser.Scene {
 
   preload() {
     this.load.image('huntress', ASSETS.huntress)
-    this.load.image('huntress_run', ASSETS.huntress_run)
+    // Run sprite temporarily disabled: the old huntress_run.png was a different
+    // character (blue/caped) than the purple/gold standing huntress, so the two
+    // looked nothing alike mid-run. Use one consistent sprite until a matching
+    // purple/gold run pose exists — then re-enable this line.
+    // this.load.image('huntress_run', ASSETS.huntress_run)
     this.load.image('enemy_soldier', ASSETS.enemy_soldier)
     this.load.image('enemy_flyer', ASSETS.enemy_flyer)
     this.load.image('enemy_tank', ASSETS.enemy_tank)
