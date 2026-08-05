@@ -397,11 +397,12 @@ export class MainScene extends Phaser.Scene {
 
   private sizePlayer() {
     if (this.player.texture.key === 'huntress' || this.player.texture.key === 'huntress_run') {
-      this.player.setDisplaySize(80, 80)
-      // Fair Contra-ish hitbox: narrower than the sprite, aligned to the body.
+      // Aspect-correct (3:4 art), big and bold on the tight frame.
+      this.player.setDisplaySize(66, 90)
+      // Fair Contra-ish hitbox: narrower than the sprite, feet-aligned.
       const tw = this.player.width, th = this.player.height
-      this.player.body!.setSize(tw * 0.4, th * 0.8)
-      ;(this.player.body as Phaser.Physics.Arcade.Body).setOffset(tw * 0.3, th * 0.18)
+      this.player.body!.setSize(tw * 0.36, th * 0.82)
+      ;(this.player.body as Phaser.Physics.Arcade.Body).setOffset(tw * 0.32, th * 0.15)
     }
   }
 
@@ -582,18 +583,18 @@ export class MainScene extends Phaser.Scene {
 
     if (kind === 'soldier' || kind === 'enemy') {
       tex = this.textures.exists('enemy_soldier') ? 'enemy_soldier' : 'enemy'
-      t = 'walker'; displayW = 54; displayH = 54
+      t = 'walker'; displayW = 47; displayH = 64
     } else if (kind === 'flyer') {
       tex = this.textures.exists('enemy_flyer') ? 'enemy_flyer' : 'flyer'
-      t = 'flyer'; displayW = 52; displayH = 52
+      t = 'flyer'; displayW = 56; displayH = 56
     } else if (kind === 'tank') {
       tex = this.textures.exists('enemy_tank') ? 'enemy_tank' : 'tank'
-      t = 'tank'; displayW = 70; displayH = 60
+      t = 'tank'; displayW = 88; displayH = 65
     } else if (kind === 'turret') {
       tex = 'turret'; t = 'turret'; displayW = 50; displayH = 42
     } else if (kind === 'boss') {
       tex = this.textures.exists('boss_art') ? 'boss_art' : 'boss'
-      t = 'boss'; displayW = 116; displayH = 106
+      t = 'boss'; displayW = 230; displayH = 230
     }
 
     const enemy = this.enemies.create(x, y, tex) as Phaser.Physics.Arcade.Sprite
