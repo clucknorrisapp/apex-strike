@@ -80,9 +80,9 @@ class Sfx {
   clear() { this.tone(520, 940, 0.14, 'square', 0.05) }
 }
 
-type ThemeName = 'streets' | 'industrial' | 'sky' | 'core' | 'throne'
+export type ThemeName = 'streets' | 'industrial' | 'sky' | 'core' | 'throne'
 
-interface Theme {
+export interface Theme {
   bg: number
   far: number
   mid: number
@@ -92,7 +92,7 @@ interface Theme {
   accent: number
 }
 
-const THEMES: Record<ThemeName, Theme> = {
+export const THEMES: Record<ThemeName, Theme> = {
   streets:    { bg: 0x0a0612, far: 0x1a1030, mid: 0x2a1a4d, rim: 0x22d3ee, fill: 0x2c1f4a, ledge: 0x3b2a63, accent: 0xe879f9 },
   industrial: { bg: 0x0f0a07, far: 0x2a1c10, mid: 0x3d2a15, rim: 0xfb923c, fill: 0x3a2917, ledge: 0x4a3420, accent: 0xfbbf24 },
   sky:        { bg: 0x071018, far: 0x122438, mid: 0x1d3a57, rim: 0x22d3ee, fill: 0x1f3a52, ledge: 0x2a4a63, accent: 0x67e8f9 },
@@ -100,9 +100,9 @@ const THEMES: Record<ThemeName, Theme> = {
   throne:     { bg: 0x0b0714, far: 0x241a3a, mid: 0x3a2a5c, rim: 0xfbbf24, fill: 0x362a52, ledge: 0x4a3a2a, accent: 0xfde68a },
 }
 
-interface EnemySpawn { kind: string; x: number; y: number; hp: number; speed: number }
+export interface EnemySpawn { kind: string; x: number; y: number; hp: number; speed: number }
 
-interface LevelDef {
+export interface LevelDef {
   name: string
   theme: ThemeName
   w: number
@@ -118,7 +118,7 @@ interface LevelDef {
 }
 
 // Multi-directional stages: you climb UP, drop DOWN, and push FORWARD.
-const LEVELS: LevelDef[] = [
+export const LEVELS: LevelDef[] = [
   {
     name: 'NEON STREETS', theme: 'streets', w: 2600, h: 1200, spawn: [80, 1060], goal: [2470, 620],
     ground: [[0, 700, 1140], [820, 1500, 1140], [1620, 2600, 1140]],
@@ -210,6 +210,10 @@ const LEVELS: LevelDef[] = [
   },
 ]
 
+// Level Lab injection: when set, the scene plays THESE levels instead of the campaign.
+let LAB_LEVELS: LevelDef[] | null = null
+export function setLabLevels(levels: LevelDef[] | null) { LAB_LEVELS = levels }
+
 interface TouchState {
   left: boolean
   right: boolean
@@ -287,6 +291,13 @@ export class MainScene extends Phaser.Scene {
     super({ key: 'MainScene' })
   }
 
+  // Active level set — the injected Lab levels if present, else the campaign.
+  private levels(): LevelDef[] { return LAB_LEVELS ?? LEVELS }
+  private isBossLevel(): boolean {
+    const d = this.levels()[this.level - 1]
+    return !!d && d.goal[0] === 0 && d.goal[1] === 0
+  }
+
   preload() {
     this.load.image('huntress', ASSETS.huntress)
     this.load.image('huntress_run', ASSETS.huntress_run)
@@ -345,7 +356,7 @@ export class MainScene extends Phaser.Scene {
 
     this.buildLevel(1)
 
-    const def = LEVELS[0]
+    const def = this.levels()[0]
     const pKey = this.textures.exists('huntress') ? 'huntress' : 'player'
     this.player = this.physics.add.sprite(def.spawn[0], def.spawn[1], pKey)
     this.sizePlayer()
@@ -523,7 +534,7 @@ export class MainScene extends Phaser.Scene {
     this.spawnTimer = 0
     this.bossPhase = 1
 
-    const def = LEVELS[lvl - 1]
+    const def = this.levels()[lvl - 1]
     const theme = THEMES[def.theme]
     this.levelW = def.w
     this.levelH = def.h
@@ -702,8 +713,8 @@ export class MainScene extends Phaser.Scene {
       if (this.player.texture.key !== key) { this.player.setTexture(key); this.sizePlayer() }
     }
 
-    // Reached the extraction point?
-    if (this.level < 5) {
+    // Reached the extraction point? (boss levels clear by kill-all instead)
+    if (!this.isBossLevel()) {
       const dx = this.player.x - this.goalX, dy = this.player.y - this.goalY
       if (dx * dx + dy * dy < 70 * 70) { this.onLevelClear(); return }
     }
@@ -737,7 +748,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private maybeSpawnReinforcements(delta: number) {
-    if (this.level >= 5) return
+    if (this.isBossLevel()) return
     this.spawnTimer += delta
     const interval = 3400 - this.level * 280
     if (this.spawnTimer > interval && this.enemies.countActive(true) < 12 + this.level) {
@@ -962,7 +973,7 @@ export class MainScene extends Phaser.Scene {
         this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
       }
       enemy.destroy()
-      if (this.level === 5 && this.enemies.countActive(true) === 0) this.onLevelClear()
+      if (this.isBossLevel() && this.enemies.countActive(true) === 0) this.onLevelClear()
     }
   }
 
@@ -1003,7 +1014,7 @@ export class MainScene extends Phaser.Scene {
       this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
     }
     enemy.destroy()
-    if (this.level === 5 && this.enemies.countActive(true) === 0) this.onLevelClear()
+    if (this.isBossLevel() && this.enemies.countActive(true) === 0) this.onLevelClear()
   }
 
   private hitByEnemyBullet(
@@ -1068,16 +1079,16 @@ export class MainScene extends Phaser.Scene {
     if (this.levelTransition) return
     this.levelTransition = true
     this.sfx?.clear()
-    if (this.level < 5) {
+    if (this.level < this.levels().length) {
       const next = this.level + 1
-      const msg = this.add.text(256, 150, `LEVEL ${next}\n${LEVELS[next - 1].name}`, {
+      const msg = this.add.text(256, 150, `LEVEL ${next}\n${this.levels()[next - 1].name}`, {
         fontFamily: 'monospace', fontSize: '16px', color: '#22d3ee', align: 'center',
       }).setOrigin(0.5).setScrollFactor(0).setDepth(200)
       this.time.delayedCall(1300, () => {
         msg.destroy()
         this.level = next
         this.levelText.setText('LEVEL  ' + next)
-        const d = LEVELS[next - 1]
+        const d = this.levels()[next - 1]
         this.buildLevel(next)
         this.player.setPosition(d.spawn[0], d.spawn[1])
         this.player.setVelocity(0, 0); this.jumpsLeft = MAX_JUMPS
