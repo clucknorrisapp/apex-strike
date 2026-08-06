@@ -174,30 +174,27 @@ export function Game() {
       style={{ ...ctrlBase, ...extra }}
     >{label}</button>
   )
-  const bs = Math.min(Math.max(gutterW * 0.4, 52), 96)     // d-pad button size
-  const aw = Math.min(Math.max(gutterW * 0.78, 96), 168)   // action button width
+  // Size buttons to FIT the measured gutter so a cluster can never overflow / clip.
+  const bs = Math.max(44, Math.min(84, Math.floor((gutterW - 40) / 3)))   // d-pad button (3 across + gaps + margins fit gutterW)
+  const aw = Math.max(84, Math.min(150, gutterW - 28))                    // action button width
   const dPurple: CSSProperties = { background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.75)' }
   const dCyan: CSSProperties = { background: 'rgba(19,78,74,0.5)', border: '2px solid rgba(34,211,238,0.75)' }
   const gutterControls = showGutter && (
     <>
-      {/* LEFT gutter — 8-way d-pad */}
-      <div style={{ position: 'absolute', left: 0, bottom: 0, width: gutterW, height: '64%', zIndex: 30, pointerEvents: 'none' }}>
-        <div style={{ position: 'absolute', left: '50%', bottom: '9%', transform: 'translateX(-50%)', display: 'grid', gridTemplateColumns: `repeat(3, ${bs}px)`, gridAutoRows: `${bs}px`, gap: 8, pointerEvents: 'auto' }}>
-          <span />{hold('up', '▲', dCyan)}<span />
-          {hold('left', '◄', dPurple)}<span />{hold('right', '►', dPurple)}
-          <span />{hold('down', '▼', dCyan)}<span />
-        </div>
+      {/* LEFT gutter — 8-way d-pad, anchored to the LEFT edge (can't clip) */}
+      <div style={{ position: 'absolute', left: 14, bottom: '7%', display: 'grid', gridTemplateColumns: `repeat(3, ${bs}px)`, gridAutoRows: `${bs}px`, gap: 8, zIndex: 30 }}>
+        <span />{hold('up', '▲', dCyan)}<span />
+        {hold('left', '◄', dPurple)}<span />{hold('right', '►', dPurple)}
+        <span />{hold('down', '▼', dCyan)}<span />
       </div>
-      {/* RIGHT gutter — swap / jump / fire */}
-      <div style={{ position: 'absolute', right: 0, bottom: 0, width: gutterW, height: '74%', zIndex: 30, pointerEvents: 'none' }}>
-        <div style={{ position: 'absolute', right: '9%', bottom: '9%', display: 'flex', flexDirection: 'column', gap: 12, width: aw, pointerEvents: 'auto' }}>
-          {tap('swap', '⇄ SWAP', { background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)', height: 40, fontSize: 12 })}
-          {hold('jump', 'JUMP', { background: 'rgba(20,83,45,0.5)', border: '2px solid rgba(74,222,128,0.85)', height: Math.round(bs * 1.05), fontSize: 16 })}
-          {hold('shoot', 'FIRE', { background: 'rgba(76,5,25,0.55)', border: '2px solid rgba(244,63,94,0.9)', height: Math.round(bs * 1.4), fontSize: 18 })}
-        </div>
+      {/* RIGHT gutter — swap / jump / fire, anchored to the RIGHT edge */}
+      <div style={{ position: 'absolute', right: 14, bottom: '7%', display: 'flex', flexDirection: 'column', gap: 12, width: aw, zIndex: 30 }}>
+        {tap('swap', '⇄ SWAP', { background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)', height: 38, fontSize: 12 })}
+        {hold('jump', 'JUMP', { background: 'rgba(20,83,45,0.5)', border: '2px solid rgba(74,222,128,0.85)', height: Math.round(bs * 1.05), fontSize: 16 })}
+        {hold('shoot', 'FIRE', { background: 'rgba(76,5,25,0.55)', border: '2px solid rgba(244,63,94,0.9)', height: Math.round(bs * 1.35), fontSize: 18 })}
       </div>
-      {/* Top-left gutter — pause + mute */}
-      <div style={{ position: 'absolute', left: 8, top: 8, display: 'flex', gap: 8, zIndex: 30 }}>
+      {/* Top-left — pause + mute */}
+      <div style={{ position: 'absolute', left: 12, top: 12, display: 'flex', gap: 8, zIndex: 30 }}>
         {tap('pause', 'II', { background: 'rgba(30,27,75,0.55)', border: '1px solid rgba(168,85,247,0.6)', width: 42, height: 32, fontSize: 13 })}
         {tap('mute', '♪', { background: 'rgba(30,27,75,0.55)', border: '1px solid rgba(168,85,247,0.6)', width: 42, height: 32, fontSize: 13 })}
       </div>
@@ -226,7 +223,7 @@ export function Game() {
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
           <div className="flex items-center gap-3">
-            <span className="text-violet-400/70 text-xs">v1.48 — Gutter Controls</span>
+            <span className="text-violet-400/70 text-xs">v1.49 — Controls Fit</span>
             <button
               onClick={toggleFullscreen}
               className="text-xs text-violet-200 px-2 py-1 rounded-md border border-violet-700/60 hover:border-fuchsia-500/70 hover:text-fuchsia-200 transition-colors"
