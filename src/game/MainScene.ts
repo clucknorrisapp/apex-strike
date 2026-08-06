@@ -523,6 +523,9 @@ export class MainScene extends Phaser.Scene {
   private titleUI: Phaser.GameObjects.GameObject[] = []
   // Extraction compass — edge arrow pointing to the goal when it's off-screen
   private compass?: Phaser.GameObjects.Triangle
+  private progressFill?: Phaser.GameObjects.Rectangle
+  private progressTrack?: Phaser.GameObjects.Rectangle
+  private progressGoalMark?: Phaser.GameObjects.Text
 
   constructor() {
     super({ key: 'MainScene' })
@@ -1423,6 +1426,24 @@ export class MainScene extends Phaser.Scene {
     // Extraction compass — points to the goal when it's off-screen.
     this.compass = this.add.triangle(256, 192, 0, -9, 18, 0, 0, 9, 0xfbbf24, 0.9).setScrollFactor(0).setDepth(120).setVisible(false)
     this.compass.setStrokeStyle(2, 0x1a1004, 0.6)
+    // Extraction progress bar across the very top — how far to the goal on these long runs.
+    this.progressTrack = this.add.rectangle(256, 3, 500, 3, 0x2a1a4d, 0.5).setScrollFactor(0).setDepth(100)
+    this.progressFill = this.add.rectangle(6, 3, 500, 3, 0x67e8f9, 0.9).setOrigin(0, 0.5).setScrollFactor(0).setDepth(101)
+    this.progressFill.scaleX = 0
+    this.progressGoalMark = this.add.text(508, -1, '⚑', { fontFamily: 'monospace', fontSize: '10px', color: '#fbbf24' }).setOrigin(1, 0).setScrollFactor(0).setDepth(101)
+  }
+
+  // Fill the top bar from spawn → extraction. Hidden on the boss stage (goal is the boss).
+  private updateProgress() {
+    if (!this.progressFill) return
+    const boss = this.isBossLevel()
+    this.progressFill.setVisible(!boss)
+    this.progressTrack?.setVisible(!boss)
+    this.progressGoalMark?.setVisible(!boss)
+    if (boss || !this.player) return
+    const p = Phaser.Math.Clamp((this.player.x - 120) / Math.max(1, this.goalX - 120), 0, 1)
+    this.progressFill.scaleX = p
+    this.progressFill.setFillStyle(p > 0.85 ? 0xfbbf24 : 0x67e8f9, 0.9)   // goes extraction-gold on the home stretch
   }
 
   private updateCompass() {
@@ -1932,6 +1953,7 @@ export class MainScene extends Phaser.Scene {
     if (this.levelTransition || !this.player?.active) return
     if (this.bossRef) this.updateBossBar()
     this.updateCompass()
+    this.updateProgress()
 
     const body = this.player.body as Phaser.Physics.Arcade.Body
     const landed = !this.prevOnGround && body.blocked.down
