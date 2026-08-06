@@ -143,7 +143,7 @@ export function Game() {
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
           <div className="flex items-center gap-3">
-            <span className="text-violet-400/70 text-xs">v1.39 — Clearance & Crouch</span>
+            <span className="text-violet-400/70 text-xs">v1.43 — Worlds Doubled</span>
             <button
               onClick={toggleFullscreen}
               className="text-xs text-violet-200 px-2 py-1 rounded-md border border-violet-700/60 hover:border-fuchsia-500/70 hover:text-fuchsia-200 transition-colors"
@@ -164,7 +164,7 @@ export function Game() {
 
         <div className="mt-3 text-center text-xs text-zinc-500 space-y-1">
           <div><span className="text-violet-400">WASD / Arrows</span> to move · <span className="text-violet-400">double-jump</span> · hold <span className="text-violet-400">Down</span> to crouch · <span className="text-violet-400">8-way aim</span> · <span className="text-violet-400">Space</span> to fire</div>
-          <div><span className="text-cyan-400">🎮 Gamepad ready</span> · Grab SPREAD / RAPID / LASER / FIRE · reach the extraction beacon · press <span className="text-violet-400">Fullscreen</span> for the full ride</div>
+          <div><span className="text-cyan-400">🎮 Gamepad ready</span> · <span className="text-violet-400">CONTROLS</span> screen to view keys &amp; remap pad buttons · Grab SPREAD / RAPID / LASER / FIRE · reach the extraction beacon · press <span className="text-violet-400">Fullscreen</span> for the full ride</div>
         </div>
       </div>
     </div>
