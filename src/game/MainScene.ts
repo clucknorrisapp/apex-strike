@@ -454,6 +454,7 @@ export class MainScene extends Phaser.Scene {
   private livesText!: Phaser.GameObjects.Text
   private comboText!: Phaser.GameObjects.Text
   private gameOver = false
+  private gameOverAt = 0   // time the game-over screen appeared, for a brief restart grace
   private levelTransition = false
   private controllerSeen = false
   private invulnerable = false
@@ -1555,16 +1556,20 @@ export class MainScene extends Phaser.Scene {
   private readPad(): PadState | null {
     let pads: (Gamepad | null)[] = []
     try { pads = (navigator.getGamepads && navigator.getGamepads()) || [] } catch { return null }
-    for (const p of pads) {
-      if (p && p.connected && p.buttons && p.buttons.length) {
-        return {
-          buttons: p.buttons.map((b) => !!(b && (b.pressed || b.value > 0.5))),
-          axes: p.axes ? Array.from(p.axes) : [],
-          id: p.id || '',
-        }
-      }
+    const live = pads.filter((p): p is Gamepad => !!(p && p.connected && p.buttons && p.buttons.length))
+    if (!live.length) return null
+    // MERGE every connected pad. Split controllers (e.g. Switch Joy-Cons) enumerate as
+    // TWO gamepads — reading only the first meant a press on the other half did nothing.
+    // Now a button/stick on ANY connected pad counts.
+    const nb = Math.max(...live.map((p) => p.buttons.length))
+    const na = Math.max(...live.map((p) => p.axes.length))
+    const buttons = new Array(nb).fill(false)
+    const axes = new Array(na).fill(0)
+    for (const p of live) {
+      for (let i = 0; i < p.buttons.length; i++) { const b = p.buttons[i]; if (b && (b.pressed || b.value > 0.5)) buttons[i] = true }
+      for (let i = 0; i < p.axes.length; i++) { if (Math.abs(p.axes[i]) > Math.abs(axes[i])) axes[i] = p.axes[i] }
     }
-    return null
+    return { buttons, axes, id: (live.length > 1 ? `${live.length}× ` : '') + (live[0].id || '?') }
   }
 
   private anyPadButtonDown(buttons: boolean[]): boolean {
@@ -1611,8 +1616,10 @@ export class MainScene extends Phaser.Scene {
     if (!pad) { this.gpDebugText.setText('gpdebug: no pad — press a button on your controller'); return }
     const btns: number[] = []
     for (let i = 0; i < pad.buttons.length; i++) if (pad.buttons[i]) btns.push(i)
+    const b = this.padBinds
+    const mark = (i: number) => `${i}${pad.buttons[i] ? '●' : ''}`   // ● = that bound button is pressed right now
     const ax = pad.axes.map((v, i) => `${i}:${v.toFixed(2)}`).join(' ')
-    this.gpDebugText.setText(`gpdebug id:${pad.id.slice(0, 16)}\nbtns:[${btns.join(',')}]\naxes ${ax}`)
+    this.gpDebugText.setText(`gpdebug ${pad.id.slice(0, 22)}\npressed:[${btns.join(',')}]\nfire ${mark(b.fire)}  jump ${mark(b.jump)}  swap ${mark(b.swap)}  pause ${mark(b.pause)}\naxes ${ax}`)
   }
 
   // ---- Controls / rebind overlay --------------------------------------------
@@ -1904,7 +1911,12 @@ export class MainScene extends Phaser.Scene {
     this.routeCameras()  // route any newly-spawned objects to the right camera
     this.pollGamepadInput()                                          // arm-on-input READY toast + gpdebug overlay
     if (this.controlsOpen) { this.updateControlsRebind(); return }   // controls / rebind screen owns input
-    if (this.gameOver) return
+    if (this.gameOver) {
+      // Restart on any gamepad button (tap/click/key handled by listeners set at game over).
+      const gp = this.readPad()
+      if (gp && time > this.gameOverAt + 400 && this.anyPadButtonDown(gp.buttons)) this.scene.restart()
+      return
+    }
     if (!this.started) {
       const gp = this.readPad()
       // Any button starts, with a short grace so a press that left a menu can't skip the title.
@@ -2642,7 +2654,13 @@ export class MainScene extends Phaser.Scene {
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
     const { best, record } = this.saveBest()
-    this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200)
+    this.gameOverAt = this.time.now
+    // Whole-screen tap-to-restart (the small text alone was too easy to miss on touch),
+    // plus any key restarts; gamepad restart is handled in update(). 400ms grace so the
+    // input that killed you can't instantly restart.
+    this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200).setInteractive()
+      .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.scene.restart() })
+    this.input.keyboard!.once('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.scene.restart() })
     this.add.text(256, 96, 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '21px', color: '#f43f5e' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.resultsCard(record)
     this.add.text(256, 212, 'Reached Level ' + this.level, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
@@ -2657,7 +2675,10 @@ export class MainScene extends Phaser.Scene {
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
     const { best, record } = this.saveBest()
-    this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200)
+    this.gameOverAt = this.time.now
+    this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200).setInteractive()
+      .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.scene.restart() })
+    this.input.keyboard!.once('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.scene.restart() })
     this.add.text(256, 92, 'SECTOR DOMINATED', { fontFamily: 'monospace', fontSize: '19px', color: '#22d3ee' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.resultsCard(record)
     this.add.text(256, 212, 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
