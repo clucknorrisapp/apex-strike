@@ -2094,10 +2094,32 @@ export class MainScene extends Phaser.Scene {
     this.particles?.emitParticleAt(this.player.x, padTop, 8)
   }
 
+  // A safe pit/death respawn x: set back from the ledge onto the SOLID segment the
+  // player fell from (or the nearest solid ground to its left if they fell off a mover),
+  // clamped inside it and nudged clear of any wall — so you don't drop straight back
+  // into the pit or land wedged behind an obstacle.
+  private safeRespawnX(): number {
+    const def = this.levels()[this.level - 1]
+    const from = this.lastGroundX
+    if (!def || !def.ground.length) return from
+    const on = def.ground.find(([x1, x2]) => from >= x1 - 8 && from <= x2 + 8)
+    const seg = on
+      || [...def.ground].filter(([, x2]) => x2 <= from + 40).sort((a, b) => b[1] - a[1])[0]
+      || def.ground[0]
+    const [x1, x2] = seg
+    const MARGIN = 64
+    let x = (x2 - x1 < 2 * MARGIN) ? (x1 + x2) / 2 : Phaser.Math.Clamp(from - MARGIN, x1 + 30, x2 - 30)
+    for (const wl of def.walls) {                       // slide out of any solid wall span
+      const l = wl[0] - wl[2] / 2, r = wl[0] + wl[2] / 2
+      if (x > l - 16 && x < r + 16) x = Phaser.Math.Clamp(l - 26, x1 + 24, x2 - 24)
+    }
+    return x
+  }
+
   private pitFall() {
     if (this.gameOver || this.levelTransition) return
     this.player.setVelocity(0, 0)
-    this.player.setPosition(this.lastGroundX, this.lastGroundY - 48)
+    this.player.setPosition(this.safeRespawnX(), this.lastGroundY - 48)
     this.cameras.main.shake(180, 0.02)
     this.cameras.main.flash(120, 120, 40, 200, false)
     this.sfx?.hurt()
@@ -2611,7 +2633,7 @@ export class MainScene extends Phaser.Scene {
       if (this.lives <= 0) this.triggerGameOver()
       else {
         this.health = 5; this.updateHealth()
-        this.player.setPosition(this.lastGroundX, this.lastGroundY - 48)
+        this.player.setPosition(this.safeRespawnX(), this.lastGroundY - 48)
         this.player.setVelocity(0, 0); this.jumpsLeft = MAX_JUMPS; this.invulnerable = true
         this.time.delayedCall(1500, () => { this.invulnerable = false; this.player.clearTint() })
       }
