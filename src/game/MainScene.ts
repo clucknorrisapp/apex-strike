@@ -228,7 +228,7 @@ export const LEVELS: LevelDef[] = [
       { kind: 'soldier', x: 9050, y: 566, hp: 3, speed: 70 }, { kind: 'charger', x: 9250, y: 566, hp: 4, speed: 64 },
       { kind: 'tank', x: 9410, y: 560, hp: 7, speed: 30 },
     ],
-    pods: [[600, 460, 'spread'], [1350, 440, 'health'], [3360, 400, 'rapid'], [4250, 370, 'spread'], [5170, 440, 'health'], [6750, 340, 'rapid'], [7300, 370, 'rapid'], [7780, 350, 'health'], [8720, 230, 'laser'], [9180, 380, 'health']],
+    pods: [[730, 510, 'spread'], [1480, 510, 'health'], [3550, 510, 'rapid'], [4250, 370, 'spread'], [5520, 510, 'health'], [6750, 340, 'rapid'], [7300, 370, 'rapid'], [7780, 350, 'health'], [8720, 230, 'laser'], [9180, 380, 'health']],
     movers: [[850, 590, 120, 'h', 85, 0.9], [1650, 590, 130, 'h', 95, 0.9], [7540, 590, 120, 'h', 110, 0.9], [8020, 590, 120, 'h', 110, 0.9]],
     hazards: [[1000, 600, 110], [2350, 600, 120], [4350, 600, 120], [6280, 600, 110], [9120, 600, 90], [9320, 600, 80]],
     bouncers: [[2050, 600, 90], [8640, 600, 90], [8820, 600, 90]],
@@ -272,7 +272,7 @@ export const LEVELS: LevelDef[] = [
       { kind: 'flyer', x: 850, y: 300, hp: 3, speed: 55 }, { kind: 'flyer', x: 4700, y: 280, hp: 3, speed: 55 },
       { kind: 'flyer', x: 6100, y: 280, hp: 3, speed: 55 }, { kind: 'flyer', x: 8560, y: 285, hp: 3, speed: 55 },
     ],
-    pods: [[450, 500, 'rapid'], [1950, 400, 'health'], [2790, 430, 'laser'], [4940, 420, 'health'], [6300, 360, 'health'], [7300, 540, 'rapid'], [8600, 540, 'health'], [8960, 270, 'laser'], [9180, 540, 'spread']],
+    pods: [[620, 510, 'rapid'], [2150, 510, 'health'], [2960, 510, 'laser'], [5120, 510, 'health'], [6300, 360, 'health'], [7300, 540, 'rapid'], [8600, 540, 'health'], [8960, 270, 'laser'], [9180, 540, 'spread']],
     movers: [[790, 590, 140, 'h', 90, 0.85], [1530, 590, 130, 'h', 95, 0.9], [2290, 500, 120, 'v', 150, 0.7], [4680, 590, 130, 'h', 90, 0.85], [5890, 590, 130, 'h', 90, 0.85], [7095, 590, 130, 'h', 105, 0.9], [7515, 590, 130, 'h', 120, 0.9], [7945, 590, 130, 'h', 120, 0.9], [8810, 451, 120, 'v', 150, 0.7]],
     hazards: [[1000, 600, 130], [2450, 600, 120], [4300, 600, 120], [6200, 600, 120], [9300, 600, 90], [9420, 600, 70]],
     bouncers: [[1250, 600, 90], [9200, 600, 70]],
@@ -351,7 +351,7 @@ export const LEVELS: LevelDef[] = [
       { kind: 'flyer', x: 850, y: 280, hp: 4, speed: 75 }, { kind: 'flyer', x: 4900, y: 280, hp: 4, speed: 80 },
       { kind: 'flyer', x: 6100, y: 280, hp: 4, speed: 80 }, { kind: 'flyer', x: 8100, y: 260, hp: 4, speed: 82 },
     ],
-    pods: [[500, 460, 'rapid'], [1400, 500, 'health'], [2000, 440, 'laser'], [3100, 400, 'fire'], [5150, 400, 'health'], [6300, 360, 'health'], [6880, 320, 'spread'], [8140, 390, 'laser'], [8820, 280, 'health'], [9120, 280, 'fire']],
+    pods: [[350, 510, 'rapid'], [970, 510, 'health'], [2150, 510, 'laser'], [3250, 510, 'fire'], [5400, 510, 'health'], [6300, 360, 'health'], [6880, 320, 'spread'], [7800, 510, 'laser'], [8820, 280, 'health'], [9120, 280, 'fire']],
     movers: [[850, 590, 120, 'h', 85, 0.9], [1610, 590, 130, 'h', 95, 0.9], [2450, 590, 120, 'h', 85, 0.9], [4640, 590, 120, 'h', 85, 0.9], [5890, 590, 120, 'h', 85, 0.9], [6640, 590, 130, 'h', 100, 0.9], [7120, 590, 130, 'h', 100, 0.9], [7620, 590, 130, 'h', 100, 0.9]],
     hazards: [[650, 600, 110], [1050, 600, 120], [1780, 600, 120], [2700, 600, 120], [3450, 600, 120], [4300, 600, 120], [5250, 600, 120], [6180, 600, 120], [6880, 600, 120], [7370, 600, 120], [8440, 600, 80], [9280, 600, 90]],
     bouncers: [[1500, 600, 90], [8820, 600, 90], [9120, 600, 90]],
@@ -468,6 +468,7 @@ export class MainScene extends Phaser.Scene {
   // keyboard or controller is attached). Preference persists across sessions.
   private touchUI: Phaser.GameObjects.GameObject[] = []
   private touchHidden = false
+  private padPresentPrev = false   // edge-detect gamepad presence for TV-mode auto hide/show
   private touchToggle?: Phaser.GameObjects.Text
   private weapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' = 'normal'
   // Two-weapon carry: a backup slot you can swap into (Q / touch / gamepad Y).
@@ -627,6 +628,7 @@ export class MainScene extends Phaser.Scene {
     this.rebindHint = undefined
     this.gpDebugText = undefined
     this.padIcon = undefined
+    this.padPresentPrev = false
     this.startKeyHandler = undefined
     this.startGraceUntil = 0
 
@@ -743,7 +745,12 @@ export class MainScene extends Phaser.Scene {
 
     this.createHUD()
     // On-screen controls only where they're needed (touch devices) — keep desktop clean.
-    if (this.sys.game.device.input.touch) this.createTouchControls()
+    if (this.sys.game.device.input.touch) {
+      this.createTouchControls()
+      // Restore-on-touch: a genuine tap always brings the pad back if TV mode hid it,
+      // so a player can never be stranded (e.g. a controller that stops reporting).
+      this.input.on('pointerdown', () => { if (this.touchHidden) this.setTouchControlsHidden(false) })
+    }
 
     // Real game opens on a title screen; the Level Lab drops straight into play.
     if (LAB_LEVELS) {
@@ -1386,7 +1393,10 @@ export class MainScene extends Phaser.Scene {
     const p = this.powerups.create(x, y, tex) as Phaser.Physics.Arcade.Sprite
     p.setData('kind', kind)
     if (usePod) { p.setDisplaySize(40, 40); p.setTint(color) }
-    p.setBounce(0.5); p.setCollideWorldBounds(false); p.setVelocityY(-120); p.setDepth(14)
+    // No bounce (bouncing wedged pods into corners/pockets behind blocks) — a gentle
+    // pop then settle straight down onto the surface directly below. setImmovable so a
+    // settled pod can't get shoved sideways into a gap by a passing body.
+    p.setBounce(0); p.setCollideWorldBounds(false); p.setVelocityY(-70); p.setDepth(14)
     // Glyph badge that rides along with the pod.
     const badge = this.add.text(x, y, glyphs[kind] || '?', { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold' }).setOrigin(0.5).setDepth(15)
     p.setData('badge', badge)
@@ -1467,9 +1477,10 @@ export class MainScene extends Phaser.Scene {
     tapBtn(284, '♪', () => this.toggleMute())
     tapBtn(340, '⇄', () => this.swapWeapon())
 
-    // Toggle to hide/show the on-screen controls — handy on an iPad with a
-    // keyboard or controller attached. Choice is remembered across sessions.
-    try { this.touchHidden = localStorage.getItem('apex_touch') === 'off' } catch { /* ignore */ }
+    // Toggle to hide/show the on-screen controls. NOT persisted any more: a
+    // remembered "off" used to strand players whose controller wasn't recognised.
+    // Touch starts ON and self-manages via TV mode (hidden only while a gamepad is
+    // actively present; restored on any genuine touch — see pollGamepadInput/create).
     const toggle = this.add.text(502, 38, '', {
       fontFamily: 'monospace', fontSize: '10px', color: '#c4b5fd',
       backgroundColor: '#0a0612', padding: { x: 6, y: 3 },
@@ -1480,8 +1491,8 @@ export class MainScene extends Phaser.Scene {
   }
 
   private setTouchControlsHidden(hidden: boolean) {
+    if (this.touchHidden === hidden) return
     this.touchHidden = hidden
-    try { localStorage.setItem('apex_touch', hidden ? 'off' : 'on') } catch { /* ignore */ }
     // Drop any held inputs so nothing sticks when the pads vanish.
     if (hidden) this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
     this.applyTouchControls()
@@ -1578,6 +1589,16 @@ export class MainScene extends Phaser.Scene {
     // Persistent "connected" chip once a pad has actually driven input.
     if (this.padIcon && this.gamepadActive && this.padIcon.text === '') this.padIcon.setText('🎮 PAD')
     if (this.gpDebug) this.updateGpDebug(pad)
+    // TV mode: a present controller hides the on-screen pad; losing it brings the pad
+    // back. Edge-detected so a restore-on-touch isn't instantly re-hidden. If iOS never
+    // exposes the pad (e.g. an unsupported controller), padNow stays false and touch
+    // controls remain — so the player is never stranded.
+    const padNow = !!pad
+    if (this.sys.game.device.input.touch) {
+      if (padNow && !this.padPresentPrev) this.setTouchControlsHidden(true)
+      else if (!padNow && this.padPresentPrev) this.setTouchControlsHidden(false)
+    }
+    this.padPresentPrev = padNow
   }
 
   private updateGpDebug(pad: PadState | null) {
