@@ -597,7 +597,7 @@ export class MainScene extends Phaser.Scene {
   create() {
     this.gameOver = false
     this.levelTransition = false
-    this.health = 5
+    this.health = this.maxHealth
     this.lives = 3
     this.score = 0
     this.level = 1
@@ -1840,9 +1840,22 @@ export class MainScene extends Phaser.Scene {
     if (def.shards && def.shards.length) {
       chosen = def.shards
     } else {
+      // A shard may only hover in OPEN air — never buried inside a wall/staircase block
+      // (wide ground spans are exactly where staircases sit, so a raw midpoint often lands
+      // inside one) and never floating over spikes. clear() enforces both.
+      const platTh = (cx: number, top: number) => 34 + (Math.abs(Math.round(cx * 2.3 + top * 1.7)) % 4) * 8
+      const clear = (x: number, y: number) =>
+        !def.walls.some(([cx, top, w, h]) => x >= cx - w / 2 - 12 && x <= cx + w / 2 + 12 && y >= top - 12 && y <= top + h) &&
+        !def.plats.some(([cx, top, w]) => x >= cx - w / 2 - 12 && x <= cx + w / 2 + 12 && y >= top - 12 && y <= top + platTh(cx, top)) &&
+        !(def.hazards || []).some(([cx, , w]) => x >= cx - w / 2 - 16 && x <= cx + w / 2 + 16)
       const spots: [number, number][] = []
-      def.plats.forEach(([cx, top]) => spots.push([cx, top - 26]))
-      def.ground.forEach(([x1, x2, top]) => { if (x2 - x1 > 320) spots.push([(x1 + x2) / 2, top - 30]) })
+      def.plats.forEach(([cx, top]) => { if (clear(cx, top - 26)) spots.push([cx, top - 26]) })
+      // Sample several points across each wide ground span; keep only the open ones so a
+      // buried midpoint is replaced by clear neighbours instead of dropping the shard in a wall.
+      def.ground.forEach(([x1, x2]) => {
+        if (x2 - x1 < 320) return
+        for (const f of [0.22, 0.4, 0.6, 0.78]) { const x = Math.round(x1 + (x2 - x1) * f); if (clear(x, 570)) spots.push([x, 570]) }
+      })
       Phaser.Utils.Array.Shuffle(spots)
       chosen = spots.filter(([x]) => Math.abs(x - def.spawn[0]) > 130).slice(0, 12)
     }
@@ -2700,7 +2713,7 @@ export class MainScene extends Phaser.Scene {
         this.player.setPosition(d.spawn[0], d.spawn[1])
         this.player.setVelocity(0, 0); this.jumpsLeft = MAX_JUMPS
         this.lastGroundX = d.spawn[0]; this.lastGroundY = d.spawn[1]
-        this.health = Math.min(this.maxHealth, this.health + 1); this.updateHealth()
+        this.health = this.maxHealth; this.updateHealth()   // fresh full hearts at every new level
         this.levelTransition = false
         this.showBanner('LEVEL ' + next, d.name)
       })
