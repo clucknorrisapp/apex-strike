@@ -193,18 +193,22 @@ export interface LevelDef {
 // mover-bridged); staircases climb in staged ~110px steps.
 export const LEVELS: LevelDef[] = [
   {
-    // NEON STREETS — the opening run. Rubble staircases, two mover-bridged pits,
-    // a high catwalk line, turret nests. Longer + sectioned vs the old stub.
-    name: 'NEON STREETS', theme: 'streets', w: 7000, h: 780, spawn: [120, 500], goal: [6950, 540],
-    ground: [[0, 760, 600], [940, 1560, 600], [1740, 2560, 600], [2740, 3800, 600], [3980, 4560, 600], [4740, 5700, 600], [5880, 6440, 600], [6620, 7000, 600]],
-    plats: [[200, 430, 150], [1900, 410, 150], [2200, 390, 150], [3600, 360, 150], [4250, 410, 150], [5150, 400, 150], [6100, 400, 150], [6750, 380, 150]],
+    // NEON STREETS — the opening run, extended to the next tier. The tuned early
+    // game (0–7000: entry/mid staircases, mover-bridged pits, catwalk line, turret
+    // nests) is preserved intact; three NEW sub-sections then push to extraction:
+    // SIGNAL CROSSING (mover-bridged voids + catwalks), STEAM TERRACE (bounce-pad
+    // vertical beat), and a RUBBLE RUN hazard-gauntlet finale into a tank gate.
+    name: 'NEON STREETS', theme: 'streets', w: 9500, h: 780, spawn: [120, 500], goal: [9470, 540],
+    ground: [[0, 760, 600], [940, 1560, 600], [1740, 2560, 600], [2740, 3800, 600], [3980, 4560, 600], [4740, 5700, 600], [5880, 6440, 600], [6620, 7000, 600], [7180, 7420, 600], [7660, 7900, 600], [8140, 8380, 600], [8560, 8900, 600], [9020, 9500, 600]],
+    plats: [[200, 430, 150], [1900, 410, 150], [2200, 390, 150], [3600, 360, 150], [4250, 410, 150], [5150, 400, 150], [6100, 400, 150], [6750, 380, 150], [7300, 400, 150], [7780, 380, 150], [8620, 420, 140], [8800, 340, 140], [8720, 260, 150], [9180, 410, 140], [9360, 390, 140]],
     walls: [
       [420, 550, 180, 120], [600, 490, 180, 240],                              // S1 entry staircase
       [1160, 540, 190, 130], [1350, 470, 190, 300],                            // S2 mid staircase
       [2980, 550, 190, 110], [3170, 490, 190, 230], [3360, 430, 190, 350],     // S4 mid 3-step climb
       [4980, 550, 190, 110], [5170, 490, 190, 230], [5360, 430, 190, 350],     // S6 mid 3-step climb
+      [8260, 500, 150, 200],                                                   // A3 rubble-block turret perch (Signal Crossing)
     ],
-    turrets: [[600, 490], [1350, 470], [3360, 430], [5360, 430], [6100, 400]],
+    turrets: [[600, 490], [1350, 470], [3360, 430], [5360, 430], [6100, 400], [8260, 500], [8800, 340], [9360, 390]],
     enemies: [
       { kind: 'soldier', x: 250, y: 566, hp: 2, speed: 70 }, { kind: 'soldier', x: 600, y: 456, hp: 2, speed: 65 },
       { kind: 'soldier', x: 1160, y: 506, hp: 3, speed: 65 }, { kind: 'tank', x: 1500, y: 560, hp: 6, speed: 30 },
@@ -219,25 +223,32 @@ export const LEVELS: LevelDef[] = [
       { kind: 'charger', x: 6900, y: 566, hp: 4, speed: 66 },
       { kind: 'flyer', x: 1650, y: 280, hp: 3, speed: 52 }, { kind: 'flyer', x: 3250, y: 280, hp: 3, speed: 52 },
       { kind: 'flyer', x: 4900, y: 300, hp: 3, speed: 55 }, { kind: 'flyer', x: 6300, y: 300, hp: 3, speed: 55 },
+      { kind: 'soldier', x: 7300, y: 566, hp: 3, speed: 70 }, { kind: 'soldier', x: 7780, y: 566, hp: 3, speed: 70 },
+      { kind: 'soldier', x: 8720, y: 566, hp: 3, speed: 68 }, { kind: 'flyer', x: 8600, y: 260, hp: 3, speed: 55 },
+      { kind: 'soldier', x: 9050, y: 566, hp: 3, speed: 70 }, { kind: 'charger', x: 9250, y: 566, hp: 4, speed: 64 },
+      { kind: 'tank', x: 9410, y: 560, hp: 7, speed: 30 },
     ],
-    pods: [[600, 460, 'spread'], [1350, 440, 'health'], [3360, 400, 'rapid'], [4250, 370, 'spread'], [5170, 440, 'health'], [6750, 340, 'rapid']],
-    movers: [[850, 590, 120, 'h', 85, 0.9], [1650, 590, 130, 'h', 95, 0.9]],
-    hazards: [[1000, 600, 110], [2350, 600, 120], [4350, 600, 120], [6280, 600, 110]],
-    bouncers: [[2050, 600, 90]],
+    pods: [[600, 460, 'spread'], [1350, 440, 'health'], [3360, 400, 'rapid'], [4250, 370, 'spread'], [5170, 440, 'health'], [6750, 340, 'rapid'], [7300, 370, 'rapid'], [7780, 350, 'health'], [8720, 230, 'laser'], [9180, 380, 'health']],
+    movers: [[850, 590, 120, 'h', 85, 0.9], [1650, 590, 130, 'h', 95, 0.9], [7540, 590, 120, 'h', 110, 0.9], [8020, 590, 120, 'h', 110, 0.9]],
+    hazards: [[1000, 600, 110], [2350, 600, 120], [4350, 600, 120], [6280, 600, 110], [9120, 600, 90], [9320, 600, 80]],
+    bouncers: [[2050, 600, 90], [8640, 600, 90], [8820, 600, 90]],
   },
   {
-    // INDUSTRIAL RISE — factory. Long conveyor shuttles bridge the pits, a
-    // vertical lift climbs the "rise", spike vents on the floor, divers overhead.
-    name: 'INDUSTRIAL RISE', theme: 'industrial', w: 7000, h: 800, spawn: [120, 500], goal: [6960, 540],
-    ground: [[0, 700, 600], [880, 1440, 600], [1620, 2200, 600], [2380, 3900, 600], [4080, 4680, 600], [4860, 5800, 600], [5980, 6540, 600], [6720, 7000, 600]],
-    plats: [[250, 430, 150], [1150, 420, 170], [3010, 400, 160], [3450, 400, 150], [4300, 410, 160], [5100, 400, 150], [6300, 400, 150], [6800, 380, 150]],
+    // INDUSTRIAL RISE — factory. Early game preserved: conveyor shuttles bridge the
+    // pits, a vertical lift climbs the "rise", spike vents, divers overhead. Extended
+    // into three new beats: a CONVEYOR GAUNTLET (three shuttle-bridged pits), a
+    // HIGHER-RISE lift arena (floor-emerging lift up to a turret perch), and a
+    // SPIKE-VENT CORRIDOR run under an overhead PIPE-CATWALK to the extraction.
+    name: 'INDUSTRIAL RISE', theme: 'industrial', w: 9500, h: 800, spawn: [120, 500], goal: [9490, 540],
+    ground: [[0, 700, 600], [880, 1440, 600], [1620, 2200, 600], [2380, 3900, 600], [4080, 4680, 600], [4860, 5800, 600], [5980, 6540, 600], [6720, 7000, 600], [7190, 7410, 600], [7620, 7840, 600], [8050, 8270, 600], [8450, 8980, 600], [9160, 9500, 600]],
+    plats: [[250, 430, 150], [1150, 420, 170], [3010, 400, 160], [3450, 400, 150], [4300, 410, 160], [5100, 400, 150], [6300, 400, 150], [6800, 380, 150], [8960, 300, 140], [9200, 330, 150], [9380, 330, 150]],
     walls: [
       [450, 540, 200, 140],                                    // S1 machine housing
       [1750, 520, 160, 200], [1950, 440, 160, 320],            // S3 the RISE (staircase up)
       [2600, 540, 180, 120], [2790, 470, 180, 260],            // S4 staircase
       [4750, 540, 180, 120], [4940, 470, 180, 260],            // S6 mid staircase
     ],
-    turrets: [[1950, 440], [2790, 470], [4940, 470], [6300, 400]],
+    turrets: [[1950, 440], [2790, 470], [4940, 470], [6300, 400], [8960, 300], [9380, 330]],
     enemies: [
       { kind: 'soldier', x: 250, y: 566, hp: 3, speed: 65 }, { kind: 'tank', x: 630, y: 560, hp: 6, speed: 28 },
       { kind: 'soldier', x: 1150, y: 386, hp: 3, speed: 70 }, { kind: 'charger', x: 1300, y: 566, hp: 4, speed: 62 },
@@ -251,22 +262,31 @@ export const LEVELS: LevelDef[] = [
       { kind: 'soldier', x: 6050, y: 566, hp: 3, speed: 70 }, { kind: 'tank', x: 6250, y: 560, hp: 7, speed: 30 },
       { kind: 'charger', x: 6450, y: 566, hp: 4, speed: 62 }, { kind: 'diver', x: 6350, y: 300, hp: 4, speed: 104 },
       { kind: 'soldier', x: 6780, y: 566, hp: 3, speed: 70 }, { kind: 'soldier', x: 6920, y: 566, hp: 3, speed: 70 },
+      { kind: 'soldier', x: 7300, y: 566, hp: 3, speed: 68 }, { kind: 'soldier', x: 7730, y: 566, hp: 3, speed: 70 },
+      { kind: 'charger', x: 8160, y: 566, hp: 4, speed: 62 }, { kind: 'diver', x: 7550, y: 300, hp: 4, speed: 104 },
+      { kind: 'diver', x: 8000, y: 300, hp: 4, speed: 104 },
+      { kind: 'tank', x: 8540, y: 560, hp: 7, speed: 30 }, { kind: 'soldier', x: 8650, y: 566, hp: 3, speed: 70 },
+      { kind: 'charger', x: 8920, y: 566, hp: 4, speed: 62 }, { kind: 'diver', x: 8800, y: 300, hp: 4, speed: 104 },
+      { kind: 'soldier', x: 9365, y: 566, hp: 3, speed: 70 }, { kind: 'tank', x: 9470, y: 560, hp: 7, speed: 30 },
+      { kind: 'diver', x: 9280, y: 300, hp: 4, speed: 104 },
       { kind: 'flyer', x: 850, y: 300, hp: 3, speed: 55 }, { kind: 'flyer', x: 4700, y: 280, hp: 3, speed: 55 },
-      { kind: 'flyer', x: 6100, y: 280, hp: 3, speed: 55 },
+      { kind: 'flyer', x: 6100, y: 280, hp: 3, speed: 55 }, { kind: 'flyer', x: 8560, y: 285, hp: 3, speed: 55 },
     ],
-    pods: [[450, 500, 'rapid'], [1950, 400, 'health'], [2790, 430, 'laser'], [4940, 420, 'health'], [6300, 360, 'health']],
-    movers: [[790, 590, 140, 'h', 90, 0.85], [1530, 590, 130, 'h', 95, 0.9], [2290, 500, 120, 'v', 150, 0.7], [4680, 590, 130, 'h', 90, 0.85], [5890, 590, 130, 'h', 90, 0.85]],
-    hazards: [[1000, 600, 130], [2450, 600, 120], [4300, 600, 120], [6200, 600, 120]],
-    bouncers: [[1250, 600, 90]],
+    pods: [[450, 500, 'rapid'], [1950, 400, 'health'], [2790, 430, 'laser'], [4940, 420, 'health'], [6300, 360, 'health'], [7300, 540, 'rapid'], [8600, 540, 'health'], [8960, 270, 'laser'], [9180, 540, 'spread']],
+    movers: [[790, 590, 140, 'h', 90, 0.85], [1530, 590, 130, 'h', 95, 0.9], [2290, 500, 120, 'v', 150, 0.7], [4680, 590, 130, 'h', 90, 0.85], [5890, 590, 130, 'h', 90, 0.85], [7095, 590, 130, 'h', 105, 0.9], [7515, 590, 130, 'h', 120, 0.9], [7945, 590, 130, 'h', 120, 0.9], [8810, 451, 120, 'v', 150, 0.7]],
+    hazards: [[1000, 600, 130], [2450, 600, 120], [4300, 600, 120], [6200, 600, 120], [9300, 600, 90], [9420, 600, 70]],
+    bouncers: [[1250, 600, 90], [9200, 600, 70]],
   },
   {
-    // SKY RAIL — high altitude. Frequent pits over the void, floating rail
-    // platforms, mover-rails and bounce pads to cross + climb, aerial-heavy.
-    name: 'SKY RAIL', theme: 'sky', w: 7400, h: 820, spawn: [120, 500], goal: [7300, 540],
-    ground: [[0, 640, 600], [820, 1300, 600], [1480, 1960, 600], [2140, 2620, 600], [2800, 4000, 600], [4180, 4620, 600], [4800, 5200, 600], [5380, 6000, 600], [6180, 6620, 600], [6800, 7040, 600], [7220, 7400, 600]],
-    plats: [[300, 420, 140], [520, 350, 140], [920, 410, 150], [1650, 400, 150], [1850, 320, 150], [2400, 400, 150], [3120, 380, 150], [3500, 320, 150], [4300, 400, 150], [4700, 340, 150], [5100, 400, 150], [5550, 340, 150], [6300, 400, 150], [6700, 340, 150], [6900, 400, 150], [7280, 340, 150]],
-    walls: [[1100, 540, 180, 120], [3300, 520, 180, 180], [5350, 520, 180, 180]],
-    turrets: [[520, 350], [1850, 320], [3500, 320], [5550, 340], [7280, 340]],
+    // SKY RAIL — high altitude, the LONGEST world. Tuned intro (rail crossings +
+    // vertical lift + bounce-to-plats) preserved, then four new motifs: a MOVER-RAIL
+    // CHAIN over wide void pits, a BOUNCE-PAD ASCENT onto high catwalks, a PIT-HOPPING
+    // GAUNTLET, and a PYLON-CHOKE finale. Aerial-heavy; flyers stay sparse.
+    name: 'SKY RAIL', theme: 'sky', w: 9800, h: 820, spawn: [120, 500], goal: [9760, 540],
+    ground: [[0, 640, 600], [820, 1300, 600], [1480, 1960, 600], [2140, 2620, 600], [2800, 4000, 600], [4240, 4480, 600], [4720, 4960, 600], [5200, 5440, 600], [5680, 6060, 600], [6240, 6780, 600], [6960, 7560, 600], [7740, 7980, 600], [8160, 8380, 600], [8560, 8800, 600], [8980, 9800, 600]],
+    plats: [[300, 420, 140], [520, 350, 140], [920, 410, 150], [1650, 400, 150], [1850, 320, 150], [2400, 400, 150], [3120, 380, 150], [3500, 320, 150], [4360, 380, 140], [4840, 340, 140], [5320, 380, 140], [5760, 340, 150], [6340, 450, 150], [6560, 370, 150], [6760, 300, 160], [6980, 340, 150], [7180, 300, 160], [7480, 400, 140], [7860, 380, 140], [8270, 360, 140], [8680, 380, 140], [9600, 360, 150]],
+    walls: [[1100, 540, 180, 120], [3300, 520, 180, 180], [9080, 540, 90, 160], [9250, 430, 90, 270], [9420, 320, 90, 380]],
+    turrets: [[520, 350], [1850, 320], [3500, 320], [4840, 340], [5760, 340], [6760, 300], [7180, 300], [8270, 360], [9250, 430], [9420, 320]],
     enemies: [
       { kind: 'soldier', x: 300, y: 566, hp: 3, speed: 70 }, { kind: 'charger', x: 560, y: 566, hp: 5, speed: 64 },
       { kind: 'soldier', x: 870, y: 566, hp: 3, speed: 75 }, { kind: 'tank', x: 1600, y: 560, hp: 7, speed: 30 },
@@ -274,37 +294,48 @@ export const LEVELS: LevelDef[] = [
       { kind: 'soldier', x: 2900, y: 566, hp: 4, speed: 70 }, { kind: 'tank', x: 3550, y: 560, hp: 8, speed: 32 },
       { kind: 'diver', x: 900, y: 300, hp: 4, speed: 104 }, { kind: 'diver', x: 2000, y: 300, hp: 4, speed: 108 },
       { kind: 'diver', x: 3000, y: 300, hp: 4, speed: 108 },
-      { kind: 'soldier', x: 4300, y: 566, hp: 3, speed: 75 }, { kind: 'charger', x: 4900, y: 566, hp: 5, speed: 66 },
-      { kind: 'tank', x: 5450, y: 560, hp: 8, speed: 32 }, { kind: 'soldier', x: 5700, y: 566, hp: 4, speed: 70 },
-      { kind: 'diver', x: 4500, y: 300, hp: 4, speed: 108 },
-      { kind: 'soldier', x: 6300, y: 566, hp: 4, speed: 75 }, { kind: 'charger', x: 6480, y: 566, hp: 5, speed: 66 },
-      { kind: 'soldier', x: 6900, y: 566, hp: 4, speed: 72 }, { kind: 'tank', x: 7360, y: 560, hp: 8, speed: 32 },
-      { kind: 'diver', x: 6600, y: 300, hp: 4, speed: 108 },
       { kind: 'flyer', x: 450, y: 260, hp: 3, speed: 65 }, { kind: 'flyer', x: 2400, y: 240, hp: 4, speed: 70 },
-      { kind: 'flyer', x: 4700, y: 260, hp: 4, speed: 70 }, { kind: 'flyer', x: 6750, y: 250, hp: 4, speed: 70 },
+      { kind: 'soldier', x: 4360, y: 566, hp: 4, speed: 72 }, { kind: 'charger', x: 4840, y: 566, hp: 5, speed: 66 },
+      { kind: 'soldier', x: 5320, y: 566, hp: 4, speed: 72 }, { kind: 'tank', x: 5880, y: 560, hp: 8, speed: 32 },
+      { kind: 'diver', x: 4500, y: 300, hp: 4, speed: 108 }, { kind: 'diver', x: 5120, y: 300, hp: 4, speed: 108 },
+      { kind: 'diver', x: 5620, y: 300, hp: 4, speed: 110 }, { kind: 'flyer', x: 5000, y: 250, hp: 4, speed: 70 },
+      { kind: 'soldier', x: 6400, y: 566, hp: 4, speed: 72 }, { kind: 'soldier', x: 6650, y: 566, hp: 4, speed: 75 },
+      { kind: 'charger', x: 7100, y: 566, hp: 5, speed: 66 }, { kind: 'soldier', x: 7350, y: 566, hp: 4, speed: 72 },
+      { kind: 'diver', x: 6500, y: 300, hp: 4, speed: 108 }, { kind: 'diver', x: 7050, y: 300, hp: 4, speed: 110 },
+      { kind: 'flyer', x: 6900, y: 260, hp: 4, speed: 70 },
+      { kind: 'charger', x: 7860, y: 566, hp: 5, speed: 68 }, { kind: 'soldier', x: 8270, y: 566, hp: 4, speed: 75 },
+      { kind: 'charger', x: 8680, y: 566, hp: 5, speed: 68 },
+      { kind: 'diver', x: 7850, y: 300, hp: 4, speed: 110 }, { kind: 'diver', x: 8200, y: 300, hp: 4, speed: 112 },
+      { kind: 'diver', x: 8600, y: 300, hp: 4, speed: 112 },
+      { kind: 'soldier', x: 9165, y: 566, hp: 4, speed: 72 }, { kind: 'soldier', x: 9335, y: 566, hp: 4, speed: 72 },
+      { kind: 'charger', x: 9520, y: 566, hp: 5, speed: 66 }, { kind: 'tank', x: 9650, y: 560, hp: 9, speed: 32 },
+      { kind: 'soldier', x: 9745, y: 566, hp: 4, speed: 75 },
     ],
-    pods: [[520, 320, 'laser'], [1650, 370, 'health'], [3150, 350, 'fire'], [4700, 300, 'health'], [6700, 300, 'health']],
-    movers: [[730, 590, 130, 'h', 95, 0.9], [1390, 590, 130, 'h', 95, 0.9], [2050, 500, 120, 'v', 160, 0.7], [2710, 590, 130, 'h', 95, 0.9], [4620, 590, 130, 'h', 95, 0.9], [6620, 590, 130, 'h', 95, 0.9]],
-    hazards: [[950, 600, 110]],
-    bouncers: [[400, 600, 90], [1700, 600, 90], [3200, 600, 90], [4400, 600, 90], [4950, 600, 90], [6400, 600, 90], [6950, 600, 90]],
+    pods: [[520, 320, 'laser'], [1650, 370, 'health'], [3150, 350, 'fire'], [4360, 350, 'spread'], [6760, 270, 'health'], [7480, 360, 'rapid'], [8680, 340, 'health'], [9600, 330, 'laser']],
+    movers: [[730, 590, 130, 'h', 95, 0.9], [1390, 590, 130, 'h', 95, 0.9], [2050, 500, 120, 'v', 160, 0.7], [2710, 590, 130, 'h', 95, 0.9], [4120, 590, 130, 'h', 95, 0.9], [4600, 590, 130, 'h', 95, 0.9], [5080, 590, 130, 'h', 95, 0.9], [5560, 590, 130, 'h', 95, 0.9], [6150, 470, 110, 'v', 150, 0.7]],
+    hazards: [[950, 600, 110], [6510, 600, 100], [7220, 600, 90]],
+    bouncers: [[400, 600, 90], [1700, 600, 90], [3200, 600, 90], [6340, 600, 90], [6600, 600, 90], [7060, 600, 90], [7360, 600, 90]],
   },
   {
-    // CORE ACCESS — reactor interior. Hazard-heavy (spike vents everywhere),
-    // tight walls/chokes, mover-bridged pits, intense run-up to the throne.
-    name: 'CORE ACCESS', theme: 'core', w: 7000, h: 780, spawn: [120, 500], goal: [6960, 540],
-    ground: [[0, 760, 600], [940, 1520, 600], [1700, 2360, 600], [2540, 3900, 600], [4080, 4640, 600], [4820, 5800, 600], [5980, 6540, 600], [6720, 7000, 600]],
-    plats: [[280, 430, 140], [1020, 410, 150], [2200, 400, 150], [3600, 380, 150], [4300, 410, 150], [5100, 400, 150], [6300, 400, 150], [6800, 390, 150]],
+    // CORE ACCESS — reactor interior, doubled into the hardest run world before the throne.
+    // Preserves the tuned early run (0→6540), then three new motifs: A) spike-vent gauntlet
+    // threaded with movers, B) a tight choke-and-climb staircase under turret fire, C) a coil
+    // chamber with bouncer verticality. Hazard-heavy throughout; heavier tanks/chargers; flyers sparse.
+    name: 'CORE ACCESS', theme: 'core', w: 9400, h: 780, spawn: [120, 500], goal: [9360, 540],
+    ground: [[0, 760, 600], [940, 1520, 600], [1700, 2360, 600], [2540, 3900, 600], [4080, 4640, 600], [4820, 5800, 600], [5980, 6540, 600], [6740, 7020, 600], [7220, 7520, 600], [7720, 8480, 600], [8660, 9400, 600]],
+    plats: [[280, 430, 140], [1020, 410, 150], [2200, 400, 150], [3600, 380, 150], [4300, 410, 150], [5100, 400, 150], [6300, 400, 150], [6880, 360, 150], [8820, 320, 150], [8970, 360, 150], [9120, 320, 150]],
     walls: [
       [500, 500, 160, 200],                                    // S1 choke
       [1200, 480, 180, 240], [1400, 540, 180, 120],            // S2 tiered
       [2000, 480, 180, 240],                                   // S3 choke
       [2900, 500, 180, 220], [3100, 440, 180, 320],            // S4 staircase
       [4950, 500, 180, 220], [5150, 440, 180, 320],            // S6 mid staircase
+      [7960, 540, 160, 160], [8140, 430, 160, 270], [8320, 320, 160, 380],  // S8 choke-and-climb (110px steps)
     ],
-    turrets: [[1200, 480], [2000, 480], [3100, 440], [5150, 440], [6300, 400]],
+    turrets: [[1200, 480], [2000, 480], [3100, 440], [5150, 440], [6300, 400], [8320, 320], [8970, 360]],
     enemies: [
       { kind: 'soldier', x: 250, y: 566, hp: 4, speed: 70 }, { kind: 'tank', x: 720, y: 560, hp: 8, speed: 30 },
-      { kind: 'soldier', x: 1000, y: 566, hp: 4, speed: 75 }, { kind: 'charger', x: 1600, y: 566, hp: 5, speed: 66 },
+      { kind: 'soldier', x: 1000, y: 566, hp: 4, speed: 75 }, { kind: 'charger', x: 1750, y: 566, hp: 5, speed: 66 },
       { kind: 'tank', x: 1850, y: 560, hp: 8, speed: 32 }, { kind: 'soldier', x: 2200, y: 566, hp: 4, speed: 75 },
       { kind: 'soldier', x: 2650, y: 566, hp: 4, speed: 75 }, { kind: 'tank', x: 3400, y: 560, hp: 9, speed: 32 },
       { kind: 'soldier', x: 3600, y: 566, hp: 4, speed: 75 },
@@ -312,30 +343,39 @@ export const LEVELS: LevelDef[] = [
       { kind: 'soldier', x: 5300, y: 566, hp: 4, speed: 75 }, { kind: 'charger', x: 5400, y: 566, hp: 5, speed: 66 },
       { kind: 'tank', x: 5550, y: 560, hp: 9, speed: 32 },
       { kind: 'soldier', x: 6050, y: 566, hp: 4, speed: 75 }, { kind: 'tank', x: 6250, y: 560, hp: 8, speed: 30 },
-      { kind: 'charger', x: 6450, y: 566, hp: 5, speed: 66 }, { kind: 'soldier', x: 6780, y: 566, hp: 4, speed: 75 },
-      { kind: 'tank', x: 6920, y: 560, hp: 9, speed: 32 },
+      { kind: 'charger', x: 6450, y: 566, hp: 5, speed: 66 },
+      { kind: 'charger', x: 6970, y: 566, hp: 5, speed: 68 }, { kind: 'soldier', x: 7470, y: 566, hp: 4, speed: 75 },
+      { kind: 'tank', x: 7760, y: 560, hp: 9, speed: 32 }, { kind: 'charger', x: 7860, y: 566, hp: 6, speed: 68 },
+      { kind: 'tank', x: 8710, y: 560, hp: 9, speed: 32 }, { kind: 'charger', x: 8920, y: 566, hp: 6, speed: 70 },
+      { kind: 'soldier', x: 9030, y: 566, hp: 5, speed: 78 }, { kind: 'soldier', x: 9200, y: 566, hp: 5, speed: 78 },
       { kind: 'flyer', x: 850, y: 280, hp: 4, speed: 75 }, { kind: 'flyer', x: 4900, y: 280, hp: 4, speed: 80 },
-      { kind: 'flyer', x: 6100, y: 280, hp: 4, speed: 80 },
+      { kind: 'flyer', x: 6100, y: 280, hp: 4, speed: 80 }, { kind: 'flyer', x: 8100, y: 260, hp: 4, speed: 82 },
     ],
-    pods: [[500, 460, 'rapid'], [1400, 500, 'health'], [2000, 440, 'laser'], [3100, 400, 'fire'], [5150, 400, 'health'], [6300, 360, 'health']],
-    movers: [[850, 590, 120, 'h', 85, 0.9], [1610, 590, 130, 'h', 95, 0.9], [2450, 590, 120, 'h', 85, 0.9], [4640, 590, 120, 'h', 85, 0.9], [5890, 590, 120, 'h', 85, 0.9]],
-    hazards: [[650, 600, 110], [1050, 600, 120], [1780, 600, 120], [2700, 600, 120], [3450, 600, 120], [4300, 600, 120], [5250, 600, 120], [6180, 600, 120], [6820, 600, 110]],
-    bouncers: [[1500, 600, 90]],
+    pods: [[500, 460, 'rapid'], [1400, 500, 'health'], [2000, 440, 'laser'], [3100, 400, 'fire'], [5150, 400, 'health'], [6300, 360, 'health'], [6880, 320, 'spread'], [8140, 390, 'laser'], [8820, 280, 'health'], [9120, 280, 'fire']],
+    movers: [[850, 590, 120, 'h', 85, 0.9], [1610, 590, 130, 'h', 95, 0.9], [2450, 590, 120, 'h', 85, 0.9], [4640, 590, 120, 'h', 85, 0.9], [5890, 590, 120, 'h', 85, 0.9], [6640, 590, 130, 'h', 100, 0.9], [7120, 590, 130, 'h', 100, 0.9], [7620, 590, 130, 'h', 100, 0.9]],
+    hazards: [[650, 600, 110], [1050, 600, 120], [1780, 600, 120], [2700, 600, 120], [3450, 600, 120], [4300, 600, 120], [5250, 600, 120], [6180, 600, 120], [6880, 600, 120], [7370, 600, 120], [8440, 600, 80], [9280, 600, 90]],
+    bouncers: [[1500, 600, 90], [8820, 600, 90], [9120, 600, 90]],
   },
   {
-    // APEX THRONE — the boss arena. A short flat stage where the Apex boss looms
-    // (kept low enough to stay in the pulled-back frame); clear the boss to win.
-    name: 'APEX THRONE', theme: 'throne', w: 2000, h: 760, spawn: [120, 500], goal: [0, 0],
-    ground: [[0, 2000, 600]],
-    plats: [[350, 440, 150], [750, 400, 160], [1250, 400, 160], [1650, 440, 150]],
-    walls: [[120, 560, 100, 120], [1880, 560, 100, 120]],
-    turrets: [[120, 500], [1880, 500]],
+    // APEX THRONE — the final boss arena. A compact, symmetric throne where the
+    // Apex boss looms dead-center over a single solid floor (kept low enough to
+    // stay in the pulled-back frame). Flanking ledges + a pair of launch pads give
+    // dodge-friendly verticality to break the aimed fan volleys and rain fire back;
+    // two side spike strips pressure the flanks while the center corridor under the
+    // boss stays clear. Clear every enemy — boss, tanks, flyers, pillar turrets — to win.
+    name: 'APEX THRONE', theme: 'throne', w: 2800, h: 760, spawn: [120, 500], goal: [0, 0],
+    ground: [[0, 2800, 600]],
+    plats: [[600, 450, 160], [1000, 400, 150], [1800, 400, 150], [2200, 450, 160]],
+    walls: [[250, 520, 110, 160], [2550, 520, 110, 160]],
+    turrets: [[250, 520], [2550, 520]],
     enemies: [
-      { kind: 'boss', x: 1000, y: 330, hp: 64, speed: 55 },
-      { kind: 'flyer', x: 300, y: 250, hp: 3, speed: 55 }, { kind: 'flyer', x: 1700, y: 250, hp: 3, speed: 55 },
-      { kind: 'tank', x: 450, y: 560, hp: 8, speed: 28 }, { kind: 'tank', x: 1550, y: 560, hp: 8, speed: 28 },
+      { kind: 'boss', x: 1400, y: 330, hp: 64, speed: 55 },
+      { kind: 'flyer', x: 500, y: 230, hp: 3, speed: 55 }, { kind: 'flyer', x: 2300, y: 230, hp: 3, speed: 55 },
+      { kind: 'tank', x: 650, y: 560, hp: 8, speed: 28 }, { kind: 'tank', x: 2150, y: 560, hp: 8, speed: 28 },
     ],
-    pods: [[350, 400, 'health'], [1000, 360, 'laser'], [1650, 400, 'fire']],
+    pods: [[600, 400, 'health'], [1000, 360, 'laser'], [1800, 360, 'spread'], [2200, 400, 'fire']],
+    hazards: [[780, 600, 120], [2020, 600, 120]],
+    bouncers: [[1150, 600, 100], [1650, 600, 100]],
   },
 ]
 
