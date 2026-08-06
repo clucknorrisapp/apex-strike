@@ -404,6 +404,20 @@ type PadState = { buttons: boolean[]; axes: number[]; id: string }
 // gutters). React writes `pad` + `gutter`; the scene installs `act` for pause/mute/swap.
 type ApexBridge = { pad: Record<string, boolean>; gutter: boolean; act: ((name: string) => void) | null }
 
+// One source of truth for every powerup: pod tint, display name, and a plain-language
+// descriptor of what it does. The pod sprite, the on-pickup callout, and the HUD all read
+// from here so a pickup is instantly legible — you see the colour, the name, AND the effect.
+type PowerupInfo = { label: string; desc: string; color: number; hex: string; glyph: string }
+const POWERUP_INFO: Record<string, PowerupInfo> = {
+  health: { label: 'HEALTH', desc: '+1 HEART',        color: 0x4ade80, hex: '#4ade80', glyph: '+' },
+  spread: { label: 'SPREAD', desc: '5-WAY SHOT',      color: 0x22d3ee, hex: '#22d3ee', glyph: 'S' },
+  rapid:  { label: 'RAPID',  desc: 'RAPID FIRE',      color: 0xfbbf24, hex: '#fbbf24', glyph: 'R' },
+  laser:  { label: 'LASER',  desc: 'PIERCING BEAM',   color: 0xe879f9, hex: '#e879f9', glyph: 'L' },
+  fire:   { label: 'FIRE',   desc: 'BURNING ROUNDS',  color: 0xfb923c, hex: '#fb923c', glyph: 'F' },
+}
+const powerupInfo = (kind: string): PowerupInfo =>
+  POWERUP_INFO[kind] || { label: kind.toUpperCase(), desc: '', color: 0xffffff, hex: '#ffffff', glyph: '?' }
+
 export class MainScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
@@ -1401,23 +1415,24 @@ export class MainScene extends Phaser.Scene {
   private spawnPowerup(x: number, y: number, kind: string) {
     const usePod = this.textures.exists('pickup_pod')
     // Per-kind color so a heal never reads like a weapon. Health owns green; guns own their bullet colors.
-    const tints: Record<string, number> = { health: 0x4ade80, spread: 0x22d3ee, rapid: 0xfbbf24, laser: 0xe879f9, fire: 0xfb923c }
-    const glyphs: Record<string, string> = { health: '+', spread: 'S', rapid: 'R', laser: 'L', fire: 'F' }
-    const color = tints[kind] || 0xffffff
+    const info = powerupInfo(kind)
     const tex = usePod ? 'pickup_pod' : ({
       health: 'pow_health', spread: 'pow_spread', rapid: 'pow_rapid', laser: 'pow_laser', fire: 'pow_fire',
     } as Record<string, string>)[kind]
     const p = this.powerups.create(x, y, tex) as Phaser.Physics.Arcade.Sprite
     p.setData('kind', kind)
-    if (usePod) { p.setDisplaySize(40, 40); p.setTint(color) }
+    if (usePod) { p.setDisplaySize(40, 40); p.setTint(info.color) }
     // No bounce (bouncing wedged pods into corners/pockets behind blocks) — a gentle
     // pop then settle straight down onto the surface directly below. setImmovable so a
     // settled pod can't get shoved sideways into a gap by a passing body.
     p.setBounce(0); p.setCollideWorldBounds(false); p.setVelocityY(-70); p.setDepth(14)
-    // Glyph badge that rides along with the pod.
-    const badge = this.add.text(x, y, glyphs[kind] || '?', { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold' }).setOrigin(0.5).setDepth(15)
-    p.setData('badge', badge)
-    ;(p as Phaser.GameObjects.Sprite).on('destroy', () => badge.destroy())
+    // Glyph badge on the pod + a color-coded NAME tag beneath it, so you can read what a
+    // pod is on approach — before you ever touch it. A soft pulse keeps it eye-catching.
+    const badge = this.add.text(x, y, info.glyph, { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold' }).setOrigin(0.5).setDepth(15)
+    const tag = this.add.text(x, y + 28, info.label, { fontFamily: 'monospace', fontSize: '9px', color: info.hex, fontStyle: 'bold', stroke: '#0a0612', strokeThickness: 3 }).setOrigin(0.5).setDepth(15)
+    this.tweens.add({ targets: [p, badge], scale: '*=1.12', duration: 620, yoyo: true, repeat: -1, ease: 'Sine.inOut' })
+    p.setData('badge', badge); p.setData('tag', tag)
+    ;(p as Phaser.GameObjects.Sprite).on('destroy', () => { badge.destroy(); tag.destroy() })
   }
 
   private createHUD() {
@@ -2659,17 +2674,47 @@ export class MainScene extends Phaser.Scene {
   ) {
     const pow = powObj as Phaser.Physics.Arcade.Sprite
     const kind = pow.getData('kind') as string
+    const info = powerupInfo(kind)
+    const px = pow.x, py = pow.y
     pow.destroy()
-    this.particles.emitParticleAt(pow.x, pow.y, 18)
-    this.popup(pow.x, pow.y, kind.toUpperCase(), '#4ade80')
-    this.cameras.main.flash(60, 100, 255, 150, false)
+    // Loud, color-matched pickup feedback: ring + burst + a screen flash in the pickup's
+    // OWN color + a big named callout (name + what it does) + a HUD pulse on what changed.
+    this.particles.emitParticleAt(px, py, 20)
+    this.shockwave(px, py, info.color, 30)
+    this.cameras.main.flash(90, (info.color >> 16) & 255, (info.color >> 8) & 255, info.color & 255, false)
+    this.pickupCallout(px, py, info)
     this.sfx?.pickup()
-    if (kind === 'health') { this.health = Math.min(this.maxHealth, this.health + 1); this.updateHealth() }
+    if (kind === 'health') { this.health = Math.min(this.maxHealth, this.health + 1); this.updateHealth(); this.pulseHud(this.healthText) }
     else {
       // Two-weapon carry: the new gun becomes active; the previous one drops to the backup slot.
       if (kind !== this.weapon) { this.altWeapon = this.weapon; this.weapon = kind as typeof this.weapon }
-      this.updateWeaponHUD()
+      this.updateWeaponHUD(); this.pulseHud(this.weaponText)
     }
+  }
+
+  // A big, unmistakable callout at the pickup point: the powerup's NAME (in its own color)
+  // with a one-line effect under it, popping in then rising and fading.
+  private pickupCallout(x: number, y: number, info: PowerupInfo) {
+    const name = this.add.text(x, y - 4, info.label, {
+      fontFamily: 'monospace', fontSize: '22px', color: info.hex, fontStyle: 'bold', stroke: '#0a0612', strokeThickness: 5,
+    }).setOrigin(0.5).setDepth(80).setScale(0.5)
+    this.tweens.add({ targets: name, scale: 1, duration: 150, ease: 'Back.out' })
+    this.tweens.add({ targets: name, y: y - 58, alpha: 0, duration: 1000, delay: 320, onComplete: () => name.destroy() })
+    if (info.desc) {
+      const desc = this.add.text(x, y + 17, info.desc, {
+        fontFamily: 'monospace', fontSize: '10px', color: info.hex, stroke: '#0a0612', strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(80).setAlpha(0)
+      this.tweens.add({ targets: desc, alpha: 1, duration: 150 })
+      this.tweens.add({ targets: desc, y: y - 28, alpha: 0, duration: 1000, delay: 380, onComplete: () => desc.destroy() })
+    }
+  }
+
+  // Brief scale-pop on a HUD label so the eye is drawn to the stat that just changed.
+  private pulseHud(t?: Phaser.GameObjects.Text) {
+    if (!t) return
+    this.tweens.killTweensOf(t)
+    t.setScale(1)
+    this.tweens.add({ targets: t, scaleX: 1.35, scaleY: 1.35, duration: 130, yoyo: true, ease: 'Quad.out', onComplete: () => t.setScale(1) })
   }
 
   private wlabel(w: string) {
