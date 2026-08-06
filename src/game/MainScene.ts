@@ -400,6 +400,9 @@ const PAD_BIND_ORDER: PadBindAction[] = ['fire', 'jump', 'swap', 'pause']
 const PAD_BIND_LABEL: Record<PadBindAction, string> = { fire: 'FIRE', jump: 'JUMP', swap: 'SWAP WEAPON', pause: 'PAUSE' }
 // Normalised gamepad snapshot read straight from navigator.getGamepads() (see readPad).
 type PadState = { buttons: boolean[]; axes: number[]; id: string }
+// Bridge to the React DOM gutter controls (off-canvas buttons in the letterbox
+// gutters). React writes `pad` + `gutter`; the scene installs `act` for pause/mute/swap.
+type ApexBridge = { pad: Record<string, boolean>; gutter: boolean; act: ((name: string) => void) | null }
 
 export class MainScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite
@@ -751,9 +754,19 @@ export class MainScene extends Phaser.Scene {
     // On-screen controls only where they're needed (touch devices) — keep desktop clean.
     if (this.sys.game.device.input.touch) {
       this.createTouchControls()
-      // Restore-on-touch: a genuine tap always brings the pad back if TV mode hid it,
-      // so a player can never be stranded (e.g. a controller that stops reporting).
-      this.input.on('pointerdown', () => { if (this.touchHidden) this.setTouchControlsHidden(false) })
+      // Restore-on-touch: a tap on the canvas brings the in-canvas pad back if TV mode
+      // hid it — but not when the DOM gutter controls are driving (they replace it).
+      this.input.on('pointerdown', () => { if (this.touchHidden && !this.gutterActive()) this.setTouchControlsHidden(false) })
+    }
+    // Bridge for the React DOM gutter controls: they write __APEX.pad + call __APEX.act.
+    {
+      const w = window as unknown as { __APEX?: ApexBridge }
+      w.__APEX = w.__APEX || { pad: {}, gutter: false, act: null }
+      w.__APEX.act = (name: string) => {
+        if (name === 'pause') this.togglePause()
+        else if (name === 'mute') this.toggleMute()
+        else if (name === 'swap') this.swapWeapon()
+      }
     }
 
     // Real game opens on a title screen; the Level Lab drops straight into play.
@@ -1528,6 +1541,8 @@ export class MainScene extends Phaser.Scene {
       if (go.input) go.input.enabled = vis  // hidden pads must not swallow taps
     })
     this.touchToggle?.setText(this.touchHidden ? '⌨ Controls: OFF' : '⌨ Controls: ON')
+    this.touchToggle?.setVisible(!this.gutterActive())   // irrelevant when DOM gutter controls drive
+
   }
 
   private controllerToast() {
@@ -1593,6 +1608,11 @@ export class MainScene extends Phaser.Scene {
     return { buttons, axes, id: (live.length > 1 ? `${live.length}× ` : '') + (live[0].id || '?') }
   }
 
+  // True while the React DOM gutter controls are mounted (off-canvas buttons in use).
+  private gutterActive(): boolean {
+    return !!(window as unknown as { __APEX?: ApexBridge }).__APEX?.gutter
+  }
+
   private anyPadButtonDown(buttons: boolean[]): boolean {
     for (let i = 0; i < buttons.length; i++) if (buttons[i]) return true
     return false
@@ -1623,6 +1643,8 @@ export class MainScene extends Phaser.Scene {
     if (this.sys.game.device.input.touch) {
       if (padNow && !this.padPresentPrev) this.setTouchControlsHidden(true)
       else if (!padNow && this.padPresentPrev) this.setTouchControlsHidden(false)
+      // DOM gutter controls replace the in-canvas pad entirely.
+      if (this.gutterActive() && !this.touchHidden) this.setTouchControlsHidden(true)
     }
     this.padPresentPrev = padNow
   }
@@ -2126,6 +2148,17 @@ export class MainScene extends Phaser.Scene {
     let jump = this.cursors.up.isDown || this.wasd.up.isDown || this.touch.jump
     this.aimUp = this.touch.up || this.cursors.up.isDown || this.wasd.up.isDown
     this.aimDown = this.wasd.down.isDown || this.cursors.down.isDown || this.touch.down
+
+    // DOM gutter controls (off-canvas buttons) — native multi-touch, ORed in like any source.
+    const dpad = (window as unknown as { __APEX?: ApexBridge }).__APEX?.pad
+    if (dpad) {
+      if (dpad.left) left = true
+      if (dpad.right) right = true
+      if (dpad.shoot) shoot = true
+      if (dpad.jump) jump = true
+      if (dpad.up) this.aimUp = true
+      if (dpad.down) this.aimDown = true
+    }
 
     const pad = this.readPad()
     if (pad) {

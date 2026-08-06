@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, type CSSProperties } from 'react'
 import Phaser from 'phaser'
 import { MainScene } from './MainScene'
 
@@ -28,6 +28,7 @@ export function Game() {
   const isTouch = isTouchRef.current
   const isPortrait = useMedia('(orientation: portrait)')
   const [isFs, setIsFs] = useState(false)
+  const [gutterW, setGutterW] = useState(0)
 
   useEffect(() => {
     if (!containerRef.current || gameRef.current) return
@@ -77,6 +78,29 @@ export function Game() {
     else g.scene.resume('MainScene')
   }, [rotateGate])
 
+  // Measure the letterbox side-gutter width so off-canvas controls can live there.
+  useEffect(() => {
+    if (!isTouch) return
+    const measure = () => {
+      const vw = window.innerWidth, vh = window.innerHeight
+      const canvasW = Math.min(vw, vh * (4 / 3))   // FIT fits the 4:3 canvas to the smaller axis
+      setGutterW(Math.max(0, (vw - canvasW) / 2))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    window.addEventListener('orientationchange', measure)
+    return () => { window.removeEventListener('resize', measure); window.removeEventListener('orientationchange', measure) }
+  }, [isTouch])
+
+  // Gutter controls show only in landscape with real gutter room; tell the scene so it
+  // hides its in-canvas pad (they replace it).
+  const showGutter = isTouch && !isPortrait && gutterW >= 64
+  useEffect(() => {
+    const w = window as unknown as { __APEX?: { pad: Record<string, boolean>; gutter: boolean; act: ((n: string) => void) | null } }
+    w.__APEX = w.__APEX || { pad: {}, gutter: false, act: null }
+    w.__APEX.gutter = showGutter
+  }, [showGutter])
+
   const toggleFullscreen = useCallback(async () => {
     const el = stageRef.current
     if (!el) return
@@ -122,6 +146,64 @@ export function Game() {
     </div>
   )
 
+  // ---- DOM gutter controls (native multi-touch; live in the letterbox gutters) ----
+  const setPad = (k: string, v: boolean) => {
+    const w = window as unknown as { __APEX?: { pad: Record<string, boolean>; gutter: boolean; act: ((n: string) => void) | null } }
+    w.__APEX = w.__APEX || { pad: {}, gutter: false, act: null }
+    w.__APEX.pad[k] = v
+  }
+  const act = (n: string) => (window as unknown as { __APEX?: { act?: (n: string) => void } }).__APEX?.act?.(n)
+  const ctrlBase: CSSProperties = {
+    userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'none', WebkitTapHighlightColor: 'transparent',
+    display: 'grid', placeItems: 'center', fontFamily: 'monospace', fontWeight: 800, color: '#f5f3ff', borderRadius: 14, cursor: 'pointer', lineHeight: 1,
+  }
+  const hold = (k: string, label: string, extra: CSSProperties) => (
+    <button key={k}
+      onPointerDown={(e) => { try { (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId) } catch { /* */ } setPad(k, true) }}
+      onPointerUp={() => setPad(k, false)}
+      onPointerCancel={() => setPad(k, false)}
+      onLostPointerCapture={() => setPad(k, false)}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{ ...ctrlBase, ...extra }}
+    >{label}</button>
+  )
+  const tap = (n: string, label: string, extra: CSSProperties) => (
+    <button key={n}
+      onPointerDown={(e) => { e.preventDefault(); act(n) }}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{ ...ctrlBase, ...extra }}
+    >{label}</button>
+  )
+  const bs = Math.min(Math.max(gutterW * 0.4, 52), 96)     // d-pad button size
+  const aw = Math.min(Math.max(gutterW * 0.78, 96), 168)   // action button width
+  const dPurple: CSSProperties = { background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.75)' }
+  const dCyan: CSSProperties = { background: 'rgba(19,78,74,0.5)', border: '2px solid rgba(34,211,238,0.75)' }
+  const gutterControls = showGutter && (
+    <>
+      {/* LEFT gutter — 8-way d-pad */}
+      <div style={{ position: 'absolute', left: 0, bottom: 0, width: gutterW, height: '64%', zIndex: 30, pointerEvents: 'none' }}>
+        <div style={{ position: 'absolute', left: '50%', bottom: '9%', transform: 'translateX(-50%)', display: 'grid', gridTemplateColumns: `repeat(3, ${bs}px)`, gridAutoRows: `${bs}px`, gap: 8, pointerEvents: 'auto' }}>
+          <span />{hold('up', '▲', dCyan)}<span />
+          {hold('left', '◄', dPurple)}<span />{hold('right', '►', dPurple)}
+          <span />{hold('down', '▼', dCyan)}<span />
+        </div>
+      </div>
+      {/* RIGHT gutter — swap / jump / fire */}
+      <div style={{ position: 'absolute', right: 0, bottom: 0, width: gutterW, height: '74%', zIndex: 30, pointerEvents: 'none' }}>
+        <div style={{ position: 'absolute', right: '9%', bottom: '9%', display: 'flex', flexDirection: 'column', gap: 12, width: aw, pointerEvents: 'auto' }}>
+          {tap('swap', '⇄ SWAP', { background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)', height: 40, fontSize: 12 })}
+          {hold('jump', 'JUMP', { background: 'rgba(20,83,45,0.5)', border: '2px solid rgba(74,222,128,0.85)', height: Math.round(bs * 1.05), fontSize: 16 })}
+          {hold('shoot', 'FIRE', { background: 'rgba(76,5,25,0.55)', border: '2px solid rgba(244,63,94,0.9)', height: Math.round(bs * 1.4), fontSize: 18 })}
+        </div>
+      </div>
+      {/* Top-left gutter — pause + mute */}
+      <div style={{ position: 'absolute', left: 8, top: 8, display: 'flex', gap: 8, zIndex: 30 }}>
+        {tap('pause', 'II', { background: 'rgba(30,27,75,0.55)', border: '1px solid rgba(168,85,247,0.6)', width: 42, height: 32, fontSize: 13 })}
+        {tap('mute', '♪', { background: 'rgba(30,27,75,0.55)', border: '1px solid rgba(168,85,247,0.6)', width: 42, height: 32, fontSize: 13 })}
+      </div>
+    </>
+  )
+
   // ---- Mobile: immersive full-viewport stage ----
   if (isTouch) {
     return (
@@ -130,6 +212,7 @@ export function Game() {
         style={{ position: 'fixed', inset: 0, background: '#05030a', overflow: 'hidden', touchAction: 'none' }}
       >
         <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+        {gutterControls}
         {fsBtn}
         {rotateOverlay}
       </div>
@@ -143,7 +226,7 @@ export function Game() {
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
           <div className="flex items-center gap-3">
-            <span className="text-violet-400/70 text-xs">v1.47 — Progress Meter</span>
+            <span className="text-violet-400/70 text-xs">v1.48 — Gutter Controls</span>
             <button
               onClick={toggleFullscreen}
               className="text-xs text-violet-200 px-2 py-1 rounded-md border border-violet-700/60 hover:border-fuchsia-500/70 hover:text-fuchsia-200 transition-colors"
