@@ -183,6 +183,7 @@ export interface LevelDef {
   movers?: [number, number, number, string, number, number][]  // [cx, top, w, axis 'h'|'v', dist, speed] — moving platforms
   hazards?: [number, number, number][]        // [cx, topY, w] — spike strips that damage on contact
   bouncers?: [number, number, number][]       // [cx, topY, w] — launch pads that spring you upward
+  endBoss?: { x: number; y: number; hp: number; speed: number; label: string }  // guardian holding the extraction — spawns near the exit; beat it to unlock the goal
 }
 
 // Horizontal Contra-style run-and-gun stages: push RIGHT through distinct
@@ -236,6 +237,7 @@ export const LEVELS: LevelDef[] = [
     movers: [[850, 590, 120, 'h', 85, 0.9], [1650, 590, 130, 'h', 95, 0.9], [7540, 590, 120, 'h', 110, 0.9], [8020, 590, 120, 'h', 110, 0.9]],
     hazards: [[1000, 600, 110], [2350, 600, 120], [4350, 600, 120], [6280, 600, 110], [9120, 600, 90], [9320, 600, 80]],
     bouncers: [[2050, 600, 90], [8640, 600, 90], [8820, 600, 90]],
+    endBoss: { x: 9200, y: 450, hp: 24, speed: 60, label: 'NEON REAPER' },
   },
   {
     // INDUSTRIAL RISE — factory. Early game preserved: conveyor shuttles bridge the
@@ -281,6 +283,7 @@ export const LEVELS: LevelDef[] = [
     movers: [[790, 590, 140, 'h', 90, 0.85], [1530, 590, 130, 'h', 95, 0.9], [2290, 500, 120, 'v', 150, 0.7], [4680, 590, 130, 'h', 90, 0.85], [5890, 590, 130, 'h', 90, 0.85], [7095, 590, 130, 'h', 105, 0.9], [7515, 590, 130, 'h', 120, 0.9], [7945, 590, 130, 'h', 120, 0.9], [8810, 451, 120, 'v', 150, 0.7]],
     hazards: [[1000, 600, 130], [2450, 600, 120], [4300, 600, 120], [6200, 600, 120], [9300, 600, 90], [9420, 600, 70]],
     bouncers: [[1250, 600, 90], [9200, 600, 70]],
+    endBoss: { x: 9250, y: 450, hp: 32, speed: 55, label: 'FOUNDRY BRUTE' },
   },
   {
     // SKY RAIL — high altitude, the LONGEST world. Tuned intro (rail crossings +
@@ -320,6 +323,7 @@ export const LEVELS: LevelDef[] = [
     movers: [[730, 590, 130, 'h', 95, 0.9], [1390, 590, 130, 'h', 95, 0.9], [2050, 500, 120, 'v', 160, 0.7], [2710, 590, 130, 'h', 95, 0.9], [4120, 590, 130, 'h', 95, 0.9], [4600, 590, 130, 'h', 95, 0.9], [5080, 590, 130, 'h', 95, 0.9], [5560, 590, 130, 'h', 95, 0.9], [6150, 470, 110, 'v', 150, 0.7]],
     hazards: [[950, 600, 110], [6510, 600, 100], [7220, 600, 90]],
     bouncers: [[400, 600, 90], [1700, 600, 90], [3200, 600, 90], [6340, 600, 90], [6600, 600, 90], [7060, 600, 90], [7360, 600, 90]],
+    endBoss: { x: 9450, y: 430, hp: 46, speed: 66, label: 'SKY TYRANT' },
   },
   {
     // CORE ACCESS — reactor interior, doubled into the hardest run world before the throne.
@@ -360,6 +364,7 @@ export const LEVELS: LevelDef[] = [
     movers: [[850, 590, 120, 'h', 85, 0.9], [1610, 590, 130, 'h', 95, 0.9], [2450, 590, 120, 'h', 85, 0.9], [4640, 590, 120, 'h', 85, 0.9], [5890, 590, 120, 'h', 85, 0.9], [6640, 590, 130, 'h', 100, 0.9], [7120, 590, 130, 'h', 100, 0.9], [7620, 590, 130, 'h', 100, 0.9]],
     hazards: [[650, 600, 110], [1050, 600, 120], [1780, 600, 120], [2700, 600, 120], [3450, 600, 120], [4300, 600, 120], [5250, 600, 120], [6180, 600, 120], [6880, 600, 120], [7370, 600, 120], [8440, 600, 80], [9280, 600, 90]],
     bouncers: [[1500, 600, 90], [8820, 600, 90], [9120, 600, 90]],
+    endBoss: { x: 9080, y: 430, hp: 56, speed: 60, label: 'CORE WARDEN' },
   },
   {
     // APEX THRONE — the final boss arena. A compact, symmetric throne where the
@@ -527,6 +532,12 @@ export class MainScene extends Phaser.Scene {
   private levelH = 1200
   private goalX = 0
   private goalY = 0
+  // End-of-stage guardian: holds the extraction until beaten.
+  private extractionLocked = false
+  private pendingEndBoss?: LevelDef['endBoss']
+  private endBossSpawned = false
+  private nextBossLabel = 'APEX SENTINEL'
+  private lockHintAt = 0
   // Pause / mute
   private userPaused = false
   private muted = false
@@ -796,7 +807,7 @@ export class MainScene extends Phaser.Scene {
     // Real game opens on a title screen; the Level Lab drops straight into play.
     if (LAB_LEVELS) {
       this.started = true
-      this.showBanner('LEVEL 1', def.name)
+      this.showBanner('SECTOR 1', def.name)
     } else {
       this.started = false
       this.showTitle()
@@ -1072,6 +1083,16 @@ export class MainScene extends Phaser.Scene {
     this.levelH = def.h
     this.goalX = def.goal[0]
     this.goalY = def.goal[1]
+    // End-of-stage guardian: on a normal (goal-based) stage, lock the extraction and
+    // arm the guardian to spawn as the player nears the exit. (Boss stages are kill-all.)
+    this.nextBossLabel = 'APEX SENTINEL'
+    this.endBossSpawned = false
+    this.pendingEndBoss = undefined
+    this.extractionLocked = false
+    if (def.endBoss && !(this.goalX === 0 && this.goalY === 0)) {
+      this.pendingEndBoss = def.endBoss
+      this.extractionLocked = true
+    }
 
     this.cameras.main.setBackgroundColor(theme.bg)
     // Extra fall room below the content so pits are real drops.
@@ -1384,7 +1405,8 @@ export class MainScene extends Phaser.Scene {
       t = 'diver'; displayW = 58; displayH = 58
     } else if (kind === 'boss') {
       tex = this.textures.exists('boss_art') ? 'boss_art' : 'boss'
-      t = 'boss'; displayW = 230; displayH = 230
+      // Size scales with HP so mini-guardians read smaller than the final boss.
+      t = 'boss'; displayW = displayH = Math.min(230, Math.round(120 + hp * 1.7))
     }
 
     const enemy = this.enemies.create(x, y, tex) as Phaser.Physics.Arcade.Sprite
@@ -1450,7 +1472,7 @@ export class MainScene extends Phaser.Scene {
     this.scoreText = this.add.text(10, 7, 'SCORE  0', { fontFamily: 'monospace', fontSize: '11px', color: '#e879f9' }).setScrollFactor(0).setDepth(100)
     this.healthText = this.add.text(10, 21, 'HP  ♥♥♥♥♥', { fontFamily: 'monospace', fontSize: '10px', color: '#f472b6' }).setScrollFactor(0).setDepth(100)
     this.livesText = this.add.text(10, 33, 'LIVES  3', { fontFamily: 'monospace', fontSize: '9px', color: '#a1a1aa' }).setScrollFactor(0).setDepth(100)
-    this.levelText = this.add.text(10, 44, 'LEVEL  1', { fontFamily: 'monospace', fontSize: '9px', color: '#71717a' }).setScrollFactor(0).setDepth(100)
+    this.levelText = this.add.text(10, 44, 'SECTOR  1', { fontFamily: 'monospace', fontSize: '9px', color: '#71717a' }).setScrollFactor(0).setDepth(100)
     this.weaponText = this.add.text(10, 55, 'GUN  NORMAL', { fontFamily: 'monospace', fontSize: '9px', color: '#22d3ee' }).setScrollFactor(0).setDepth(100)
     this.comboText = this.add.text(10, 66, '', { fontFamily: 'monospace', fontSize: '9px', color: '#fbbf24' }).setScrollFactor(0).setDepth(100)
     this.shardText = this.add.text(10, 78, '◆ ' + this.shardsGot + '/' + this.shardsTotal, { fontFamily: 'monospace', fontSize: '9px', color: '#67e8f9' }).setScrollFactor(0).setDepth(100)
@@ -1902,7 +1924,7 @@ export class MainScene extends Phaser.Scene {
     const w = 300
     const frame = this.add.rectangle(256, 26, w + 8, 16, 0x0a0612, 0.85).setScrollFactor(0).setDepth(205).setStrokeStyle(1, 0xf43f5e, 0.85)
     const fill = this.add.rectangle(256 - w / 2, 26, w, 10, 0xf43f5e, 1).setOrigin(0, 0.5).setScrollFactor(0).setDepth(206)
-    const label = this.add.text(256, 12, 'APEX SENTINEL', { fontFamily: 'monospace', fontSize: '9px', color: '#fca5a5' }).setOrigin(0.5).setScrollFactor(0).setDepth(206)
+    const label = this.add.text(256, 12, this.nextBossLabel, { fontFamily: 'monospace', fontSize: '9px', color: '#fca5a5' }).setOrigin(0.5).setScrollFactor(0).setDepth(206)
     fill.setData('max', maxHp)
     this.bossBarFill = fill
     this.bossBar = [frame, fill, label]
@@ -1980,7 +2002,7 @@ export class MainScene extends Phaser.Scene {
     this.titleUI = []
     this.physics.resume()
     const d = this.levels()[this.level - 1]
-    this.showBanner('LEVEL 1', d?.name || '')
+    this.showBanner('SECTOR 1', d?.name || '')
   }
 
   private popup(x: number, y: number, text: string, color = '#e879f9') {
@@ -2060,10 +2082,27 @@ export class MainScene extends Phaser.Scene {
       if (this.player.texture.key !== key) { this.player.setTexture(key); this.sizePlayer() }
     }
 
-    // Reached the extraction point? (boss levels clear by kill-all instead)
+    // Spawn the stage guardian as the player nears the exit — a proper end-of-stage fight.
+    if (this.pendingEndBoss && !this.endBossSpawned && this.player.x > this.goalX - 900) {
+      const eb = this.pendingEndBoss
+      this.endBossSpawned = true
+      this.bossPhase = 1
+      this.nextBossLabel = eb.label
+      this.spawnEnemy('boss', eb.x, eb.y, eb.hp, eb.speed)
+      this.screenToast('⚠ GUARDIAN  ·  ' + eb.label, '#f43f5e', 110)
+      this.cameras.main.shake(220, 0.015)
+      this.sfx?.hurt()
+    }
+
+    // Reached the extraction point? Boss stages clear by kill-all; guardian stages stay
+    // locked until the guardian falls.
     if (!this.isBossLevel()) {
       const dx = this.player.x - this.goalX, dy = this.player.y - this.goalY
-      if (dx * dx + dy * dy < 70 * 70) { this.onLevelClear(); return }
+      if (dx * dx + dy * dy < 70 * 70) {
+        if (this.extractionLocked) {
+          if (time > this.lockHintAt) { this.lockHintAt = time + 1600; this.screenToast('EXTRACTION LOCKED — DEFEAT THE GUARDIAN', '#fbbf24', 118) }
+        } else { this.onLevelClear(); return }
+      }
     }
 
     this.handleInput(time)
@@ -2593,6 +2632,11 @@ export class MainScene extends Phaser.Scene {
     boss.setVelocity(0, 0)
     ;(boss.body as Phaser.Physics.Arcade.Body).enable = false
     this.hitstop(150)
+    // Guardian stages: killing the guardian opens the extraction (then walk to the goal).
+    if (this.extractionLocked) {
+      this.extractionLocked = false
+      this.screenToast('GUARDIAN DOWN  ·  EXTRACTION OPEN', '#67e8f9', 112)
+    }
     let n = 0
     const ev = this.time.addEvent({
       delay: 135, repeat: 7, callback: () => {
@@ -2613,7 +2657,9 @@ export class MainScene extends Phaser.Scene {
           this.particles.emitParticleAt(boss.x, boss.y, 60)
           this.sfx?.clear()
           boss.destroy()
-          if (this.enemies.countActive(true) === 0) this.onLevelClear()
+          // Only the final boss STAGE clears by kill-all; guardian stages clear by reaching
+          // the (now-unlocked) extraction.
+          if (this.isBossLevel() && this.enemies.countActive(true) === 0) this.onLevelClear()
         }
       },
     })
@@ -2779,13 +2825,13 @@ export class MainScene extends Phaser.Scene {
     this.sfx?.clear()
     if (this.level < this.levels().length) {
       const next = this.level + 1
-      const msg = this.add.text(256, 150, `LEVEL ${next}\n${this.levels()[next - 1].name}`, {
+      const msg = this.add.text(256, 150, `SECTOR ${next}\n${this.levels()[next - 1].name}`, {
         fontFamily: 'monospace', fontSize: '16px', color: '#22d3ee', align: 'center',
       }).setOrigin(0.5).setScrollFactor(0).setDepth(200)
       this.time.delayedCall(1300, () => {
         msg.destroy()
         this.level = next
-        this.levelText.setText('LEVEL  ' + next)
+        this.levelText.setText('SECTOR  ' + next)
         const d = this.levels()[next - 1]
         this.buildLevel(next)
         this.player.setPosition(d.spawn[0], d.spawn[1])
@@ -2793,7 +2839,7 @@ export class MainScene extends Phaser.Scene {
         this.lastGroundX = d.spawn[0]; this.lastGroundY = d.spawn[1]
         this.health = this.maxHealth; this.updateHealth()   // fresh full hearts at every new level
         this.levelTransition = false
-        this.showBanner('LEVEL ' + next, d.name)
+        this.showBanner('SECTOR ' + next, d.name)
       })
     } else this.showVictory()
   }
@@ -2832,7 +2878,7 @@ export class MainScene extends Phaser.Scene {
     this.input.keyboard!.once('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.scene.restart() })
     this.add.text(256, 96, 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '21px', color: '#f43f5e' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.resultsCard(record)
-    this.add.text(256, 212, 'Reached Level ' + this.level, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    this.add.text(256, 212, 'Reached Sector ' + this.level, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     const btn = this.add.text(256, 268, '[ CLICK / TAP TO RESTART ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
