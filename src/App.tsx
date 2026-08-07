@@ -8,11 +8,18 @@ import { DevDashboard } from './dev/DevDashboard'
 
 const queryClient = new QueryClient()
 
-// Dev-only playtest dashboard, reachable at ?dash — but only when preview/dev access
-// is on (same soft gate as the ?dev preview), so public NFT-gated users can't open it.
+// Dev playtest dashboard. Reachable two ways:
+//   • ?dash=<key>  — direct owner access, always works (bookmark it). Key defaults to
+//     "clkn"; override with the VITE_DASH_KEY build env var.
+//   • ?dash with ?dev / preview mode on — same soft gate as the ?dev preview.
+// Public NFT-gated users who just add ?dash (no key, no preview) still get the game.
+const DASH_KEY = ((import.meta.env.VITE_DASH_KEY as string | undefined) || 'clkn').toLowerCase()
+
 function useDashboardRoute(): boolean {
   const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')
   if (!params.has('dash')) return false
+  const key = (params.get('dash') || '').toLowerCase()
+  if (key && key === DASH_KEY) return true                 // direct: ?dash=clkn
   const isDev = import.meta.env.DEV
   const wantOn = ['dev', 'preview', 'play'].some((k) => params.has(k))
   let previewSaved = false
