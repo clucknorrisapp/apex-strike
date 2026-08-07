@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { record as recordTelemetry, newRun, currentIds, type DeathCause } from '../dev/telemetry'
 
 const ASSETS = {
   huntress: '/assets/huntress.png',
@@ -461,6 +462,8 @@ export class MainScene extends Phaser.Scene {
   private score = 0
   private level = 1
   private lives = 3
+  private runStartAt = 0       // Date.now() at run start (playtest telemetry)
+  private deathsThisRun = 0
   private combo = 0
   private comboTimer = 0
   private kills = 0
@@ -617,6 +620,9 @@ export class MainScene extends Phaser.Scene {
     this.levelTransition = false
     this.health = this.maxHealth
     this.lives = 3
+    this.runStartAt = Date.now()   // playtest telemetry: new run
+    this.deathsThisRun = 0
+    newRun()
     this.score = 0
     this.level = 1
     this.combo = 0
@@ -710,7 +716,7 @@ export class MainScene extends Phaser.Scene {
 
     this.physics.add.collider(this.player, this.platforms)
     this.physics.add.collider(this.player, this.movers)
-    this.physics.add.overlap(this.player, this.hazards, () => this.damagePlayer(), undefined, this)
+    this.physics.add.overlap(this.player, this.hazards, () => this.damagePlayer('hazard'), undefined, this)
     this.physics.add.collider(this.player, this.bouncers, ((_p: unknown, pad: unknown) => this.bounce(pad as Phaser.Physics.Arcade.Sprite)) as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this)
     this.physics.add.collider(this.enemies, this.platforms)
     this.physics.add.collider(this.powerups, this.platforms)
@@ -2148,6 +2154,27 @@ export class MainScene extends Phaser.Scene {
     return x
   }
 
+  // Playtest telemetry — log where the player was taken out + what did it, so the dev
+  // dashboard can map difficulty hot-spots across everyone's runs.
+  private recordDeath(cause: DeathCause, x: number, y: number, killer?: string) {
+    this.deathsThisRun++
+    const def = this.levels()[this.level - 1]
+    const { sid, rid } = currentIds()
+    recordTelemetry({
+      t: 'death', sid, rid, ts: Date.now(), lvl: this.level, lvlName: def?.name || '?',
+      x: Math.round(x), y: Math.round(y), cause, killer, weapon: this.weapon,
+      score: this.score, livesLeft: this.lives, elapsed: Date.now() - this.runStartAt,
+    })
+  }
+
+  private recordRun(outcome: 'gameover' | 'win') {
+    const { sid, rid } = currentIds()
+    recordTelemetry({
+      t: 'run', sid, rid, ts: Date.now(), outcome, levelReached: this.level,
+      score: this.score, durationMs: Date.now() - this.runStartAt, deaths: this.deathsThisRun,
+    })
+  }
+
   private pitFall() {
     if (this.gameOver || this.levelTransition) return
     this.player.setVelocity(0, 0)
@@ -2163,6 +2190,7 @@ export class MainScene extends Phaser.Scene {
     this.time.delayedCall(700, () => { this.invulnerable = false; if (this.player.active) this.player.clearTint() })
     if (this.health <= 0) {
       this.lives -= 1; this.livesText.setText('LIVES  ' + this.lives)
+      this.recordDeath('pit', this.lastGroundX, this.lastGroundY)   // hot-spot = the ledge they fell from
       if (this.lives <= 0) this.triggerGameOver()
       else {
         this.health = 5; this.updateHealth(); this.jumpsLeft = MAX_JUMPS; this.invulnerable = true
@@ -2608,7 +2636,7 @@ export class MainScene extends Phaser.Scene {
       return
     }
     // Armored / turret / boss punish the stomp — you take the hit.
-    this.damagePlayer()
+    this.damagePlayer(type === 'boss' ? 'boss' : 'enemy', type)
   }
 
   private stompEnemy(enemy: Phaser.Physics.Arcade.Sprite) {
@@ -2643,10 +2671,10 @@ export class MainScene extends Phaser.Scene {
   ) {
     const b = bulletObj as Phaser.Physics.Arcade.Image
     b.setActive(false).setVisible(false)
-    this.damagePlayer()
+    this.damagePlayer('bullet')
   }
 
-  private damagePlayer() {
+  private damagePlayer(cause: DeathCause = 'enemy', killer?: string) {
     if (this.invulnerable || this.gameOver || this.levelTransition) return
     this.health -= 1
     this.combo = 0; this.comboText.setText('')
@@ -2662,6 +2690,7 @@ export class MainScene extends Phaser.Scene {
 
     if (this.health <= 0) {
       this.lives -= 1; this.livesText.setText('LIVES  ' + this.lives)
+      this.recordDeath(cause, this.player.x, this.player.y, killer)
       if (this.lives <= 0) this.triggerGameOver()
       else {
         this.health = 5; this.updateHealth()
@@ -2790,6 +2819,7 @@ export class MainScene extends Phaser.Scene {
 
   private triggerGameOver() {
     this.gameOver = true
+    this.recordRun('gameover')
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
     const { best, record } = this.saveBest()
@@ -2811,6 +2841,7 @@ export class MainScene extends Phaser.Scene {
 
   private showVictory() {
     this.gameOver = true
+    this.recordRun('win')
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
     const { best, record } = this.saveBest()
