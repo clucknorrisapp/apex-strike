@@ -201,7 +201,7 @@ export const LEVELS: LevelDef[] = [
     // SIGNAL CROSSING (mover-bridged voids + catwalks), STEAM TERRACE (bounce-pad
     // vertical beat), and a RUBBLE RUN hazard-gauntlet finale into a tank gate.
     name: 'NEON STREETS', theme: 'streets', w: 9500, h: 780, spawn: [120, 500], goal: [9470, 540],
-    ground: [[0, 760, 600], [940, 1560, 600], [1740, 2560, 600], [2740, 3800, 600], [3980, 4560, 600], [4740, 5700, 600], [5880, 6440, 600], [6620, 7000, 600], [7180, 7420, 600], [7660, 7900, 600], [8140, 8380, 600], [8560, 8900, 600], [9020, 9500, 600]],
+    ground: [[0, 760, 600], [940, 1560, 600], [1740, 3800, 600], [3980, 5700, 600], [5880, 7420, 600], [7660, 7900, 600], [8140, 8380, 600], [8560, 8900, 600], [9020, 9500, 600]],
     plats: [[200, 430, 150], [1900, 410, 150], [2200, 390, 150], [3600, 360, 150], [4250, 410, 150], [5150, 400, 150], [6100, 400, 150], [6750, 380, 150], [7300, 400, 150], [7780, 380, 150], [8620, 420, 140], [8800, 340, 140], [8720, 260, 150], [9180, 410, 140], [9360, 390, 140]],
     walls: [
       [420, 550, 180, 120], [600, 490, 180, 240],                              // S1 entry staircase
@@ -246,7 +246,7 @@ export const LEVELS: LevelDef[] = [
     // HIGHER-RISE lift arena (floor-emerging lift up to a turret perch), and a
     // SPIKE-VENT CORRIDOR run under an overhead PIPE-CATWALK to the extraction.
     name: 'INDUSTRIAL RISE', theme: 'industrial', w: 9500, h: 800, spawn: [120, 500], goal: [9490, 540],
-    ground: [[0, 700, 600], [880, 1440, 600], [1620, 2200, 600], [2380, 3900, 600], [4080, 4680, 600], [4860, 5800, 600], [5980, 6540, 600], [6720, 7000, 600], [7190, 7410, 600], [7620, 7840, 600], [8050, 8270, 600], [8450, 8980, 600], [9160, 9500, 600]],
+    ground: [[0, 700, 600], [880, 1440, 600], [1620, 2200, 600], [2380, 4680, 600], [4860, 5800, 600], [5980, 7000, 600], [7190, 7410, 600], [7620, 7840, 600], [8050, 8980, 600], [9160, 9500, 600]],
     plats: [[250, 430, 150], [1150, 420, 170], [3010, 400, 160], [3450, 400, 150], [4300, 410, 160], [5100, 400, 150], [6300, 400, 150], [6800, 380, 150], [8960, 300, 140], [9200, 330, 150], [9380, 330, 150]],
     walls: [
       [450, 540, 200, 140],                                    // S1 machine housing
@@ -291,7 +291,7 @@ export const LEVELS: LevelDef[] = [
     // CHAIN over wide void pits, a BOUNCE-PAD ASCENT onto high catwalks, a PIT-HOPPING
     // GAUNTLET, and a PYLON-CHOKE finale. Aerial-heavy; flyers stay sparse.
     name: 'SKY RAIL', theme: 'sky', w: 9800, h: 820, spawn: [120, 500], goal: [9760, 540],
-    ground: [[0, 640, 600], [820, 1300, 600], [1480, 1960, 600], [2140, 2620, 600], [2800, 4000, 600], [4240, 4480, 600], [4720, 4960, 600], [5200, 5440, 600], [5680, 6060, 600], [6240, 6780, 600], [6960, 7560, 600], [7740, 7980, 600], [8160, 8380, 600], [8560, 8800, 600], [8980, 9800, 600]],
+    ground: [[0, 640, 600], [820, 1300, 600], [1480, 1960, 600], [2140, 2620, 600], [2800, 4000, 600], [4240, 4480, 600], [4720, 4960, 600], [5200, 5440, 600], [5680, 6060, 600], [6240, 8800, 600], [8980, 9800, 600]],
     plats: [[300, 420, 140], [520, 350, 140], [920, 410, 150], [1650, 400, 150], [1850, 320, 150], [2400, 400, 150], [3120, 380, 150], [3500, 320, 150], [4360, 380, 140], [4840, 340, 140], [5320, 380, 140], [5760, 340, 150], [6340, 450, 150], [6560, 370, 150], [6760, 300, 160], [6980, 340, 150], [7180, 300, 160], [7480, 400, 140], [7860, 380, 140], [8270, 360, 140], [8680, 380, 140], [9600, 360, 150]],
     walls: [[1100, 540, 180, 120], [3300, 520, 180, 180], [9080, 540, 90, 160], [9250, 430, 90, 270], [9420, 320, 90, 380]],
     turrets: [[520, 350], [1850, 320], [3500, 320], [4840, 340], [5760, 340], [6760, 300], [7180, 300], [8270, 360], [9250, 430], [9420, 320]],
@@ -331,7 +331,7 @@ export const LEVELS: LevelDef[] = [
     // threaded with movers, B) a tight choke-and-climb staircase under turret fire, C) a coil
     // chamber with bouncer verticality. Hazard-heavy throughout; heavier tanks/chargers; flyers sparse.
     name: 'CORE ACCESS', theme: 'core', w: 9400, h: 780, spawn: [120, 500], goal: [9360, 540],
-    ground: [[0, 760, 600], [940, 1520, 600], [1700, 2360, 600], [2540, 3900, 600], [4080, 4640, 600], [4820, 5800, 600], [5980, 6540, 600], [6740, 7020, 600], [7220, 7520, 600], [7720, 8480, 600], [8660, 9400, 600]],
+    ground: [[0, 760, 600], [940, 1520, 600], [1700, 2360, 600], [2540, 4640, 600], [4820, 5800, 600], [5980, 6540, 600], [6740, 7020, 600], [7220, 7520, 600], [7720, 9400, 600]],
     plats: [[280, 430, 140], [1020, 410, 150], [2200, 400, 150], [3600, 380, 150], [4300, 410, 150], [5100, 400, 150], [6300, 400, 150], [6880, 360, 150], [8820, 320, 150], [8970, 360, 150], [9120, 320, 150]],
     walls: [
       [500, 500, 160, 200],                                    // S1 choke
@@ -2255,9 +2255,25 @@ export class MainScene extends Phaser.Scene {
       if (fromAhead && Math.random() < 0.3) {
         this.spawnEnemy('flyer', side, Phaser.Math.Clamp(camTop + Phaser.Math.Between(80, 240), 40, this.levelH), 2 + Math.floor(this.level / 2), 48 + this.level * 6)
       } else {
-        this.spawnEnemy('soldier', side, camTop + 40, 2 + Math.floor(this.level / 2), 55 + this.level * 8, 'walker')
+        // Ground reinforcements walk in near ground level on SOLID ground — never spawn
+        // over a pit and drop straight in.
+        this.spawnEnemy('soldier', this.groundedSpawnX(side), 540, 2 + Math.floor(this.level / 2), 55 + this.level * 8, 'walker')
       }
     }
+  }
+
+  // Nearest x that sits over a solid ground segment (so dropped-in enemies land on ground).
+  private groundedSpawnX(x: number): number {
+    const def = this.levels()[this.level - 1]
+    if (!def || !def.ground.length) return x
+    if (def.ground.some(([x1, x2]) => x >= x1 + 24 && x <= x2 - 24)) return x
+    let best = x, bestD = Infinity
+    for (const [x1, x2] of def.ground) {
+      const cx = Phaser.Math.Clamp(x, x1 + 24, x2 - 24)
+      const d = Math.abs(cx - x)
+      if (d < bestD) { bestD = d; best = cx }
+    }
+    return best
   }
 
   private handleInput(time: number) {
