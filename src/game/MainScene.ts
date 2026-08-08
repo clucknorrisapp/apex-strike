@@ -12,7 +12,7 @@ const ASSETS = {
   boss: '/assets/boss.png',
   pickup_pod: '/assets/pickup_pod.png',
   platform_tile: '/assets/platform_tile.png',
-  logo: '/assets/logo.png',
+  logo: '/assets/logo.webp',
 }
 
 // Painted per-stage backdrops (real art — replaces the procedural skyline when present)
@@ -1996,22 +1996,22 @@ export class MainScene extends Phaser.Scene {
     const els: Phaser.GameObjects.GameObject[] = []
     els.push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.68).setScrollFactor(0).setDepth(240))
     if (this.textures.exists('logo')) {
-      const logo = this.add.image(256, 132, 'logo').setScrollFactor(0).setDepth(241)
+      const logo = this.add.image(256, 86, 'logo').setScrollFactor(0).setDepth(241)
       const src = this.textures.get('logo').getSourceImage() as { width: number; height: number }
-      const sc = Math.min(320 / (src.width || 320), 168 / (src.height || 168))
+      const sc = Math.min(190 / (src.width || 190), 140 / (src.height || 140))
       logo.setScale(sc)
       els.push(logo)
     }
-    els.push(this.add.text(256, 214, 'APEX  STRIKE', { fontFamily: 'monospace', fontSize: '22px', color: '#e879f9', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    els.push(this.add.text(256, 236, 'a Cluck Norris production', { fontFamily: 'monospace', fontSize: '8px', color: '#7c6f9c' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    if (best > 0) els.push(this.add.text(256, 256, 'BEST  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#67e8f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    const prompt = this.add.text(256, 284, this.sys.game.device.input.touch ? '▶  TAP TO START' : '▶  PRESS ANY KEY TO START', { fontFamily: 'monospace', fontSize: '12px', color: '#f5f3ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)
+    els.push(this.add.text(256, 190, 'APEX  STRIKE', { fontFamily: 'monospace', fontSize: '22px', color: '#e879f9', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    els.push(this.add.text(256, 210, 'a CLKN Productions game', { fontFamily: 'monospace', fontSize: '8px', color: '#7c6f9c' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    if (best > 0) els.push(this.add.text(256, 230, 'BEST  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#67e8f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    const prompt = this.add.text(256, 266, this.sys.game.device.input.touch ? '▶  TAP TO START' : '▶  PRESS ANY KEY TO START', { fontFamily: 'monospace', fontSize: '12px', color: '#f5f3ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)
     this.tweens.add({ targets: prompt, alpha: 0.32, duration: 620, yoyo: true, repeat: -1 })
     els.push(prompt)
-    els.push(this.add.text(256, 312, 'move · double-jump · 8-way aim · hold to fire', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    els.push(this.add.text(256, 294, 'move · double-jump · 8-way aim · hold to fire', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
     // CONTROLS button — opens the controls + gamepad-rebind screen. It sits ABOVE
     // the start catcher, so (input is top-only) tapping it never also starts play.
-    const ctrlBtn = this.add.text(256, 340, '[ CONTROLS ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    const ctrlBtn = this.add.text(256, 324, '[ CONTROLS ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
     ctrlBtn.on('pointerover', () => ctrlBtn.setColor('#f0abfc'))
     ctrlBtn.on('pointerout', () => ctrlBtn.setColor('#c4b5fd'))
     ctrlBtn.on('pointerdown', () => this.openControls())

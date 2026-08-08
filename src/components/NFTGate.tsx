@@ -107,7 +107,7 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
     return shell(
       <>
         <img
-          src="/assets/logo.png"
+          src="/assets/logo.webp"
           alt="Apex Strike"
           className="mx-auto mb-6 w-52 md:w-72 h-auto object-contain drop-shadow-[0_0_32px_rgba(168,85,247,0.55)]"
           onError={(e) => {
@@ -214,7 +214,7 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
   return shell(
     <>
       <img
-        src="/assets/logo.png"
+        src="/assets/logo.webp"
         alt="Apex"
         className="mx-auto mb-4 w-40 md:w-48 h-auto object-contain drop-shadow-[0_0_22px_rgba(34,211,238,0.4)]"
         onError={(e) => {

@@ -160,7 +160,7 @@ export function LevelLab({ spec }: { spec: GameSpec }) {
       <header style={S.header}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
           <span style={{ fontWeight: 800, letterSpacing: 2, color: '#e879f9' }}>LEVEL LAB</span>
-          <span style={{ color: '#8b7ea8', fontSize: 12 }}>{spec.name} · reusable engine · Cluck Norris Productions</span>
+          <span style={{ color: '#8b7ea8', fontSize: 12 }}>{spec.name} · reusable engine · CLKN Productions</span>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <select style={S.select} onChange={(e) => { const s = spec.samples()[Number(e.target.value)]; if (s) loadLevel(s.level) }}>
