@@ -183,7 +183,7 @@ export interface LevelDef {
   movers?: [number, number, number, string, number, number][]  // [cx, top, w, axis 'h'|'v', dist, speed] — moving platforms
   hazards?: [number, number, number][]        // [cx, topY, w] — spike strips that damage on contact
   bouncers?: [number, number, number][]       // [cx, topY, w] — launch pads that spring you upward
-  endBoss?: { x: number; y: number; hp: number; speed: number; label: string }  // guardian holding the extraction — spawns near the exit; beat it to unlock the goal
+  endBoss?: { x: number; y: number; hp: number; speed: number; label: string; kind: string }  // guardian holding the extraction — spawns near the exit; beat it to unlock the goal (kind = boss behavior id)
 }
 
 // Horizontal Contra-style run-and-gun stages: push RIGHT through distinct
@@ -237,7 +237,7 @@ export const LEVELS: LevelDef[] = [
     movers: [[850, 590, 120, 'h', 85, 0.9], [1650, 590, 130, 'h', 95, 0.9], [7540, 590, 120, 'h', 110, 0.9], [8020, 590, 120, 'h', 110, 0.9]],
     hazards: [[1000, 600, 110], [2350, 600, 120], [4350, 600, 120], [6280, 600, 110], [9120, 600, 90], [9320, 600, 80]],
     bouncers: [[2050, 600, 90], [8640, 600, 90], [8820, 600, 90]],
-    endBoss: { x: 9200, y: 450, hp: 24, speed: 60, label: 'NEON REAPER' },
+    endBoss: { x: 9200, y: 450, hp: 24, speed: 60, label: 'NEON REAPER', kind: 'reaper' },
   },
   {
     // INDUSTRIAL RISE — factory. Early game preserved: conveyor shuttles bridge the
@@ -283,7 +283,7 @@ export const LEVELS: LevelDef[] = [
     movers: [[790, 590, 140, 'h', 90, 0.85], [1530, 590, 130, 'h', 95, 0.9], [2290, 500, 120, 'v', 150, 0.7], [4680, 590, 130, 'h', 90, 0.85], [5890, 590, 130, 'h', 90, 0.85], [7095, 590, 130, 'h', 105, 0.9], [7515, 590, 130, 'h', 120, 0.9], [7945, 590, 130, 'h', 120, 0.9], [8810, 451, 120, 'v', 150, 0.7]],
     hazards: [[1000, 600, 130], [2450, 600, 120], [4300, 600, 120], [6200, 600, 120], [9300, 600, 90], [9420, 600, 70]],
     bouncers: [[1250, 600, 90], [9200, 600, 70]],
-    endBoss: { x: 9250, y: 450, hp: 32, speed: 55, label: 'FOUNDRY BRUTE' },
+    endBoss: { x: 9250, y: 450, hp: 32, speed: 55, label: 'FOUNDRY BRUTE', kind: 'brute' },
   },
   {
     // SKY RAIL — high altitude, the LONGEST world. Tuned intro (rail crossings +
@@ -323,7 +323,7 @@ export const LEVELS: LevelDef[] = [
     movers: [[730, 590, 130, 'h', 95, 0.9], [1390, 590, 130, 'h', 95, 0.9], [2050, 500, 120, 'v', 160, 0.7], [2710, 590, 130, 'h', 95, 0.9], [4120, 590, 130, 'h', 95, 0.9], [4600, 590, 130, 'h', 95, 0.9], [5080, 590, 130, 'h', 95, 0.9], [5560, 590, 130, 'h', 95, 0.9], [6150, 470, 110, 'v', 150, 0.7]],
     hazards: [[950, 600, 110], [6510, 600, 100], [7220, 600, 90]],
     bouncers: [[400, 600, 90], [1700, 600, 90], [3200, 600, 90], [6340, 600, 90], [6600, 600, 90], [7060, 600, 90], [7360, 600, 90]],
-    endBoss: { x: 9450, y: 430, hp: 46, speed: 66, label: 'SKY TYRANT' },
+    endBoss: { x: 9450, y: 430, hp: 46, speed: 66, label: 'SKY TYRANT', kind: 'tyrant' },
   },
   {
     // CORE ACCESS — reactor interior, doubled into the hardest run world before the throne.
@@ -364,7 +364,7 @@ export const LEVELS: LevelDef[] = [
     movers: [[850, 590, 120, 'h', 85, 0.9], [1610, 590, 130, 'h', 95, 0.9], [2450, 590, 120, 'h', 85, 0.9], [4640, 590, 120, 'h', 85, 0.9], [5890, 590, 120, 'h', 85, 0.9], [6640, 590, 130, 'h', 100, 0.9], [7120, 590, 130, 'h', 100, 0.9], [7620, 590, 130, 'h', 100, 0.9]],
     hazards: [[650, 600, 110], [1050, 600, 120], [1780, 600, 120], [2700, 600, 120], [3450, 600, 120], [4300, 600, 120], [5250, 600, 120], [6180, 600, 120], [6880, 600, 120], [7370, 600, 120], [8440, 600, 80], [9280, 600, 90]],
     bouncers: [[1500, 600, 90], [8820, 600, 90], [9120, 600, 90]],
-    endBoss: { x: 9080, y: 430, hp: 56, speed: 60, label: 'CORE WARDEN' },
+    endBoss: { x: 9080, y: 430, hp: 56, speed: 60, label: 'CORE WARDEN', kind: 'warden' },
   },
   {
     // APEX THRONE — the final boss arena. A compact, symmetric throne where the
@@ -427,6 +427,31 @@ const POWERUP_INFO: Record<string, PowerupInfo> = {
 }
 const powerupInfo = (kind: string): PowerupInfo =>
   POWERUP_INFO[kind] || { label: kind.toUpperCase(), desc: '', color: 0xffffff, hex: '#ffffff', glyph: '?' }
+
+// Per-boss identity: signature move rotation (+ an enraged phase-2 rotation), attack
+// cadence (ms), and an accent colour that tints its sprite and its bolts so each of the
+// five fights reads as a distinct boss instead of the same fan-volley scaled up.
+// Moves: burst=quick aimed shots, fan/spread=aimed volleys, ring=radial bullets,
+// sweep=rotating beam of bolts, lob=heavy slow shots, dash=lunge across, pound=slam +
+// ground ring, dive=swoop at you, summon=call flyers.
+const BOSS_MOVES: Record<string, string[]> = {
+  reaper:   ['burst', 'dash', 'burst', 'spread'],
+  brute:    ['lob', 'pound', 'lob', 'ring'],
+  tyrant:   ['spread', 'dive', 'summon', 'spread', 'ring'],
+  warden:   ['ring', 'sweep', 'ring', 'lob'],
+  sentinel: ['fan', 'ring', 'burst', 'dive', 'spread'],
+}
+const BOSS_MOVES_P2: Record<string, string[]> = {
+  reaper:   ['dash', 'burst', 'spread', 'dash', 'ring'],
+  brute:    ['pound', 'ring', 'lob', 'pound'],
+  tyrant:   ['dive', 'spread', 'ring', 'summon', 'dive'],
+  warden:   ['sweep', 'ring', 'sweep', 'lob', 'ring'],
+  sentinel: ['fan', 'ring', 'dive', 'sweep', 'pound', 'burst'],
+}
+const BOSS_CADENCE: Record<string, number> = { reaper: 1100, brute: 1750, tyrant: 1500, warden: 1350, sentinel: 1250 }
+const BOSS_HOME_Y: Record<string, number> = { reaper: 430, brute: 500, tyrant: 350, warden: 420, sentinel: 400 }
+const BOSS_ACCENT: Record<string, number> = { reaper: 0xf43f5e, brute: 0xfb923c, tyrant: 0x67e8f9, warden: 0xc084fc, sentinel: 0xfbbf24 }
+const bossAccent = (kind: string): number => BOSS_ACCENT[kind] ?? 0xfbbf24
 
 export class MainScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite
@@ -537,6 +562,7 @@ export class MainScene extends Phaser.Scene {
   private pendingEndBoss?: LevelDef['endBoss']
   private endBossSpawned = false
   private nextBossLabel = 'APEX SENTINEL'
+  private nextBossKind = 'sentinel'
   private lockHintAt = 0
   // Pause / mute
   private userPaused = false
@@ -1086,6 +1112,7 @@ export class MainScene extends Phaser.Scene {
     // End-of-stage guardian: on a normal (goal-based) stage, lock the extraction and
     // arm the guardian to spawn as the player nears the exit. (Boss stages are kill-all.)
     this.nextBossLabel = 'APEX SENTINEL'
+    this.nextBossKind = 'sentinel'
     this.endBossSpawned = false
     this.pendingEndBoss = undefined
     this.extractionLocked = false
@@ -1413,6 +1440,14 @@ export class MainScene extends Phaser.Scene {
     enemy.setDisplaySize(displayW, displayH)
     if (t === 'charger') { enemy.setData('baseTint', 0xff7a3c); enemy.setTint(0xff7a3c) }
     if (t === 'diver') { enemy.setData('baseTint', 0xff4d6d); enemy.setTint(0xff4d6d) }
+    if (t === 'boss') {
+      // Each boss carries its behavior id + accent colour (tints the sprite + its bolts).
+      const bk = this.nextBossKind
+      enemy.setData('bossKind', bk)
+      enemy.setData('atkT', 1100); enemy.setData('atkIdx', 0)
+      const acc = bossAccent(bk)
+      enemy.setData('baseTint', acc); enemy.setTint(acc)
+    }
     enemy.setData('bsx', enemy.scaleX); enemy.setData('bsy', enemy.scaleY)
     enemy.setBounce(0.02)
     enemy.setCollideWorldBounds(false)
@@ -2088,6 +2123,7 @@ export class MainScene extends Phaser.Scene {
       this.endBossSpawned = true
       this.bossPhase = 1
       this.nextBossLabel = eb.label
+      this.nextBossKind = eb.kind
       this.spawnEnemy('boss', eb.x, eb.y, eb.hp, eb.speed)
       this.screenToast('⚠ GUARDIAN  ·  ' + eb.label, '#f43f5e', 110)
       this.cameras.main.shake(220, 0.015)
@@ -2451,19 +2487,7 @@ export class MainScene extends Phaser.Scene {
         enemy.setFlipX(dx < 0)
       }
       if (type === 'turret') enemy.setFlipX(this.player.x < enemy.x)
-      if (type === 'boss') {
-        const hp = enemy.getData('hp') as number, maxHp = enemy.getData('maxHp') as number
-        if (hp / maxHp < 0.5 && this.bossPhase === 1) {
-          this.bossPhase = 2
-          this.popup(enemy.x, enemy.y - 60, 'PHASE 2', '#f43f5e')
-          this.cameras.main.shake(250, 0.025)
-        }
-        const spd = this.bossPhase === 2 ? speed * 1.45 : speed
-        const dx = this.player.x - enemy.x
-        enemy.setVelocityX(Phaser.Math.Clamp(dx * 0.5, -spd, spd))
-        enemy.setVelocityY(Math.sin(this.time.now / (this.bossPhase === 2 ? 180 : 280)) * (this.bossPhase === 2 ? 70 : 45))
-        enemy.setFlipX(dx < 0)
-      }
+      if (type === 'boss') this.updateBoss(enemy, delta)
       if (type === 'charger') {
         const st = (enemy.getData('cstate') as string) || 'patrol'
         const ct = ((enemy.getData('ctimer') as number) || 0) - delta
@@ -2530,34 +2554,158 @@ export class MainScene extends Phaser.Scene {
         }
       }
 
-      if (type === 'tank' || type === 'flyer' || type === 'boss' || type === 'turret') {
+      if (type === 'tank' || type === 'flyer' || type === 'turret') {
         let timer = enemy.getData('shootTimer') as number
         timer -= delta
-        // Don't let off-screen enemies snipe you — only fire when roughly on-screen (the boss always fires).
-        const near = type === 'boss' || (Math.abs(enemy.x - this.player.x) < 600 && Math.abs(enemy.y - this.player.y) < 380)
+        // Don't let off-screen enemies snipe you — only fire when roughly on-screen.
+        const near = Math.abs(enemy.x - this.player.x) < 600 && Math.abs(enemy.y - this.player.y) < 380
         const alive = (enemy.getData('hp') as number) > 0
-        // Telegraph: a brief wind-up flash before boss/turret volleys so they read as fair.
-        if (alive && near && (type === 'boss' || type === 'turret') && timer <= 260 && timer > 40 && !enemy.getData('tele')) {
+        // Telegraph: a brief wind-up flash before turret volleys so they read as fair.
+        if (alive && near && type === 'turret' && timer <= 260 && timer > 40 && !enemy.getData('tele')) {
           enemy.setData('tele', true)
           enemy.setTintFill(0xffe08a)
           this.time.delayedCall(170, () => this.restoreTint(enemy))
-          if (type === 'boss') this.shockwave(enemy.x, enemy.y, 0xfbbf24, 38)
         }
         if (timer <= 0 && near && alive) {
           enemy.setData('tele', false)
           let count = 1
-          if (type === 'boss') count = this.bossPhase === 2 ? 9 : 6
-          else if (type === 'turret') count = this.level >= 3 ? 2 : 1
+          if (type === 'turret') count = this.level >= 3 ? 2 : 1
           this.enemyFire(enemy, count)
           let base = 900
-          if (type === 'boss') base = this.bossPhase === 2 ? 480 : 680
-          else if (type === 'tank') base = 1100
+          if (type === 'tank') base = 1100
           else if (type === 'flyer') base = 1250
           else if (type === 'turret') base = Math.max(650, 1250 - this.level * 90)
           enemy.setData('shootTimer', base)
         } else enemy.setData('shootTimer', timer <= 0 ? 140 : timer)
       }
     })
+  }
+
+  // ── Boss AI ─────────────────────────────────────────────────────────────
+  // Each boss moves in its own style, holds an altitude, and cycles a signature
+  // move set (a harder rotation once enraged at half HP). Telegraph flash + accent
+  // shockwave precede every move so attacks stay readable.
+  private updateBoss(enemy: Phaser.Physics.Arcade.Sprite, delta: number) {
+    const kind = (enemy.getData('bossKind') as string) || 'sentinel'
+    const hp = enemy.getData('hp') as number, maxHp = enemy.getData('maxHp') as number
+    const speed = enemy.getData('speed') as number
+    const acc = bossAccent(kind)
+    if (hp / maxHp < 0.5 && this.bossPhase === 1) {
+      this.bossPhase = 2
+      this.screenToast('⚠ ' + this.nextBossLabel + ' ENRAGED', '#f43f5e', 96)
+      this.popup(enemy.x, enemy.y - 70, 'PHASE 2', '#f43f5e')
+      this.cameras.main.shake(320, 0.03)
+      enemy.setData('atkT', 340)
+    }
+    const p2 = this.bossPhase === 2
+    const dx = this.player.x - enemy.x
+    const dashing = ((enemy.getData('dashUntil') as number) || 0) > this.time.now
+
+    if (!dashing) {
+      const homeY = BOSS_HOME_Y[kind] ?? 420
+      const xk = kind === 'brute' ? 0.3 : kind === 'reaper' ? 0.55 : 0.42
+      const mv = speed * (p2 ? 1.4 : 1)
+      enemy.setVelocityX(Phaser.Math.Clamp(dx * xk, -mv, mv))
+      const bob = Math.sin(this.time.now / (p2 ? 180 : 260)) * (kind === 'brute' ? 22 : p2 ? 78 : 52)
+      enemy.setVelocityY((homeY - enemy.y) * 1.6 + bob)   // spring back to home altitude + bob
+      enemy.setFlipX(dx < 0)
+    }
+    // Keep the boss on the arena (no gravity, no world bounds) — dashes/dives can't fly off
+    // the edge or sink through the floor.
+    enemy.x = Phaser.Math.Clamp(enemy.x, 140, this.levelW - 140)
+    enemy.y = Phaser.Math.Clamp(enemy.y, 110, 575)
+
+    // attack cadence + pre-move telegraph
+    let atkT = ((enemy.getData('atkT') as number) ?? 1000) - delta
+    if (atkT <= 300 && !enemy.getData('tele2') && !dashing) {
+      enemy.setData('tele2', true)
+      enemy.setTintFill(0xffe08a)
+      this.time.delayedCall(190, () => this.restoreTint(enemy))
+      this.shockwave(enemy.x, enemy.y, acc, 42)
+    }
+    if (atkT <= 0) {
+      enemy.setData('tele2', false)
+      const idx = (enemy.getData('atkIdx') as number) || 0
+      enemy.setData('atkIdx', idx + 1)
+      const pool = (p2 && BOSS_MOVES_P2[kind]) ? BOSS_MOVES_P2[kind] : (BOSS_MOVES[kind] || BOSS_MOVES.sentinel)
+      this.bossDoMove(enemy, kind, pool[idx % pool.length], p2)
+      atkT = (BOSS_CADENCE[kind] || 1400) * (p2 ? 0.62 : 1)
+    }
+    enemy.setData('atkT', atkT)
+  }
+
+  // Flexible boss volley: aimed fan, radial ring, or fixed-angle bolt(s), accent-tinted.
+  private bossFire(enemy: Phaser.Physics.Arcade.Sprite, o: { count: number; spreadRad?: number; aimed?: boolean; ring?: boolean; baseAngle?: number; speed?: number; scale?: number; tint?: number }) {
+    if (!enemy.active) return
+    const { count, spreadRad = 0, aimed = true, ring = false, baseAngle = 0, speed = 230, scale = 0.78, tint } = o
+    const aim = aimed ? Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y) : baseAngle
+    for (let i = 0; i < count; i++) {
+      const b = this.enemyBullets.get(enemy.x, enemy.y, 'enemyBullet') as Phaser.Physics.Arcade.Image
+      if (!b) continue
+      b.setActive(true).setVisible(true); b.setScale(scale); b.setDepth(19)
+      if (tint !== undefined) b.setTint(tint); else b.clearTint()
+      b.body?.reset(enemy.x, enemy.y)
+      ;(b.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
+      const ang = ring ? baseAngle + (i * Math.PI * 2) / count
+        : aim + (count > 1 ? (i - (count - 1) / 2) * (spreadRad / (count - 1)) : 0)
+      b.setVelocity(Math.cos(ang) * speed, Math.sin(ang) * speed)
+      b.setRotation(ang)
+      this.time.delayedCall(2600, () => { if (b.active) b.setActive(false).setVisible(false) })
+    }
+  }
+
+  private bossDoMove(enemy: Phaser.Physics.Arcade.Sprite, kind: string, move: string, p2: boolean) {
+    const acc = bossAccent(kind)
+    switch (move) {
+      case 'burst':   // three quick aimed bolts
+        for (let k = 0; k < 3; k++) this.time.delayedCall(k * 110, () => this.bossFire(enemy, { count: 1, speed: 300, tint: acc }))
+        break
+      case 'fan':
+        this.bossFire(enemy, { count: p2 ? 9 : 6, spreadRad: 1.1, speed: 235, tint: acc }); break
+      case 'spread':  // wide aimed volley
+        this.bossFire(enemy, { count: p2 ? 11 : 8, spreadRad: 2.2, speed: 210, tint: acc }); break
+      case 'ring':    // radial bullet ring
+        this.bossFire(enemy, { count: p2 ? 18 : 13, ring: true, baseAngle: (this.time.now % 628) / 100, speed: 195, tint: acc }); break
+      case 'sweep': { // rotating beam of bolts sweeping across
+        const dir = this.player.x < enemy.x ? -1 : 1
+        let a = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y) - dir * 0.6
+        for (let k = 0; k < 10; k++) this.time.delayedCall(k * 55, () => { this.bossFire(enemy, { count: 1, aimed: false, baseAngle: a, speed: 265, tint: acc }); a += dir * 0.12 })
+        break }
+      case 'lob':     // heavy slow shots
+        this.bossFire(enemy, { count: p2 ? 5 : 3, spreadRad: 0.55, speed: 155, scale: 1.15, tint: acc }); break
+      case 'dash': {  // lunge across the player, spraying on the way
+        const dir = this.player.x < enemy.x ? -1 : 1
+        enemy.setData('dashUntil', this.time.now + 480)
+        enemy.setVelocity(dir * 540, -20)
+        this.sfx?.hurt()
+        this.time.delayedCall(130, () => this.bossFire(enemy, { count: 3, spreadRad: 0.9, speed: 220, tint: acc }))
+        break }
+      case 'pound': { // dive to low altitude → ground shockwave + upward spray
+        enemy.setData('dashUntil', this.time.now + 560)
+        enemy.setVelocity(Phaser.Math.Clamp((this.player.x - enemy.x) * 1.2, -260, 260), 430)
+        this.time.delayedCall(360, () => {
+          if (!enemy.active) return
+          enemy.setVelocity(0, -300)   // recover
+          this.cameras.main.shake(300, 0.032)
+          this.shockwave(enemy.x, 590, 0xffffff, 74)
+          this.shockwave(enemy.x, 590, acc, 54)
+          this.bossFire(enemy, { count: p2 ? 12 : 8, spreadRad: 2.8, aimed: false, baseAngle: -Math.PI / 2, speed: 250, tint: acc })
+        })
+        break }
+      case 'dive': {  // swoop at the player then pull up
+        enemy.setData('dashUntil', this.time.now + 600)
+        const ty = Math.min(this.player.y, 500)
+        const ang = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, ty)
+        enemy.setVelocity(Math.cos(ang) * 470, Math.sin(ang) * 470)
+        this.time.delayedCall(340, () => { if (enemy.active) enemy.setVelocity(0, -280) })
+        break }
+      case 'summon': {
+        if (this.enemies.countActive(true) >= 7) break   // don't let adds pile up
+        const n = p2 ? 2 : 1
+        for (let k = 0; k < n; k++) this.spawnEnemy('flyer', enemy.x + (k ? 90 : -90), enemy.y - 20, 3, 60)
+        this.popup(enemy.x, enemy.y - 74, 'SUMMON', '#' + acc.toString(16).padStart(6, '0'))
+        break }
+    }
   }
 
   private enemyFire(enemy: Phaser.Physics.Arcade.Sprite, count: number) {
