@@ -1511,8 +1511,7 @@ export class MainScene extends Phaser.Scene {
     this.weaponText = this.add.text(10, 55, 'GUN  NORMAL', { fontFamily: 'monospace', fontSize: '9px', color: '#22d3ee' }).setScrollFactor(0).setDepth(100)
     this.comboText = this.add.text(10, 66, '', { fontFamily: 'monospace', fontSize: '9px', color: '#fbbf24' }).setScrollFactor(0).setDepth(100)
     this.shardText = this.add.text(10, 78, '◆ ' + this.shardsGot + '/' + this.shardsTotal, { fontFamily: 'monospace', fontSize: '9px', color: '#67e8f9' }).setScrollFactor(0).setDepth(100)
-    this.add.text(502, 7, 'APEX STRIKE', { fontFamily: 'monospace', fontSize: '9px', color: '#a855f7' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100)
-    this.muteIcon = this.add.text(502, 20, this.muted ? '♪ OFF' : '♪ ON', { fontFamily: 'monospace', fontSize: '9px', color: this.muted ? '#ef4444' : '#a5b4fc' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100)
+    this.muteIcon = this.add.text(502, 7, this.muted ? '♪ OFF' : '♪ ON', { fontFamily: 'monospace', fontSize: '9px', color: this.muted ? '#ef4444' : '#a5b4fc' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100)
     // Persistent controller-connected chip — high depth so it shows over the title too.
     this.padIcon = this.add.text(502, 32, this.gamepadActive ? '🎮 PAD' : '', { fontFamily: 'monospace', fontSize: '9px', color: '#67e8f9' }).setOrigin(1, 0).setScrollFactor(0).setDepth(245)
     if (!this.sys.game.device.input.touch) {
@@ -1996,22 +1995,22 @@ export class MainScene extends Phaser.Scene {
     const els: Phaser.GameObjects.GameObject[] = []
     els.push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.68).setScrollFactor(0).setDepth(240))
     if (this.textures.exists('logo')) {
-      const logo = this.add.image(256, 86, 'logo').setScrollFactor(0).setDepth(241)
+      const logo = this.add.image(256, 112, 'logo').setScrollFactor(0).setDepth(241)
       const src = this.textures.get('logo').getSourceImage() as { width: number; height: number }
-      const sc = Math.min(190 / (src.width || 190), 140 / (src.height || 140))
+      const sc = Math.min(230 / (src.width || 230), 190 / (src.height || 190))
       logo.setScale(sc)
       els.push(logo)
     }
-    els.push(this.add.text(256, 190, 'APEX  STRIKE', { fontFamily: 'monospace', fontSize: '22px', color: '#e879f9', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    els.push(this.add.text(256, 210, 'a CLKN Productions game', { fontFamily: 'monospace', fontSize: '8px', color: '#7c6f9c' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    if (best > 0) els.push(this.add.text(256, 230, 'BEST  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#67e8f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    const prompt = this.add.text(256, 266, this.sys.game.device.input.touch ? '▶  TAP TO START' : '▶  PRESS ANY KEY TO START', { fontFamily: 'monospace', fontSize: '12px', color: '#f5f3ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)
+    // The logo carries the APEX STRIKE wordmark, so no separate title label is needed.
+    els.push(this.add.text(256, 226, 'a CLKN Productions game', { fontFamily: 'monospace', fontSize: '8px', color: '#7c6f9c' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    if (best > 0) els.push(this.add.text(256, 246, 'BEST  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#67e8f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    const prompt = this.add.text(256, 282, this.sys.game.device.input.touch ? '▶  TAP TO START' : '▶  PRESS ANY KEY TO START', { fontFamily: 'monospace', fontSize: '12px', color: '#f5f3ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)
     this.tweens.add({ targets: prompt, alpha: 0.32, duration: 620, yoyo: true, repeat: -1 })
     els.push(prompt)
-    els.push(this.add.text(256, 294, 'move · double-jump · 8-way aim · hold to fire', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    els.push(this.add.text(256, 308, 'move · double-jump · 8-way aim · hold to fire', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
     // CONTROLS button — opens the controls + gamepad-rebind screen. It sits ABOVE
     // the start catcher, so (input is top-only) tapping it never also starts play.
-    const ctrlBtn = this.add.text(256, 324, '[ CONTROLS ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    const ctrlBtn = this.add.text(256, 336, '[ CONTROLS ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
     ctrlBtn.on('pointerover', () => ctrlBtn.setColor('#f0abfc'))
     ctrlBtn.on('pointerout', () => ctrlBtn.setColor('#c4b5fd'))
     ctrlBtn.on('pointerdown', () => this.openControls())

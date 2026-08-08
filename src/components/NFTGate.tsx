@@ -114,9 +114,6 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
             ;(e.target as HTMLImageElement).style.display = 'none'
           }}
         />
-        <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-2 bg-gradient-to-r from-violet-400 via-fuchsia-400 to-cyan-400 bg-clip-text text-transparent">
-          APEX STRIKE
-        </h1>
         <p className="text-zinc-400 mb-8 text-sm">
           NFT-gated run &amp; gun for Apex Huntress holders on Cronos
         </p>
