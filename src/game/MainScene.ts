@@ -22,6 +22,7 @@ const WORLD_BG: Record<string, string> = {
   sky: '/assets/bg_sky.webp',
   core: '/assets/bg_core.webp',
   throne: '/assets/bg_throne.webp',
+  volt: '/assets/bg_volt.webp',
 }
 
 // ---- Feel kit (Contra run-and-gun + Mario-grade jump) ----
@@ -144,7 +145,7 @@ class Sfx {
   }
 }
 
-export type ThemeName = 'streets' | 'industrial' | 'sky' | 'core' | 'throne'
+export type ThemeName = 'streets' | 'industrial' | 'sky' | 'core' | 'throne' | 'volt'
 
 export interface Theme {
   bg: number
@@ -162,6 +163,7 @@ export const THEMES: Record<ThemeName, Theme> = {
   sky:        { bg: 0x071018, far: 0x122438, mid: 0x1d3a57, rim: 0x22d3ee, fill: 0x1f3a52, ledge: 0x2a4a63, accent: 0x67e8f9 },
   core:       { bg: 0x120406, far: 0x2e0d14, mid: 0x4a141f, rim: 0xf43f5e, fill: 0x45141d, ledge: 0x5a1a26, accent: 0xfb7185 },
   throne:     { bg: 0x0b0714, far: 0x241a3a, mid: 0x3a2a5c, rim: 0xfbbf24, fill: 0x362a52, ledge: 0x4a3a2a, accent: 0xfde68a },
+  volt:       { bg: 0x070a16, far: 0x141a34, mid: 0x1e2a52, rim: 0x818cf8, fill: 0x1c2348, ledge: 0x2a3566, accent: 0xa5b4fc },
 }
 
 export interface EnemySpawn { kind: string; x: number; y: number; hp: number; speed: number }
@@ -367,6 +369,55 @@ export const LEVELS: LevelDef[] = [
     endBoss: { x: 9080, y: 430, hp: 56, speed: 60, label: 'CORE WARDEN', kind: 'warden' },
   },
   {
+    // VOLT SPIRE — the electrified ascent to the throne. Past the CORE the run turns
+    // vertical: tesla-coil chokes, arc-strip floors, and mover rails over charged voids,
+    // climbing through a choke-and-climb finale to the guardian. Hardest RUN stage before
+    // the throne — heavier tanks/chargers and diver drones raining from the coils above.
+    name: 'VOLT SPIRE', theme: 'volt', w: 9600, h: 800, spawn: [120, 500], goal: [9560, 540],
+    ground: [[0, 780, 600], [960, 1540, 600], [1720, 2300, 600], [2480, 4260, 600], [4440, 5400, 600], [5580, 6560, 600], [6760, 7040, 600], [7240, 7520, 600], [7720, 9600, 600]],
+    plats: [[280, 430, 150], [1050, 410, 150], [2000, 390, 150], [2200, 300, 140], [3000, 380, 150], [3500, 310, 150], [4300, 400, 150], [5100, 390, 150], [6300, 400, 150], [6820, 350, 150], [8760, 320, 150], [8940, 360, 150], [9120, 320, 150]],
+    walls: [
+      [500, 500, 160, 200],                                    // S1 coil choke
+      [1250, 480, 180, 240], [1450, 540, 180, 120],            // S2 tiered pylons
+      [2900, 500, 180, 220], [3100, 440, 180, 320],            // S4 staircase climb (110px steps)
+      [4950, 500, 180, 220], [5150, 440, 180, 320],            // S6 mid staircase
+      [7960, 540, 160, 160], [8140, 430, 160, 270], [8320, 320, 160, 380],  // S8 choke-and-climb finale
+    ],
+    turrets: [[1250, 480], [2000, 390], [3100, 440], [5150, 440], [6300, 400], [8320, 320], [8940, 360]],
+    enemies: [
+      { kind: 'soldier', x: 250, y: 566, hp: 5, speed: 76 }, { kind: 'soldier', x: 340, y: 566, hp: 5, speed: 76 },
+      { kind: 'tank', x: 700, y: 560, hp: 9, speed: 32 }, { kind: 'soldier', x: 1000, y: 566, hp: 5, speed: 78 },
+      { kind: 'charger', x: 1080, y: 566, hp: 6, speed: 68 }, { kind: 'soldier', x: 1145, y: 566, hp: 5, speed: 78 },
+      { kind: 'soldier', x: 1780, y: 566, hp: 5, speed: 78 }, { kind: 'charger', x: 1880, y: 566, hp: 6, speed: 68 },
+      { kind: 'tank', x: 2050, y: 560, hp: 9, speed: 32 }, { kind: 'soldier', x: 2250, y: 566, hp: 5, speed: 78 },
+      { kind: 'soldier', x: 2600, y: 566, hp: 5, speed: 78 }, { kind: 'tank', x: 2750, y: 560, hp: 10, speed: 32 },
+      { kind: 'soldier', x: 3300, y: 566, hp: 5, speed: 78 }, { kind: 'charger', x: 3450, y: 566, hp: 6, speed: 70 },
+      { kind: 'tank', x: 3620, y: 560, hp: 10, speed: 32 }, { kind: 'soldier', x: 3820, y: 566, hp: 5, speed: 78 },
+      { kind: 'soldier', x: 4020, y: 566, hp: 5, speed: 78 }, { kind: 'charger', x: 4160, y: 566, hp: 6, speed: 70 },
+      { kind: 'soldier', x: 4520, y: 566, hp: 5, speed: 78 }, { kind: 'tank', x: 4720, y: 560, hp: 9, speed: 32 },
+      { kind: 'soldier', x: 5300, y: 566, hp: 5, speed: 80 }, { kind: 'charger', x: 5380, y: 566, hp: 6, speed: 70 },
+      { kind: 'soldier', x: 5650, y: 566, hp: 5, speed: 80 }, { kind: 'tank', x: 5850, y: 560, hp: 10, speed: 32 },
+      { kind: 'charger', x: 6050, y: 566, hp: 6, speed: 70 }, { kind: 'soldier', x: 6250, y: 566, hp: 5, speed: 80 },
+      { kind: 'charger', x: 6450, y: 566, hp: 6, speed: 72 },
+      { kind: 'charger', x: 6900, y: 566, hp: 6, speed: 72 }, { kind: 'soldier', x: 7380, y: 566, hp: 5, speed: 80 },
+      { kind: 'soldier', x: 7800, y: 566, hp: 5, speed: 80 },
+      { kind: 'tank', x: 8500, y: 560, hp: 10, speed: 32 }, { kind: 'charger', x: 8700, y: 566, hp: 6, speed: 72 },
+      { kind: 'soldier', x: 8900, y: 566, hp: 6, speed: 82 }, { kind: 'soldier', x: 9060, y: 566, hp: 6, speed: 82 },
+      { kind: 'charger', x: 9260, y: 566, hp: 7, speed: 72 }, { kind: 'tank', x: 9460, y: 560, hp: 10, speed: 32 },
+      { kind: 'diver', x: 1050, y: 300, hp: 5, speed: 108 }, { kind: 'diver', x: 2050, y: 300, hp: 5, speed: 110 },
+      { kind: 'diver', x: 3000, y: 300, hp: 5, speed: 110 }, { kind: 'diver', x: 4600, y: 300, hp: 5, speed: 112 },
+      { kind: 'diver', x: 5100, y: 300, hp: 5, speed: 112 }, { kind: 'diver', x: 6300, y: 300, hp: 5, speed: 112 },
+      { kind: 'diver', x: 7000, y: 300, hp: 5, speed: 114 }, { kind: 'diver', x: 8600, y: 300, hp: 5, speed: 114 },
+      { kind: 'flyer', x: 850, y: 280, hp: 5, speed: 82 }, { kind: 'flyer', x: 4700, y: 280, hp: 5, speed: 84 },
+      { kind: 'flyer', x: 6100, y: 280, hp: 5, speed: 84 }, { kind: 'flyer', x: 8100, y: 270, hp: 5, speed: 86 },
+    ],
+    pods: [[350, 510, 'rapid'], [1000, 510, 'health'], [2000, 350, 'laser'], [3300, 545, 'fire'], [4520, 545, 'health'], [5650, 545, 'spread'], [6300, 360, 'health'], [6820, 310, 'laser'], [8500, 510, 'health'], [9120, 280, 'fire']],
+    movers: [[850, 590, 120, 'h', 85, 0.9], [1630, 590, 130, 'h', 95, 0.9], [2390, 590, 120, 'h', 85, 0.9], [4350, 590, 120, 'h', 85, 0.9], [5490, 590, 120, 'h', 85, 0.9], [6660, 590, 130, 'h', 100, 0.9], [7140, 590, 130, 'h', 100, 0.9], [7620, 590, 130, 'h', 100, 0.9], [2200, 470, 110, 'v', 150, 0.7]],
+    hazards: [[650, 600, 110], [1780, 600, 120], [3450, 600, 120], [5300, 600, 110], [6250, 600, 110], [8600, 600, 90], [9300, 600, 90]],
+    bouncers: [[2100, 600, 90], [3800, 600, 90], [8760, 600, 90]],
+    endBoss: { x: 9280, y: 430, hp: 60, speed: 62, label: 'VOLT WRAITH', kind: 'wraith' },
+  },
+  {
     // APEX THRONE — the final boss arena. A compact, symmetric throne where the
     // Apex boss looms dead-center over a single solid floor (kept low enough to
     // stay in the pulled-back frame). Flanking ledges + a pair of launch pads give
@@ -440,6 +491,7 @@ const BOSS_MOVES: Record<string, string[]> = {
   tyrant:   ['spread', 'dive', 'summon', 'spread', 'ring'],
   warden:   ['ring', 'sweep', 'ring', 'lob'],
   sentinel: ['fan', 'ring', 'burst', 'dive', 'spread'],
+  wraith:   ['dash', 'ring', 'burst', 'sweep', 'spread'],
 }
 const BOSS_MOVES_P2: Record<string, string[]> = {
   reaper:   ['dash', 'burst', 'spread', 'dash', 'ring'],
@@ -447,10 +499,11 @@ const BOSS_MOVES_P2: Record<string, string[]> = {
   tyrant:   ['dive', 'spread', 'ring', 'summon', 'dive'],
   warden:   ['sweep', 'ring', 'sweep', 'lob', 'ring'],
   sentinel: ['fan', 'ring', 'dive', 'sweep', 'pound', 'burst'],
+  wraith:   ['dash', 'sweep', 'ring', 'dive', 'ring', 'burst'],
 }
-const BOSS_CADENCE: Record<string, number> = { reaper: 1100, brute: 1750, tyrant: 1500, warden: 1350, sentinel: 1250 }
-const BOSS_HOME_Y: Record<string, number> = { reaper: 430, brute: 500, tyrant: 350, warden: 420, sentinel: 400 }
-const BOSS_ACCENT: Record<string, number> = { reaper: 0xf43f5e, brute: 0xfb923c, tyrant: 0x67e8f9, warden: 0xc084fc, sentinel: 0xfbbf24 }
+const BOSS_CADENCE: Record<string, number> = { reaper: 1100, brute: 1750, tyrant: 1500, warden: 1350, sentinel: 1250, wraith: 1200 }
+const BOSS_HOME_Y: Record<string, number> = { reaper: 430, brute: 500, tyrant: 350, warden: 420, sentinel: 400, wraith: 380 }
+const BOSS_ACCENT: Record<string, number> = { reaper: 0xf43f5e, brute: 0xfb923c, tyrant: 0x67e8f9, warden: 0xc084fc, sentinel: 0xfbbf24, wraith: 0x818cf8 }
 const bossAccent = (kind: string): number => BOSS_ACCENT[kind] ?? 0xfbbf24
 
 export class MainScene extends Phaser.Scene {
@@ -1402,6 +1455,36 @@ export class MainScene extends Phaser.Scene {
             const ember = keep(this.add.circle(x + R(-8, 8), gy - 40, R(1.5, 2.6), 0xffcf7a, 0.9).setDepth(9).setBlendMode(ADD))
             this.tweens.add({ targets: ember, y: gy - R(120, 190), x: '+=' + R(-16, 16), alpha: 0, duration: R(1400, 2400), repeat: -1, ease: 'Sine.easeOut', delay: e * 500 })
           }
+        }
+        break
+      }
+
+      case 'volt': {
+        // Tesla coils rising off the back wall — a mast stacked with coil rings, a bright
+        // discharge tip, and a soft charge halo that pulses.
+        for (let x = 240; x < w - 160; x += RI(300, 460)) {
+          const top = gy - R(200, 320)
+          rect(x, (top + gy + 120) / 2, 8, (gy + 120) - top, 0x161d3a, 0.95, 3, 0.7)          // mast
+          for (let cy = top + 26; cy < gy - 20; cy += RI(46, 70))
+            keep(this.add.circle(x, cy, R(14, 26), 0x000000, 0).setStrokeStyle(3, RIM, 0.5).setDepth(3).setScrollFactor(0.7))  // coil ring
+          const tip = gc(x, top, 7, RIM, 0.95, 4, 0.7)                                        // discharge tip
+          glow(x, top, 20, 20, RIM, 0.35, 3, 0.7)
+          pulse(tip, 0.3, 1, R(420, 780))
+        }
+        // Crackling arcs strung between the coil tips (thin bright bars that flicker).
+        for (let x = 360; x < w - 240; x += RI(560, 920)) {
+          const arc = glow(x, gy - R(210, 300), R(120, 200), 3, A, 0.5, 4, 0.7)
+          this.tweens.add({ targets: arc, alpha: { from: 0.08, to: 0.8 }, scaleX: { from: 0.9, to: 1.1 }, duration: R(140, 300), yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+        }
+        // Charge orbs drifting up the spire.
+        for (let x = 300; x < w - 160; x += RI(360, 560)) {
+          const orb = keep(this.add.circle(x + R(-20, 20), gy - R(40, 120), R(2.5, 5), A, 0.9).setDepth(9).setBlendMode(ADD))
+          this.tweens.add({ targets: orb, y: gy - R(200, 340), x: '+=' + R(-24, 24), alpha: 0, duration: R(2200, 3600), repeat: -1, ease: 'Sine.easeOut', delay: R(0, 1400) })
+        }
+        // Electrified floor seams.
+        for (let x = 300; x < w - 150; x += RI(420, 640)) {
+          const seam = glow(x, gy - 6, R(80, 150), 5, RIM, 0.16, 4)
+          pulse(seam, 0.06, 0.28, R(700, 1300))
         }
         break
       }
