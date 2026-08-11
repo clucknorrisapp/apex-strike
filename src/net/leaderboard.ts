@@ -43,6 +43,31 @@ export async function submitScore(score: number, sector: number): Promise<void> 
   } catch { /* offline / no board — ignore */ }
 }
 
+// ---- Daily Challenge board (scoped by UTC day) ----
+export interface DailyData { online: boolean; day: string; top: BoardRow[]; you: BoardYou | null }
+
+export async function fetchDaily(day: string): Promise<DailyData> {
+  try {
+    const w = myWallet()
+    const res = await fetch('/api/daily?day=' + encodeURIComponent(day) + (w ? '&wallet=' + w : ''), { headers: { accept: 'application/json' } })
+    const d = await res.json()
+    return { online: !!d.online, day, top: Array.isArray(d.top) ? d.top : [], you: d.you || null }
+  } catch { return { online: false, day, top: [], you: null } }
+}
+
+export async function submitDaily(day: string, score: number, sector: number): Promise<void> {
+  const wallet = myWallet()
+  if (!wallet) return
+  try {
+    await fetch('/api/daily/scores', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ day, wallet, handle: localHandle() || undefined, score: Math.max(0, Math.round(score)), sector }),
+      keepalive: true,
+    })
+  } catch { /* offline / no board — ignore */ }
+}
+
 export async function setHandle(handle: string): Promise<boolean> {
   const clean = cleanHandle(handle)
   if (!clean) return false

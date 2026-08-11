@@ -1,7 +1,8 @@
 import Phaser from 'phaser'
 import { record as recordTelemetry, newRun, currentIds, type DeathCause } from '../dev/telemetry'
 import { loadMeta, bankShards, buyUpgrade, nextCost, UPGRADES } from './meta'
-import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, type BoardData } from '../net/leaderboard'
+import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, type BoardData, type DailyData } from '../net/leaderboard'
+import { todayMod, todayKey, type DailyMod } from './daily'
 
 const ASSETS = {
   huntress: '/assets/huntress.png',
@@ -599,6 +600,10 @@ export class MainScene extends Phaser.Scene {
   private leaderboardOpen = false
   private leaderboardUI: Phaser.GameObjects.GameObject[] = []
   private closeLeaderboardKey = () => this.closeLeaderboard()
+  private dailyOpen = false
+  private dailyUI: Phaser.GameObjects.GameObject[] = []
+  private closeDailyKey = () => this.closeDaily()
+  private dailyRun = false                 // this run posts to the Daily board (modifier applied, Armory ignored)
   private rebinding: PadBindAction | null = null
   private rebindArmed = false          // true once all buttons release, so the opening tap can't self-bind
   private rebindHint?: Phaser.GameObjects.Text
@@ -718,6 +723,7 @@ export class MainScene extends Phaser.Scene {
   create() {
     this.gameOver = false
     this.levelTransition = false
+    this.dailyRun = false                  // reset here — instance fields survive scene.restart()
     // Apex Armory — apply persistent upgrades to this run's starting stats.
     const meta = loadMeta()
     this.maxHealth = 6 + meta.up.vitality
@@ -2048,6 +2054,91 @@ export class MainScene extends Phaser.Scene {
     back()
   }
 
+  // ---- Daily Challenge — a rotating modifier + its own daily board (pure skill; Armory ignored) ----
+  private openDaily() {
+    if (this.dailyOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen) return
+    this.dailyOpen = true
+    this.buildDailyScreen(null)
+    this.input.keyboard!.on('keydown-ESC', this.closeDailyKey)
+    fetchDaily(todayKey()).then((d) => { if (this.dailyOpen) this.buildDailyScreen(d) })
+  }
+
+  private closeDaily() {
+    if (!this.dailyOpen) return
+    this.input.keyboard!.off('keydown-ESC', this.closeDailyKey)
+    this.dailyUI.forEach((o) => o.destroy())
+    this.dailyUI = []
+    this.dailyOpen = false
+    this.startGraceUntil = this.time.now + 400
+  }
+
+  private startDaily(mod: DailyMod) {
+    if (this.started) return
+    // tear the screen down WITHOUT the start-grace closeDaily sets, then launch immediately
+    this.input.keyboard!.off('keydown-ESC', this.closeDailyKey)
+    this.dailyUI.forEach((o) => o.destroy())
+    this.dailyUI = []
+    this.dailyOpen = false
+    // the day's modifier defines the START stats (base, not Armory — everyone equal)
+    this.dailyRun = true
+    this.maxHealth = mod.maxHealth ?? 6
+    this.lives = mod.lives ?? 3
+    this.fireBonus = mod.fireBonus ?? 0
+    this.maxJumps = MAX_JUMPS + (mod.bonusJumps ?? 0)
+    this.weapon = (mod.weapon ?? 'normal') as typeof this.weapon
+    this.altWeapon = this.weapon
+    this.health = this.maxHealth
+    this.jumpsLeft = this.maxJumps
+    this.updateHealth()
+    this.livesText.setText('LIVES  ' + this.lives)
+    this.weaponText.setText('GUN  ' + this.weapon.toUpperCase())
+    this.startGraceUntil = 0
+    this.beginPlay()
+    this.screenToast('DAILY · ' + mod.name, mod.hex, 118)
+  }
+
+  private buildDailyScreen(data: DailyData | null) {
+    this.dailyUI.forEach((o) => o.destroy())
+    this.dailyUI = []
+    const push = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.dailyUI.push(o); return o }
+    const T = (x: number, y: number, s: string, size: number, color: string, ox = 0) =>
+      push(this.add.text(x, y, s, { fontFamily: 'monospace', fontSize: size + 'px', color }).setOrigin(ox, 0).setScrollFactor(0).setDepth(251))
+    const mod = todayMod()
+
+    push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.985).setScrollFactor(0).setDepth(250).setInteractive())
+    push(this.add.text(256, 20, 'DAILY CHALLENGE', { fontFamily: 'monospace', fontSize: '18px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    T(256, 40, "today's run · resets 00:00 UTC · Armory off", 8, '#71717a', 0.5)
+    push(this.add.text(256, 60, mod.name, { fontFamily: 'monospace', fontSize: '15px', color: mod.hex, fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    T(256, 80, mod.blurb, 9, '#c4b5fd', 0.5)
+    const play = push(this.add.text(256, 108, '▶  PLAY DAILY', { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold', backgroundColor: '#fbbf24', padding: { x: 14, y: 7 } }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    play.on('pointerover', () => play.setAlpha(0.85)); play.on('pointerout', () => play.setAlpha(1))
+    play.on('pointerdown', () => this.startDaily(mod))
+
+    const back = () => {
+      const b = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+      b.on('pointerdown', () => this.closeDaily())
+    }
+
+    T(256, 140, "— TODAY'S BOARD —", 9, '#52525b', 0.5)
+    if (!data) { T(256, 170, 'loading…', 11, '#a5b4fc', 0.5); back(); return }
+    if (!data.online) { T(256, 174, 'board offline', 10, '#71717a', 0.5); back(); return }
+    const mine = myWallet()
+    const short = (w: string) => w.slice(0, 6) + '…' + w.slice(-4)
+    if (data.top.length === 0) T(256, 178, 'No runs yet today — set the pace.', 10, '#a5b4fc', 0.5)
+    data.top.slice(0, 8).forEach((r, i) => {
+      const y = 162 + i * 19
+      const you = !!mine && r.wallet.toLowerCase() === mine
+      const c = you ? '#fde68a' : '#e9d5ff'
+      T(122, y, '#' + (i + 1), 10, i < 3 ? '#67e8f9' : '#a1a1aa')
+      T(160, y, (r.handle || short(r.wallet)) + (you ? '  (you)' : ''), 10, c)
+      T(392, y, String(r.score), 10, c, 1)
+    })
+    if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
+      T(256, 326, `YOU  ·  #${data.you.rank}  ·  ${data.you.score}`, 10, '#fde68a', 0.5)
+    }
+    back()
+  }
+
   private beginRebind(action: PadBindAction, val: Phaser.GameObjects.Text) {
     this.rebinding = action
     this.rebindArmed = false          // must see all buttons release first, so this tap can't self-bind
@@ -2228,16 +2319,21 @@ export class MainScene extends Phaser.Scene {
     // The logo carries the APEX STRIKE wordmark, so no separate title label is needed.
     els.push(this.add.text(256, 226, 'a CLKN Productions game', { fontFamily: 'monospace', fontSize: '8px', color: '#7c6f9c' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
     if (best > 0) els.push(this.add.text(256, 246, 'BEST  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#67e8f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    const prompt = this.add.text(256, 280, this.sys.game.device.input.touch ? '▶  TAP TO START' : '▶  PRESS ANY KEY TO START', { fontFamily: 'monospace', fontSize: '12px', color: '#f5f3ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)
+    const prompt = this.add.text(256, 272, this.sys.game.device.input.touch ? '▶  TAP TO START' : '▶  PRESS ANY KEY TO START', { fontFamily: 'monospace', fontSize: '12px', color: '#f5f3ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)
     this.tweens.add({ targets: prompt, alpha: 0.32, duration: 620, yoyo: true, repeat: -1 })
     els.push(prompt)
-    els.push(this.add.text(256, 302, 'move · double-jump · 8-way aim · hold to fire', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    // Apex Armory — banked shards + entry to the between-run upgrade shop.
+    // DAILY CHALLENGE — headline entry. ABOVE the start catcher so a tap opens it, never starts play.
+    const daily = this.add.text(256, 296, '◆  DAILY CHALLENGE  ◆', { fontFamily: 'monospace', fontSize: '12px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    daily.on('pointerover', () => daily.setColor('#fde68a'))
+    daily.on('pointerout', () => daily.setColor('#fbbf24'))
+    daily.on('pointerdown', () => this.openDaily())
+    els.push(daily)
+    // Apex Armory — banked shards.
     const bank = loadMeta().shards
-    els.push(this.add.text(256, 320, bank > 0 ? ('◆ ' + bank + '  BANKED') : 'collect ◆ shards to fund upgrades', { fontFamily: 'monospace', fontSize: '9px', color: bank > 0 ? '#67e8f9' : '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    // ARMORY · LEADERBOARD · CONTROLS — sit ABOVE the start catcher, so tapping one never also starts play.
+    els.push(this.add.text(256, 318, bank > 0 ? ('◆ ' + bank + '  BANKED') : 'collect ◆ shards to fund upgrades', { fontFamily: 'monospace', fontSize: '9px', color: bank > 0 ? '#67e8f9' : '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    // ARMORY · LEADERBOARD · CONTROLS — also ABOVE the start catcher.
     const mkBtn = (x: number, label: string, color: string, hover: string, act: () => void) => {
-      const b = this.add.text(x, 344, label, { fontFamily: 'monospace', fontSize: '10px', color }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+      const b = this.add.text(x, 342, label, { fontFamily: 'monospace', fontSize: '10px', color }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
       b.on('pointerover', () => b.setColor(hover))
       b.on('pointerout', () => b.setColor(color))
       b.on('pointerdown', act)
@@ -2257,7 +2353,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private beginPlay() {
-    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen) return
+    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen) return
     if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     this.started = true
@@ -2279,7 +2375,7 @@ export class MainScene extends Phaser.Scene {
     this.routeCameras()  // route any newly-spawned objects to the right camera
     this.pollGamepadInput()                                          // arm-on-input READY toast + gpdebug overlay
     if (this.controlsOpen) { this.updateControlsRebind(); return }   // controls / rebind screen owns input
-    if (this.armoryOpen || this.leaderboardOpen) return              // armory / leaderboard screen owns input (pointer-driven)
+    if (this.armoryOpen || this.leaderboardOpen || this.dailyOpen) return   // a menu screen owns input (pointer-driven)
     if (this.gameOver) {
       // Restart on any gamepad button (tap/click/key handled by listeners set at game over).
       const gp = this.readPad()
@@ -3262,7 +3358,8 @@ export class MainScene extends Phaser.Scene {
   private triggerGameOver() {
     this.gameOver = true
     this.recordRun('gameover')
-    submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
+    if (this.dailyRun) submitDaily(todayKey(), this.score, this.level)
+    else submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
     const { best, record } = this.saveBest()
@@ -3285,7 +3382,8 @@ export class MainScene extends Phaser.Scene {
   private showVictory() {
     this.gameOver = true
     this.recordRun('win')
-    submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
+    if (this.dailyRun) submitDaily(todayKey(), this.score, this.level)
+    else submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
     const { best, record } = this.saveBest()

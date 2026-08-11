@@ -49,6 +49,15 @@ async function migrate() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS scores_score_idx ON scores (score DESC, updated_at ASC);
+      CREATE TABLE IF NOT EXISTS daily_scores (
+        day        TEXT NOT NULL,
+        wallet     TEXT NOT NULL,
+        score      INTEGER NOT NULL,
+        sector     INTEGER NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (day, wallet)
+      );
+      CREATE INDEX IF NOT EXISTS daily_rank_idx ON daily_scores (day, score DESC, updated_at ASC);
     `)
     dbReady = true
     console.log('[db] connected + migrated — leaderboard ONLINE')
@@ -159,6 +168,61 @@ app.post('/api/handle', async (req, res) => {
     console.error('[api] handle:', e.message)
     res.status(500).json({ ok: false, error: 'server' })
   }
+})
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+
+app.get('/api/daily', async (req, res) => {
+  const day = String(req.query.day || '')
+  if (!DAY_RE.test(day)) return res.status(400).json({ online: false, top: [], you: null })
+  if (!dbReady) return res.json({ online: false, day, top: [], you: null })
+  try {
+    const { rows: top } = await pool.query(
+      `SELECT d.wallet, p.handle, d.score, d.sector
+         FROM daily_scores d LEFT JOIN players p ON p.wallet = d.wallet
+        WHERE d.day = $1
+        ORDER BY d.score DESC, d.updated_at ASC
+        LIMIT 10`, [day])
+    let you = null
+    const wallet = String(req.query.wallet || '').toLowerCase()
+    if (WALLET_RE.test(wallet)) {
+      const { rows } = await pool.query(
+        `SELECT d.score, d.sector, p.handle,
+                (SELECT count(*) + 1 FROM daily_scores x WHERE x.day = d.day AND x.score > d.score)::int AS rank
+           FROM daily_scores d LEFT JOIN players p ON p.wallet = d.wallet
+          WHERE d.day = $1 AND d.wallet = $2`, [day, wallet])
+      you = rows[0] || null
+    }
+    res.json({ online: true, day, top, you })
+  } catch (e) { console.error('[api] daily:', e.message); res.json({ online: false, day, top: [], you: null }) }
+})
+
+app.post('/api/daily/scores', async (req, res) => {
+  if (!dbReady) return res.status(503).json({ ok: false, offline: true })
+  const b = req.body || {}
+  const day = String(b.day || '')
+  const wallet = String(b.wallet || '').toLowerCase()
+  const score = Number(b.score)
+  const sector = Number(b.sector)
+  const handle = sanitizeHandle(b.handle)
+  if (!DAY_RE.test(day)) return res.status(400).json({ ok: false, error: 'bad day' })
+  if (!WALLET_RE.test(wallet)) return res.status(400).json({ ok: false, error: 'bad wallet' })
+  if (!Number.isInteger(score) || score < 0 || score > MAX_SCORE) return res.status(400).json({ ok: false, error: 'bad score' })
+  if (!Number.isInteger(sector) || sector < 1 || sector > MAX_SECTOR) return res.status(400).json({ ok: false, error: 'bad sector' })
+  if (throttled('d:' + wallet)) return res.status(429).json({ ok: false, error: 'slow down' })
+  try {
+    if (handle) {
+      await pool.query(`INSERT INTO players (wallet, handle) VALUES ($1,$2) ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle, updated_at = now()`, [wallet, handle])
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO daily_scores (day, wallet, score, sector) VALUES ($1,$2,$3,$4)
+         ON CONFLICT (day, wallet) DO UPDATE SET
+           sector = CASE WHEN EXCLUDED.score >= daily_scores.score THEN EXCLUDED.sector ELSE daily_scores.sector END,
+           score  = GREATEST(daily_scores.score, EXCLUDED.score),
+           updated_at = now()
+       RETURNING score, sector`, [day, wallet, score, sector])
+    res.json({ ok: true, best: rows[0] })
+  } catch (e) { console.error('[api] daily/scores:', e.message); res.status(500).json({ ok: false, error: 'server' }) }
 })
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, db: dbReady }))
