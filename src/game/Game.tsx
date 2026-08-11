@@ -15,6 +15,67 @@ function useMedia(query: string): boolean {
   return match
 }
 
+// Floating virtual joystick for the left side — press anywhere in the zone to anchor
+// the stick, drag to steer. The drag vector maps to the same directional pad keys the
+// d-pad wrote (left/right = run, up/down = 8-way aim / crouch), so MainScene reads it
+// identically. Native pointer capture keeps it multi-touch alongside FIRE / JUMP.
+function Joystick({ setPad, zoneW }: { setPad: (k: string, v: boolean) => void; zoneW: number }) {
+  const originRef = useRef<{ lx: number; ly: number; cx: number; cy: number } | null>(null)
+  const dirsRef = useRef({ left: false, right: false, up: false, down: false })
+  const [knob, setKnob] = useState<{ lx: number; ly: number; dx: number; dy: number } | null>(null)
+  const R = 54          // max knob travel (px)
+  const DEAD = 15       // per-axis deadzone before a direction engages (px)
+
+  const setDir = (nd: { left: boolean; right: boolean; up: boolean; down: boolean }) => {
+    const prev = dirsRef.current
+    ;(['left', 'right', 'up', 'down'] as const).forEach((k) => { if (nd[k] !== prev[k]) setPad(k, nd[k]) })
+    dirsRef.current = nd
+  }
+  const clearDirs = () => setDir({ left: false, right: false, up: false, down: false })
+
+  const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* */ }
+    originRef.current = { lx: e.clientX - rect.left, ly: e.clientY - rect.top, cx: e.clientX, cy: e.clientY }
+    setKnob({ lx: originRef.current.lx, ly: originRef.current.ly, dx: 0, dy: 0 })
+    clearDirs()
+  }
+  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const o = originRef.current
+    if (!o) return
+    let dx = e.clientX - o.cx, dy = e.clientY - o.cy
+    const mag = Math.hypot(dx, dy)
+    if (mag > R) { dx = (dx / mag) * R; dy = (dy / mag) * R }
+    setDir({ left: dx < -DEAD, right: dx > DEAD, up: dy < -DEAD, down: dy > DEAD })
+    setKnob({ lx: o.lx, ly: o.ly, dx, dy })
+  }
+  const onUp = () => { originRef.current = null; clearDirs(); setKnob(null) }
+
+  const disc = (d: number, extra: CSSProperties): CSSProperties => ({ position: 'absolute', width: d, height: d, borderRadius: '50%', boxSizing: 'border-box', ...extra })
+  const anchorX = Math.min(Math.max(zoneW / 2, 82), Math.max(84, zoneW - 82))
+
+  return (
+    <div
+      onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onLostPointerCapture={onUp}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{ position: 'absolute', left: 0, bottom: 0, width: zoneW, height: '72%', zIndex: 30, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', WebkitTapHighlightColor: 'transparent' }}
+    >
+      {!knob && (
+        <>
+          <div style={disc(120, { left: anchorX - 60, bottom: 72, border: '2px solid rgba(168,85,247,0.26)', background: 'rgba(30,27,75,0.16)' })} />
+          <div style={disc(54, { left: anchorX - 27, bottom: 105, border: '2px solid rgba(168,85,247,0.4)', background: 'rgba(30,27,75,0.28)' })} />
+        </>
+      )}
+      {knob && (
+        <>
+          <div style={disc(126, { left: knob.lx - 63, top: knob.ly - 63, border: '2px solid rgba(168,85,247,0.55)', background: 'radial-gradient(circle, rgba(88,28,135,0.35), rgba(30,27,75,0.12))', boxShadow: '0 0 22px rgba(168,85,247,0.28)' })} />
+          <div style={disc(58, { left: knob.lx + knob.dx - 29, top: knob.ly + knob.dy - 29, border: '2px solid rgba(216,180,254,0.95)', background: 'rgba(168,85,247,0.6)', boxShadow: '0 0 14px rgba(168,85,247,0.55)' })} />
+        </>
+      )}
+    </div>
+  )
+}
+
 export function Game() {
   const gameRef = useRef<Phaser.Game | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -175,18 +236,12 @@ export function Game() {
     >{label}</button>
   )
   // Size buttons to FIT the measured gutter so a cluster can never overflow / clip.
-  const bs = Math.max(44, Math.min(84, Math.floor((gutterW - 40) / 3)))   // d-pad button (3 across + gaps + margins fit gutterW)
+  const bs = Math.max(44, Math.min(84, Math.floor((gutterW - 40) / 3)))   // base unit for the right-side action buttons (fit to gutterW)
   const aw = Math.max(84, Math.min(150, gutterW - 28))                    // action button width
-  const dPurple: CSSProperties = { background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.75)' }
-  const dCyan: CSSProperties = { background: 'rgba(19,78,74,0.5)', border: '2px solid rgba(34,211,238,0.75)' }
   const gutterControls = showGutter && (
     <>
-      {/* LEFT gutter — 8-way d-pad, anchored to the LEFT edge (can't clip) */}
-      <div style={{ position: 'absolute', left: 14, bottom: '7%', display: 'grid', gridTemplateColumns: `repeat(3, ${bs}px)`, gridAutoRows: `${bs}px`, gap: 8, zIndex: 30 }}>
-        <span />{hold('up', '▲', dCyan)}<span />
-        {hold('left', '◄', dPurple)}<span />{hold('right', '►', dPurple)}
-        <span />{hold('down', '▼', dCyan)}<span />
-      </div>
+      {/* LEFT side — floating virtual joystick (drag to run + 8-way aim) */}
+      <Joystick setPad={setPad} zoneW={Math.max(gutterW, 168)} />
       {/* RIGHT gutter — swap / jump / fire, anchored to the RIGHT edge */}
       <div style={{ position: 'absolute', right: 14, bottom: '7%', display: 'flex', flexDirection: 'column', gap: 12, width: aw, zIndex: 30 }}>
         {tap('swap', '⇄ SWAP', { background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)', height: 38, fontSize: 12 })}
@@ -223,7 +278,7 @@ export function Game() {
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
           <div className="flex items-center gap-3">
-            <span className="text-violet-400/70 text-xs">v1.62 — Volt Spire</span>
+            <span className="text-violet-400/70 text-xs">v1.63 — Touch Joystick</span>
             <button
               onClick={toggleFullscreen}
               className="text-xs text-violet-200 px-2 py-1 rounded-md border border-violet-700/60 hover:border-fuchsia-500/70 hover:text-fuchsia-200 transition-colors"
