@@ -611,6 +611,8 @@ export class MainScene extends Phaser.Scene {
   private startKeyHandler?: () => void
   private closeControlsKey = () => this.closeControls()
   private particles!: Phaser.GameObjects.Particles.ParticleEmitter
+  private dangerVignette?: Phaser.GameObjects.Image
+  private dangerTween?: Phaser.Tweens.Tween
   private jumpsLeft = 2
   private maxJumps = MAX_JUMPS           // MAX_JUMPS + Armory KINETIC BOOTS tier
   private lastGroundAt = 0
@@ -699,6 +701,45 @@ export class MainScene extends Phaser.Scene {
     this.deathParticles.setParticleTint(0xcbd5e1)
     this.deathParticles.emitParticleAt(this.player.x, y, n)
     if (speed > 760) this.cameras.main.shake(70, 0.008)
+  }
+
+  // Combo escalation — pop + colour-climb the counter, with a burst at every x5 milestone.
+  private applyCombo(basePts: number): number {
+    this.combo++
+    this.comboTimer = 2400
+    this.maxCombo = Math.max(this.maxCombo, this.combo)
+    if (this.combo <= 1) return basePts
+    const c = this.combo
+    const pts = Math.floor(basePts * (1 + Math.min(c, 15) * 0.12))
+    const col = c >= 15 ? '#ffffff' : c >= 10 ? '#f43f5e' : c >= 5 ? '#fb923c' : '#fbbf24'
+    this.comboText.setColor(col).setText('COMBO x' + c).setAlpha(1)
+    this.tweens.killTweensOf(this.comboText)
+    this.comboText.setScale(1)
+    this.tweens.add({ targets: this.comboText, scale: { from: c % 5 === 0 ? 1.5 : 1.3, to: 1 }, duration: 200, ease: 'Back.easeOut' })
+    if (c >= 5 && c % 5 === 0) this.comboMilestone(c)
+    return pts
+  }
+
+  private comboMilestone(c: number) {
+    const label = c >= 20 ? 'APEX' : c >= 15 ? 'UNREAL' : c >= 10 ? 'RAMPAGE' : 'STREAK'
+    const col = c >= 15 ? 0x67e8f9 : c >= 10 ? 0xf43f5e : 0xfb923c
+    this.screenToast(label + '  x' + c, '#' + col.toString(16).padStart(6, '0'), 100)
+    if (this.player?.active) this.shockwave(this.player.x, this.player.y, col, 46)
+    this.cameras.main.shake(90, 0.008)
+    this.sfx?.explode()
+  }
+
+  // Pulsing red screen-edge vignette while health is critical — cheap, readable tension.
+  private updateDanger() {
+    if (!this.dangerVignette) return
+    if (this.dangerTween) { this.dangerTween.stop(); this.dangerTween = undefined }
+    const critical = this.started && !this.gameOver && this.health > 0 && this.health <= 2
+    if (critical) {
+      this.dangerVignette.setAlpha(0.12)
+      this.dangerTween = this.tweens.add({ targets: this.dangerVignette, alpha: this.health <= 1 ? 0.42 : 0.26, duration: this.health <= 1 ? 420 : 760, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+    } else {
+      this.tweens.add({ targets: this.dangerVignette, alpha: 0, duration: 220 })
+    }
   }
 
   preload() {
@@ -1618,6 +1659,21 @@ export class MainScene extends Phaser.Scene {
     this.muteIcon = this.add.text(502, 7, this.muted ? '♪ OFF' : '♪ ON', { fontFamily: 'monospace', fontSize: '9px', color: this.muted ? '#ef4444' : '#a5b4fc' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100)
     // Persistent controller-connected chip — high depth so it shows over the title too.
     this.padIcon = this.add.text(502, 32, this.gamepadActive ? '🎮 PAD' : '', { fontFamily: 'monospace', fontSize: '9px', color: '#67e8f9' }).setOrigin(1, 0).setScrollFactor(0).setDepth(245)
+    // Danger vignette — a red radial that pulses at the screen edges when health is critical.
+    if (!this.textures.exists('vignette')) {
+      const cw = 512, ch = 384
+      const canvas = this.textures.createCanvas('vignette', cw, ch)
+      const ctx = canvas?.getContext()
+      if (ctx) {
+        const g = ctx.createRadialGradient(cw / 2, ch / 2, ch * 0.30, cw / 2, ch / 2, ch * 0.72)
+        g.addColorStop(0, 'rgba(244,63,94,0)')
+        g.addColorStop(1, 'rgba(244,63,94,0.95)')
+        ctx.fillStyle = g
+        ctx.fillRect(0, 0, cw, ch)
+        canvas?.refresh()
+      }
+    }
+    this.dangerVignette = this.add.image(256, 192, 'vignette').setScrollFactor(0).setDepth(96).setAlpha(0)
     if (!this.sys.game.device.input.touch) {
       this.add.text(256, 373, 'P pause   ·   M mute   ·   Q swap gun', { fontFamily: 'monospace', fontSize: '8px', color: '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(100)
     }
@@ -2424,7 +2480,8 @@ export class MainScene extends Phaser.Scene {
 
     if (this.combo > 0) {
       this.comboTimer -= delta
-      if (this.comboTimer <= 0) { this.combo = 0; this.comboText.setText('') }
+      if (this.comboTimer <= 0) { this.combo = 0; this.comboText.setText('').setAlpha(1) }
+      else this.comboText.setAlpha(this.comboTimer < 500 ? 0.3 + 0.7 * (this.comboTimer / 500) : 1)   // fade as the window closes
     }
 
     // Pose: land-recover → jump (airborne) → crouch (down) → run (2-frame bound) → ready.
@@ -3088,13 +3145,7 @@ export class MainScene extends Phaser.Scene {
     const type = enemy.getData('type') as string
     const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : type === 'charger' ? 0xff7a3c : type === 'diver' ? 0xff4d6d : 0xf43f5e
     let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'turret' ? 350 : type === 'flyer' ? 250 : type === 'charger' ? 200 : type === 'diver' ? 260 : 120
-    this.combo++
-    this.comboTimer = 2400
-    this.maxCombo = Math.max(this.maxCombo, this.combo)
-    if (this.combo > 1) {
-      pts = Math.floor(pts * (1 + Math.min(this.combo, 15) * 0.12))
-      this.comboText.setText('COMBO x' + this.combo)
-    }
+    pts = this.applyCombo(pts)
     this.kills++
     this.score += pts
     this.scoreText.setText('SCORE  ' + this.score)
@@ -3180,10 +3231,7 @@ export class MainScene extends Phaser.Scene {
   private stompEnemy(enemy: Phaser.Physics.Arcade.Sprite) {
     const type = enemy.getData('type') as string
     let pts = type === 'flyer' ? 250 : 120
-    this.combo++
-    this.comboTimer = 2400
-    this.maxCombo = Math.max(this.maxCombo, this.combo)
-    if (this.combo > 1) { pts = Math.floor(pts * (1 + Math.min(this.combo, 15) * 0.12)); this.comboText.setText('COMBO x' + this.combo) }
+    pts = this.applyCombo(pts)
     this.kills++
     this.score += pts
     this.scoreText.setText('SCORE  ' + this.score)
@@ -3309,6 +3357,7 @@ export class MainScene extends Phaser.Scene {
   private updateHealth() {
     const h = '♥'.repeat(Math.max(0, this.health)) + '♡'.repeat(Math.max(0, this.maxHealth - this.health))
     this.healthText.setText('HP  ' + h)
+    this.updateDanger()
   }
 
   private onLevelClear() {
