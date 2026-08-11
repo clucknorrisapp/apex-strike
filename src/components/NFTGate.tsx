@@ -62,6 +62,14 @@ export function NFTGate({ onAccessGranted }: NFTGateProps) {
 
   const hasNFT = balance !== undefined && balance > 0n
 
+  // Stash the connected wallet so the in-game leaderboard client can tag scores to it.
+  useEffect(() => {
+    try {
+      if (address) localStorage.setItem('apex_wallet', address.toLowerCase())
+      else localStorage.removeItem('apex_wallet')
+    } catch { /* ignore */ }
+  }, [address])
+
   // Preview / testing mode — play without a wallet or NFT.
   // Open the site once with ?dev (or ?preview / ?play) appended and it's
   // remembered on this device, so the Preview button stays available for

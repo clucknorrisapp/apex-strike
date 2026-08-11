@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { record as recordTelemetry, newRun, currentIds, type DeathCause } from '../dev/telemetry'
 import { loadMeta, bankShards, buyUpgrade, nextCost, UPGRADES } from './meta'
+import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, type BoardData } from '../net/leaderboard'
 
 const ASSETS = {
   huntress: '/assets/huntress.png',
@@ -595,6 +596,9 @@ export class MainScene extends Phaser.Scene {
   private armoryOpen = false
   private armoryUI: Phaser.GameObjects.GameObject[] = []
   private closeArmoryKey = () => this.closeArmory()
+  private leaderboardOpen = false
+  private leaderboardUI: Phaser.GameObjects.GameObject[] = []
+  private closeLeaderboardKey = () => this.closeLeaderboard()
   private rebinding: PadBindAction | null = null
   private rebindArmed = false          // true once all buttons release, so the opening tap can't self-bind
   private rebindHint?: Phaser.GameObjects.Text
@@ -1977,6 +1981,73 @@ export class MainScene extends Phaser.Scene {
     back.on('pointerdown', () => this.closeArmory())
   }
 
+  // ---- Leaderboard — our own global board (server-backed; graceful when offline) ----
+  private openLeaderboard() {
+    if (this.leaderboardOpen || this.controlsOpen || this.armoryOpen) return
+    this.leaderboardOpen = true
+    this.buildLeaderboardScreen(null)                                   // loading state
+    this.input.keyboard!.on('keydown-ESC', this.closeLeaderboardKey)
+    fetchLeaderboard().then((d) => { if (this.leaderboardOpen) this.buildLeaderboardScreen(d) })
+  }
+
+  private closeLeaderboard() {
+    if (!this.leaderboardOpen) return
+    this.input.keyboard!.off('keydown-ESC', this.closeLeaderboardKey)
+    this.leaderboardUI.forEach((o) => o.destroy())
+    this.leaderboardUI = []
+    this.leaderboardOpen = false
+    this.startGraceUntil = this.time.now + 400
+  }
+
+  private buildLeaderboardScreen(data: BoardData | null) {
+    this.leaderboardUI.forEach((o) => o.destroy())
+    this.leaderboardUI = []
+    const push = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.leaderboardUI.push(o); return o }
+    const T = (x: number, y: number, s: string, size: number, color: string, ox = 0) =>
+      push(this.add.text(x, y, s, { fontFamily: 'monospace', fontSize: size + 'px', color }).setOrigin(ox, 0).setScrollFactor(0).setDepth(251))
+
+    push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.985).setScrollFactor(0).setDepth(250).setInteractive())
+    push(this.add.text(256, 22, 'LEADERBOARD', { fontFamily: 'monospace', fontSize: '18px', color: '#67e8f9', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    const back = () => {
+      const b = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+      b.on('pointerdown', () => this.closeLeaderboard())
+    }
+
+    if (!data) { T(256, 180, 'loading…', 12, '#a5b4fc', 0.5); back(); return }
+    if (!data.online) {
+      T(256, 166, 'The global board is warming up.', 11, '#c4b5fd', 0.5)
+      T(256, 186, "Scores will post here once it's live.", 9, '#71717a', 0.5)
+      back(); return
+    }
+
+    T(30, 52, 'RANK', 9, '#52525b'); T(78, 52, 'PLAYER', 9, '#52525b'); T(372, 52, 'SCORE', 9, '#52525b', 1); T(474, 52, 'SECTOR', 9, '#52525b', 1)
+    const mine = myWallet()
+    const short = (w: string) => w.slice(0, 6) + '…' + w.slice(-4)
+    if (data.top.length === 0) T(256, 150, 'No runs yet — be the first.', 11, '#a5b4fc', 0.5)
+    data.top.forEach((r, i) => {
+      const y = 70 + i * 21
+      const you = !!mine && r.wallet.toLowerCase() === mine
+      const c = you ? '#fde68a' : '#e9d5ff'
+      T(34, y, '#' + (i + 1), 11, i < 3 ? '#67e8f9' : '#a1a1aa')
+      T(78, y, (r.handle || short(r.wallet)) + (you ? '  (you)' : ''), 11, c)
+      T(372, y, String(r.score), 11, c, 1)
+      T(474, y, 'S' + r.sector, 11, c, 1)
+    })
+    if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
+      T(256, 292, `YOU  ·  #${data.you.rank}  ·  ${data.you.score}  ·  S${data.you.sector}`, 11, '#fde68a', 0.5)
+    }
+    if (hasWallet()) {
+      const set = push(this.add.text(256, 324, localHandle() ? '[ CHANGE NAME ]' : '[ SET NAME ]', { fontFamily: 'monospace', fontSize: '10px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+      set.on('pointerdown', () => {
+        const input = typeof window !== 'undefined' ? window.prompt('Leaderboard name (max 16):', localHandle()) : null
+        if (input != null) setHandle(input).then(() => fetchLeaderboard().then((d) => { if (this.leaderboardOpen) this.buildLeaderboardScreen(d) }))
+      })
+    } else {
+      T(256, 324, 'connect your Apex wallet to post a score', 9, '#52525b', 0.5)
+    }
+    back()
+  }
+
   private beginRebind(action: PadBindAction, val: Phaser.GameObjects.Text) {
     this.rebinding = action
     this.rebindArmed = false          // must see all buttons release first, so this tap can't self-bind
@@ -2164,17 +2235,17 @@ export class MainScene extends Phaser.Scene {
     // Apex Armory — banked shards + entry to the between-run upgrade shop.
     const bank = loadMeta().shards
     els.push(this.add.text(256, 320, bank > 0 ? ('◆ ' + bank + '  BANKED') : 'collect ◆ shards to fund upgrades', { fontFamily: 'monospace', fontSize: '9px', color: bank > 0 ? '#67e8f9' : '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    // ARMORY + CONTROLS buttons sit ABOVE the start catcher, so tapping one never also starts play.
-    const armoryBtn = this.add.text(184, 344, '[ ARMORY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#fbbf24' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
-    armoryBtn.on('pointerover', () => armoryBtn.setColor('#fde68a'))
-    armoryBtn.on('pointerout', () => armoryBtn.setColor('#fbbf24'))
-    armoryBtn.on('pointerdown', () => this.openArmory())
-    els.push(armoryBtn)
-    const ctrlBtn = this.add.text(330, 344, '[ CONTROLS ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
-    ctrlBtn.on('pointerover', () => ctrlBtn.setColor('#f0abfc'))
-    ctrlBtn.on('pointerout', () => ctrlBtn.setColor('#c4b5fd'))
-    ctrlBtn.on('pointerdown', () => this.openControls())
-    els.push(ctrlBtn)
+    // ARMORY · LEADERBOARD · CONTROLS — sit ABOVE the start catcher, so tapping one never also starts play.
+    const mkBtn = (x: number, label: string, color: string, hover: string, act: () => void) => {
+      const b = this.add.text(x, 344, label, { fontFamily: 'monospace', fontSize: '10px', color }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+      b.on('pointerover', () => b.setColor(hover))
+      b.on('pointerout', () => b.setColor(color))
+      b.on('pointerdown', act)
+      els.push(b)
+    }
+    mkBtn(108, '[ ARMORY ]', '#fbbf24', '#fde68a', () => this.openArmory())
+    mkBtn(256, '[ LEADERBOARD ]', '#67e8f9', '#a5f3fc', () => this.openLeaderboard())
+    mkBtn(404, '[ CONTROLS ]', '#c4b5fd', '#f0abfc', () => this.openControls())
     // Full-screen catcher: a tap on empty space starts. Below the button, above the dim.
     const startCatcher = this.add.rectangle(256, 192, 512, 384, 0x000000, 0.001).setScrollFactor(0).setDepth(240.5).setInteractive()
     startCatcher.on('pointerdown', () => this.beginPlay())
@@ -2186,7 +2257,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private beginPlay() {
-    if (this.started || this.controlsOpen || this.armoryOpen) return
+    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen) return
     if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     this.started = true
@@ -2208,7 +2279,7 @@ export class MainScene extends Phaser.Scene {
     this.routeCameras()  // route any newly-spawned objects to the right camera
     this.pollGamepadInput()                                          // arm-on-input READY toast + gpdebug overlay
     if (this.controlsOpen) { this.updateControlsRebind(); return }   // controls / rebind screen owns input
-    if (this.armoryOpen) return                                      // armory screen owns input (pointer-driven)
+    if (this.armoryOpen || this.leaderboardOpen) return              // armory / leaderboard screen owns input (pointer-driven)
     if (this.gameOver) {
       // Restart on any gamepad button (tap/click/key handled by listeners set at game over).
       const gp = this.readPad()
@@ -3191,6 +3262,7 @@ export class MainScene extends Phaser.Scene {
   private triggerGameOver() {
     this.gameOver = true
     this.recordRun('gameover')
+    submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
     const { best, record } = this.saveBest()
@@ -3213,6 +3285,7 @@ export class MainScene extends Phaser.Scene {
   private showVictory() {
     this.gameOver = true
     this.recordRun('win')
+    submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
     const { best, record } = this.saveBest()
