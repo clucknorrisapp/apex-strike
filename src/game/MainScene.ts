@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { record as recordTelemetry, newRun, currentIds, type DeathCause } from '../dev/telemetry'
+import { loadMeta, bankShards, buyUpgrade, nextCost, UPGRADES } from './meta'
 
 const ASSETS = {
   huntress: '/assets/huntress.png',
@@ -540,6 +541,7 @@ export class MainScene extends Phaser.Scene {
   private lastSfxShot = 0
   private lastFired = 0
   private fireRate = 100
+  private fireBonus = 0                  // Armory FIREPOWER: ms shaved off every weapon's cooldown
   private health = 5
   private maxHealth = 6
   private score = 0
@@ -590,6 +592,9 @@ export class MainScene extends Phaser.Scene {
   private padIcon?: Phaser.GameObjects.Text   // persistent HUD "controller connected" chip
   private controlsUI: Phaser.GameObjects.GameObject[] = []
   private controlsOpen = false
+  private armoryOpen = false
+  private armoryUI: Phaser.GameObjects.GameObject[] = []
+  private closeArmoryKey = () => this.closeArmory()
   private rebinding: PadBindAction | null = null
   private rebindArmed = false          // true once all buttons release, so the opening tap can't self-bind
   private rebindHint?: Phaser.GameObjects.Text
@@ -598,6 +603,7 @@ export class MainScene extends Phaser.Scene {
   private closeControlsKey = () => this.closeControls()
   private particles!: Phaser.GameObjects.Particles.ParticleEmitter
   private jumpsLeft = 2
+  private maxJumps = MAX_JUMPS           // MAX_JUMPS + Armory KINETIC BOOTS tier
   private lastGroundAt = 0
   private jumpBufferAt = -9999
   private prevJump = false
@@ -708,8 +714,13 @@ export class MainScene extends Phaser.Scene {
   create() {
     this.gameOver = false
     this.levelTransition = false
+    // Apex Armory — apply persistent upgrades to this run's starting stats.
+    const meta = loadMeta()
+    this.maxHealth = 6 + meta.up.vitality
+    this.maxJumps = MAX_JUMPS + meta.up.boots
+    this.fireBonus = meta.up.firepower * 12
     this.health = this.maxHealth
-    this.lives = 3
+    this.lives = 3 + meta.up.reserves
     this.runStartAt = Date.now()   // playtest telemetry: new run
     this.deathsThisRun = 0
     newRun()
@@ -727,7 +738,7 @@ export class MainScene extends Phaser.Scene {
     this.altWeapon = 'normal'
     this.padSwapPrev = false
     this.fireRate = 100
-    this.jumpsLeft = MAX_JUMPS
+    this.jumpsLeft = this.maxJumps
     this.jumpBufferAt = -9999
     this.isJumping = false
     this.spawnTimer = 0
@@ -1908,6 +1919,64 @@ export class MainScene extends Phaser.Scene {
     back.on('pointerdown', () => this.closeControls())
   }
 
+  // ---- Apex Armory — spend banked shards on permanent upgrades (between-run shop) ----
+  private openArmory() {
+    if (this.armoryOpen || this.controlsOpen) return
+    this.armoryOpen = true
+    this.buildArmoryScreen()
+    this.input.keyboard!.on('keydown-ESC', this.closeArmoryKey)
+  }
+
+  private closeArmory() {
+    if (!this.armoryOpen) return
+    this.input.keyboard!.off('keydown-ESC', this.closeArmoryKey)
+    this.armoryUI.forEach((o) => o.destroy())
+    this.armoryUI = []
+    this.armoryOpen = false
+    this.startGraceUntil = this.time.now + 400   // the closing tap/press can't also start play
+  }
+
+  private buildArmoryScreen() {
+    this.armoryUI.forEach((o) => o.destroy())
+    this.armoryUI = []
+    const push = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.armoryUI.push(o); return o }
+    const meta = loadMeta()
+
+    // Backdrop — interactive so nothing behind it (title) receives taps.
+    push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.985).setScrollFactor(0).setDepth(250).setInteractive())
+    push(this.add.text(256, 22, 'APEX ARMORY', { fontFamily: 'monospace', fontSize: '18px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    push(this.add.text(256, 40, 'permanent upgrades · bought with Apex Shards', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    push(this.add.text(256, 62, '◆ ' + meta.shards, { fontFamily: 'monospace', fontSize: '16px', color: '#67e8f9', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+
+    UPGRADES.forEach((def, i) => {
+      const y = 98 + i * 56
+      const tier = meta.up[def.key]
+      const cost = nextCost(def.key, tier)
+      push(this.add.text(34, y - 8, def.glyph + '  ' + def.name, { fontFamily: 'monospace', fontSize: '12px', color: def.hex, fontStyle: 'bold' }).setScrollFactor(0).setDepth(251))
+      push(this.add.text(36, y + 9, def.blurb, { fontFamily: 'monospace', fontSize: '8px', color: '#a1a1aa' }).setScrollFactor(0).setDepth(251))
+      let pips = ''
+      for (let t = 0; t < def.max; t++) pips += t < tier ? '●' : '○'
+      push(this.add.text(306, y, pips, { fontFamily: 'monospace', fontSize: '13px', color: def.hex }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+      if (cost == null) {
+        push(this.add.text(470, y, 'MAXED', { fontFamily: 'monospace', fontSize: '11px', color: '#86efac', fontStyle: 'bold' }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(251))
+      } else if (meta.shards >= cost) {
+        const buy = push(this.add.text(470, y, 'BUY ◆' + cost, {
+          fontFamily: 'monospace', fontSize: '11px', color: '#0a0612', fontStyle: 'bold',
+          backgroundColor: def.hex, padding: { x: 8, y: 5 },
+        }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+        buy.on('pointerover', () => buy.setAlpha(0.85))
+        buy.on('pointerout', () => buy.setAlpha(1))
+        buy.on('pointerdown', () => { buyUpgrade(def.key); this.sfx?.pickup(); this.buildArmoryScreen() })
+      } else {
+        push(this.add.text(470, y, '◆' + cost, { fontFamily: 'monospace', fontSize: '11px', color: '#52525b', padding: { x: 8, y: 5 } }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(251))
+      }
+    })
+
+    push(this.add.text(256, 330, 'Shards bank automatically as you grab them in a run.', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    const back = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    back.on('pointerdown', () => this.closeArmory())
+  }
+
   private beginRebind(action: PadBindAction, val: Phaser.GameObjects.Text) {
     this.rebinding = action
     this.rebindArmed = false          // must see all buttons release first, so this tap can't self-bind
@@ -1986,6 +2055,7 @@ export class MainScene extends Phaser.Scene {
     this.score += 75
     this.scoreText.setText('SCORE  ' + this.score)
     this.shardText?.setText('◆ ' + this.shardsGot + '/' + this.shardsTotal)
+    bankShards(1)                                     // Apex Armory: shard banks permanently the instant it's grabbed
     this.particles.emitParticleAt(s.x, s.y, 12)
     this.shockwave(s.x, s.y, 0x67e8f9, 18)
     this.popup(s.x, s.y - 16, '+75', '#67e8f9')
@@ -2087,13 +2157,20 @@ export class MainScene extends Phaser.Scene {
     // The logo carries the APEX STRIKE wordmark, so no separate title label is needed.
     els.push(this.add.text(256, 226, 'a CLKN Productions game', { fontFamily: 'monospace', fontSize: '8px', color: '#7c6f9c' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
     if (best > 0) els.push(this.add.text(256, 246, 'BEST  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#67e8f9' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    const prompt = this.add.text(256, 282, this.sys.game.device.input.touch ? '▶  TAP TO START' : '▶  PRESS ANY KEY TO START', { fontFamily: 'monospace', fontSize: '12px', color: '#f5f3ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)
+    const prompt = this.add.text(256, 280, this.sys.game.device.input.touch ? '▶  TAP TO START' : '▶  PRESS ANY KEY TO START', { fontFamily: 'monospace', fontSize: '12px', color: '#f5f3ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)
     this.tweens.add({ targets: prompt, alpha: 0.32, duration: 620, yoyo: true, repeat: -1 })
     els.push(prompt)
-    els.push(this.add.text(256, 308, 'move · double-jump · 8-way aim · hold to fire', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    // CONTROLS button — opens the controls + gamepad-rebind screen. It sits ABOVE
-    // the start catcher, so (input is top-only) tapping it never also starts play.
-    const ctrlBtn = this.add.text(256, 336, '[ CONTROLS ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    els.push(this.add.text(256, 302, 'move · double-jump · 8-way aim · hold to fire', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    // Apex Armory — banked shards + entry to the between-run upgrade shop.
+    const bank = loadMeta().shards
+    els.push(this.add.text(256, 320, bank > 0 ? ('◆ ' + bank + '  BANKED') : 'collect ◆ shards to fund upgrades', { fontFamily: 'monospace', fontSize: '9px', color: bank > 0 ? '#67e8f9' : '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    // ARMORY + CONTROLS buttons sit ABOVE the start catcher, so tapping one never also starts play.
+    const armoryBtn = this.add.text(184, 344, '[ ARMORY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#fbbf24' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    armoryBtn.on('pointerover', () => armoryBtn.setColor('#fde68a'))
+    armoryBtn.on('pointerout', () => armoryBtn.setColor('#fbbf24'))
+    armoryBtn.on('pointerdown', () => this.openArmory())
+    els.push(armoryBtn)
+    const ctrlBtn = this.add.text(330, 344, '[ CONTROLS ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
     ctrlBtn.on('pointerover', () => ctrlBtn.setColor('#f0abfc'))
     ctrlBtn.on('pointerout', () => ctrlBtn.setColor('#c4b5fd'))
     ctrlBtn.on('pointerdown', () => this.openControls())
@@ -2109,7 +2186,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private beginPlay() {
-    if (this.started || this.controlsOpen) return
+    if (this.started || this.controlsOpen || this.armoryOpen) return
     if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     this.started = true
@@ -2131,6 +2208,7 @@ export class MainScene extends Phaser.Scene {
     this.routeCameras()  // route any newly-spawned objects to the right camera
     this.pollGamepadInput()                                          // arm-on-input READY toast + gpdebug overlay
     if (this.controlsOpen) { this.updateControlsRebind(); return }   // controls / rebind screen owns input
+    if (this.armoryOpen) return                                      // armory screen owns input (pointer-driven)
     if (this.gameOver) {
       // Restart on any gamepad button (tap/click/key handled by listeners set at game over).
       const gp = this.readPad()
@@ -2159,7 +2237,7 @@ export class MainScene extends Phaser.Scene {
     this.onGround = body.blocked.down
     if (this.onGround) {
       this.lastGroundAt = time
-      this.jumpsLeft = MAX_JUMPS
+      this.jumpsLeft = this.maxJumps
       if (this.player.y < this.levelH) { this.lastGroundX = this.player.x; this.lastGroundY = this.player.y }
     }
     if (landed && this.fallSpeed > 380) this.landingDust(this.fallSpeed)
@@ -2280,7 +2358,7 @@ export class MainScene extends Phaser.Scene {
     if (now - (pad.getData('lastPop') as number) < 250) return
     pad.setData('lastPop', now)
     pb.setVelocityY(-820)                                 // double-jump apex is ~ -560; this clears higher
-    this.jumpsLeft = MAX_JUMPS                            // give the air-jumps back after a launch
+    this.jumpsLeft = this.maxJumps                            // give the air-jumps back after a launch
     this.sfx?.jump()
     const sy = (pad.getData('sy') as number) || pad.scaleY
     this.tweens.killTweensOf(pad)
@@ -2350,7 +2428,7 @@ export class MainScene extends Phaser.Scene {
       this.recordDeath('pit', this.lastGroundX, this.lastGroundY)   // hot-spot = the ledge they fell from
       if (this.lives <= 0) this.triggerGameOver()
       else {
-        this.health = 5; this.updateHealth(); this.jumpsLeft = MAX_JUMPS; this.invulnerable = true
+        this.health = this.maxHealth; this.updateHealth(); this.jumpsLeft = this.maxJumps; this.invulnerable = true
         this.time.delayedCall(1300, () => { this.invulnerable = false; if (this.player.active) this.player.clearTint() })
       }
     }
@@ -2450,7 +2528,7 @@ export class MainScene extends Phaser.Scene {
     }
 
     // --- Jump: coyote time + input buffering + variable height + double jump ---
-    if (!this.onGround && time - this.lastGroundAt > COYOTE && this.jumpsLeft > 1) this.jumpsLeft = 1
+    if (!this.onGround && time - this.lastGroundAt > COYOTE && this.jumpsLeft > this.maxJumps - 1) this.jumpsLeft = this.maxJumps - 1
     if (jump && !this.prevJump) this.jumpBufferAt = time
     if (time - this.jumpBufferAt < BUFFER && this.jumpsLeft > 0) {
       this.player.setVelocityY(JUMP_V)
@@ -2471,6 +2549,7 @@ export class MainScene extends Phaser.Scene {
       else if (this.weapon === 'laser') rate = 70
       else if (this.weapon === 'spread') rate = 90
       else if (this.weapon === 'fire') rate = 85
+      rate = Math.max(24, rate - this.fireBonus)     // Armory FIREPOWER speeds up every gun
       this.lastFired = time + rate
     }
   }
@@ -2985,9 +3064,9 @@ export class MainScene extends Phaser.Scene {
       this.recordDeath(cause, this.player.x, this.player.y, killer)
       if (this.lives <= 0) this.triggerGameOver()
       else {
-        this.health = 5; this.updateHealth()
+        this.health = this.maxHealth; this.updateHealth()
         this.player.setPosition(this.safeRespawnX(), this.lastGroundY - 48)
-        this.player.setVelocity(0, 0); this.jumpsLeft = MAX_JUMPS; this.invulnerable = true
+        this.player.setVelocity(0, 0); this.jumpsLeft = this.maxJumps; this.invulnerable = true
         this.time.delayedCall(1500, () => { this.invulnerable = false; this.player.clearTint() })
       }
     }
@@ -3081,7 +3160,7 @@ export class MainScene extends Phaser.Scene {
         const d = this.levels()[next - 1]
         this.buildLevel(next)
         this.player.setPosition(d.spawn[0], d.spawn[1])
-        this.player.setVelocity(0, 0); this.jumpsLeft = MAX_JUMPS
+        this.player.setVelocity(0, 0); this.jumpsLeft = this.maxJumps
         this.lastGroundX = d.spawn[0]; this.lastGroundY = d.spawn[1]
         this.health = this.maxHealth; this.updateHealth()   // fresh full hearts at every new level
         this.levelTransition = false
