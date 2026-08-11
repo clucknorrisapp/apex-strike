@@ -1,0 +1,180 @@
+// Apex Strike — self-owned app server. Serves the built game (static SPA) AND our
+// own leaderboard API from a single Railway service. Scores live in our own Postgres
+// (DATABASE_URL). If no database is configured/reachable the game still serves
+// perfectly and the leaderboard simply reports itself "offline" — the server never
+// crashes on a DB problem, so a bad DB can never take the site down.
+
+import express from 'express'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import pg from 'pg'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const DIST = path.join(__dirname, '..', 'dist')
+const PORT = process.env.PORT || 3000
+
+// ---- Postgres (optional) -------------------------------------------------
+const DB_URL = process.env.DATABASE_URL || ''
+const isLocalDb = /localhost|127\.0\.0\.1|::1|\.railway\.internal/i.test(DB_URL)
+let pool = null
+let dbReady = false
+
+if (DB_URL) {
+  pool = new pg.Pool({
+    connectionString: DB_URL,
+    ssl: isLocalDb ? false : { rejectUnauthorized: false },
+    max: 5,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 8_000,
+  })
+  pool.on('error', (e) => { console.error('[db] pool error:', e.message) })
+  migrate()
+} else {
+  console.log('[db] DATABASE_URL not set — leaderboard OFFLINE (game still served)')
+}
+
+async function migrate() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS players (
+        wallet     TEXT PRIMARY KEY,
+        handle     TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS scores (
+        wallet     TEXT PRIMARY KEY,
+        score      INTEGER NOT NULL,
+        sector     INTEGER NOT NULL,
+        runs       INTEGER NOT NULL DEFAULT 1,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS scores_score_idx ON scores (score DESC, updated_at ASC);
+    `)
+    dbReady = true
+    console.log('[db] connected + migrated — leaderboard ONLINE')
+  } catch (e) {
+    dbReady = false
+    console.error('[db] migrate failed — leaderboard OFFLINE:', e.message)
+    // Retry once after a short delay (covers a DB that boots a moment after us).
+    setTimeout(() => { migrate().catch(() => {}) }, 10_000)
+  }
+}
+
+// ---- validation + light anti-spam ---------------------------------------
+const WALLET_RE = /^0x[0-9a-fA-F]{40}$/
+const MAX_SCORE = 5_000_000          // sanity cap; anything above is rejected
+const MAX_SECTOR = 12
+const sanitizeHandle = (h) => {
+  if (typeof h !== 'string') return null
+  const clean = h.replace(/[^A-Za-z0-9 _\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16)
+  return clean.length ? clean : null
+}
+// Per-wallet submit throttle (in-memory sliding window).
+const hits = new Map()
+function throttled(key, limit = 30, windowMs = 60_000) {
+  const now = Date.now()
+  const arr = (hits.get(key) || []).filter((t) => now - t < windowMs)
+  arr.push(now)
+  hits.set(key, arr)
+  if (hits.size > 5000) { for (const k of hits.keys()) { if (hits.size <= 4000) break; hits.delete(k) } }
+  return arr.length > limit
+}
+
+// ---- API -----------------------------------------------------------------
+const app = express()
+app.disable('x-powered-by')
+app.use('/api', express.json({ limit: '4kb' }))
+
+app.get('/api/leaderboard', async (req, res) => {
+  if (!dbReady) return res.json({ online: false, top: [], you: null })
+  try {
+    const { rows: top } = await pool.query(
+      `SELECT s.wallet, p.handle, s.score, s.sector
+         FROM scores s LEFT JOIN players p ON p.wallet = s.wallet
+        ORDER BY s.score DESC, s.updated_at ASC
+        LIMIT 10`
+    )
+    let you = null
+    const wallet = String(req.query.wallet || '').toLowerCase()
+    if (WALLET_RE.test(wallet)) {
+      const { rows } = await pool.query(
+        `SELECT s.score, s.sector, p.handle,
+                (SELECT count(*) + 1 FROM scores x WHERE x.score > s.score)::int AS rank
+           FROM scores s LEFT JOIN players p ON p.wallet = s.wallet
+          WHERE s.wallet = $1`, [wallet])
+      you = rows[0] || null
+    }
+    res.json({ online: true, top, you })
+  } catch (e) {
+    console.error('[api] leaderboard:', e.message)
+    res.json({ online: false, top: [], you: null })
+  }
+})
+
+app.post('/api/scores', async (req, res) => {
+  if (!dbReady) return res.status(503).json({ ok: false, offline: true })
+  const b = req.body || {}
+  const wallet = String(b.wallet || '').toLowerCase()
+  const score = Number(b.score)
+  const sector = Number(b.sector)
+  const handle = sanitizeHandle(b.handle)
+  if (!WALLET_RE.test(wallet)) return res.status(400).json({ ok: false, error: 'bad wallet' })
+  if (!Number.isInteger(score) || score < 0 || score > MAX_SCORE) return res.status(400).json({ ok: false, error: 'bad score' })
+  if (!Number.isInteger(sector) || sector < 1 || sector > MAX_SECTOR) return res.status(400).json({ ok: false, error: 'bad sector' })
+  if (throttled('s:' + wallet)) return res.status(429).json({ ok: false, error: 'slow down' })
+  try {
+    if (handle) {
+      await pool.query(
+        `INSERT INTO players (wallet, handle) VALUES ($1, $2)
+           ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle, updated_at = now()`, [wallet, handle])
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO scores (wallet, score, sector, runs) VALUES ($1, $2, $3, 1)
+         ON CONFLICT (wallet) DO UPDATE SET
+           sector = CASE WHEN EXCLUDED.score >= scores.score THEN EXCLUDED.sector ELSE scores.sector END,
+           score  = GREATEST(scores.score, EXCLUDED.score),
+           runs   = scores.runs + 1,
+           updated_at = now()
+       RETURNING score, sector`, [wallet, score, sector])
+    res.json({ ok: true, best: rows[0] })
+  } catch (e) {
+    console.error('[api] scores:', e.message)
+    res.status(500).json({ ok: false, error: 'server' })
+  }
+})
+
+app.post('/api/handle', async (req, res) => {
+  if (!dbReady) return res.status(503).json({ ok: false, offline: true })
+  const wallet = String((req.body || {}).wallet || '').toLowerCase()
+  const handle = sanitizeHandle((req.body || {}).handle)
+  if (!WALLET_RE.test(wallet)) return res.status(400).json({ ok: false, error: 'bad wallet' })
+  if (!handle) return res.status(400).json({ ok: false, error: 'bad handle' })
+  if (throttled('h:' + wallet, 10)) return res.status(429).json({ ok: false, error: 'slow down' })
+  try {
+    await pool.query(
+      `INSERT INTO players (wallet, handle) VALUES ($1, $2)
+         ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle, updated_at = now()`, [wallet, handle])
+    res.json({ ok: true, handle })
+  } catch (e) {
+    console.error('[api] handle:', e.message)
+    res.status(500).json({ ok: false, error: 'server' })
+  }
+})
+
+app.get('/api/health', (_req, res) => res.json({ ok: true, db: dbReady }))
+
+// Bad JSON etc. — never 500 with a stack; keep it quiet.
+app.use('/api', (err, _req, res, _next) => {
+  res.status(400).json({ ok: false, error: 'bad request' })
+})
+
+// ---- static game (SPA) ---------------------------------------------------
+app.use(express.static(DIST, { maxAge: '1h', index: 'index.html', fallthrough: true }))
+// Catch-all: unknown /api → 404 JSON; any other GET → the SPA entry (client routing).
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) return res.status(404).json({ ok: false, error: 'not found' })
+  if (req.method !== 'GET') return res.status(404).send('not found')
+  res.sendFile(path.join(DIST, 'index.html'))
+})
+
+app.listen(PORT, () => console.log(`[apex] serving on :${PORT}  (db ${DB_URL ? 'configured' : 'offline'})`))

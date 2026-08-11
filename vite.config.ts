@@ -7,6 +7,8 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    // Dev only: proxy the leaderboard API to the local app server (node server/index.js).
+    proxy: { '/api': { target: 'http://localhost:3000', changeOrigin: true } },
   },
   build: {
     // Split the heavy vendor trees into their own chunks. One 1.9MB monolith
