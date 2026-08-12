@@ -143,6 +143,7 @@ class Sfx {
   clear() { this.tone(520, 940, 0.14, 'square', 0.05) }
   dash() { this.tone(200, 520, 0.14, 'sawtooth', 0.05) }
   swap() { this.tone(440, 720, 0.08, 'square', 0.05) }
+  scrape() { this.noise(0.07, 0.018) }   // brief soft skid scrape
 
   // ---- Audio depth: fixed-pitch note helper + expressive one-shots ----
   // note() plays a discrete pitch (optionally gliding to a second pitch) at an absolute
@@ -794,6 +795,7 @@ export class MainScene extends Phaser.Scene {
   private camDip = 0        // transient downward camera nudge on a hard landing (decays)
   private recoilX = 0       // per-shot camera kick (decays) — weapon recoil punch
   private recoilY = 0
+  private skidUntil = 0     // throttle for skid dust on a hard ground reverse
   private sfx?: Sfx
   private lastSfxShot = 0
   private lastFired = 0
@@ -999,6 +1001,15 @@ export class MainScene extends Phaser.Scene {
     this.deathParticles.setParticleTint(0xcbd5e1)
     this.deathParticles.emitParticleAt(this.player.x, y, n)
     if (speed > 760) this.fxShake(70, 0.008)
+  }
+
+  // Kicked-up dust behind a hard direction change — makes the deliberately-snappy reverse legible.
+  private skidDust() {
+    const b = this.player.body as Phaser.Physics.Arcade.Body
+    const y = b.bottom
+    this.deathParticles.setParticleTint(0xcbd5e1)
+    this.deathParticles.emitParticleAt(this.player.x - Math.sign(b.velocity.x) * 8, y, 6)
+    this.sfx?.scrape()
   }
 
   // Combo escalation — pop + colour-climb the counter, with a burst at every x5 milestone.
@@ -3202,11 +3213,15 @@ export class MainScene extends Phaser.Scene {
     const accel = this.onGround ? ACCEL : AIR_ACCEL
     if (this.movingH && !this.prone) {
       if (left) {
-        this.player.setAccelerationX(body.velocity.x > 0 ? -accel * 2 : -accel)
+        const reversing = body.velocity.x > 0
+        this.player.setAccelerationX(reversing ? -accel * 2 : -accel)
         this.facingRight = false; this.player.setFlipX(true)
+        if (this.onGround && reversing && body.velocity.x > 180 && time > this.skidUntil) { this.skidUntil = time + 260; this.skidDust() }
       } else {
-        this.player.setAccelerationX(body.velocity.x < 0 ? accel * 2 : accel)
+        const reversing = body.velocity.x < 0
+        this.player.setAccelerationX(reversing ? accel * 2 : accel)
         this.facingRight = true; this.player.setFlipX(false)
+        if (this.onGround && reversing && body.velocity.x < -180 && time > this.skidUntil) { this.skidUntil = time + 260; this.skidDust() }
       }
     } else {
       this.player.setAccelerationX(0)
