@@ -1533,7 +1533,15 @@ export class MainScene extends Phaser.Scene {
     }
 
     def.turrets.forEach(([x, surY]) => this.spawnEnemy('turret', x, surY - 19, 4 + lvl, 0))
-    def.enemies.forEach((e) => this.spawnEnemy(e.kind, e.x, e.y, e.hp, e.speed))
+    // Promote a deterministic handful of ground fighters to ELITE mini-bosses (up to 2/sector) so
+    // every run has a couple of memorable tougher fights — fair and identical across runs.
+    let eligibleSeen = 0, elitesMade = 0
+    def.enemies.forEach((e) => {
+      const eligible = e.kind === 'soldier' || e.kind === 'tank' || e.kind === 'charger'
+      let makeElite = false
+      if (eligible) { eligibleSeen++; if (elitesMade < 2 && eligibleSeen % 5 === 3) { makeElite = true; elitesMade++ } }
+      this.spawnEnemy(e.kind, e.x, e.y, e.hp, e.speed, undefined, makeElite)
+    })
     def.pods.forEach(([x, y, kind]) => this.spawnPowerup(x, y, kind as string))
     this.placeShards(def)
   }
@@ -1760,7 +1768,7 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  private spawnEnemy(kind: string, x: number, y: number, hp: number, speed: number, type?: string) {
+  private spawnEnemy(kind: string, x: number, y: number, hp: number, speed: number, type?: string, elite = false) {
     let tex = 'enemy'
     let t = type || 'walker'
     let displayW = 48, displayH = 48
@@ -1808,6 +1816,22 @@ export class MainScene extends Phaser.Scene {
     enemy.setData('dir', Math.random() > 0.5 ? 1 : -1)
     enemy.setData('shootTimer', Phaser.Math.Between(200, 900))
     enemy.setDepth(18)
+
+    // ELITE: a roaming mini-boss variant of an ordinary enemy — same AI, but tougher (2.5x HP),
+    // bigger, gold-tinted with a pulsing aura, a touch faster, and a guaranteed drop on death.
+    if (elite && t !== 'boss') {
+      const ehp = Math.max(hp + 4, Math.round(hp * 2.5))
+      enemy.setData('hp', ehp); enemy.setData('maxHp', ehp)
+      enemy.setData('speed', speed * 1.12)
+      enemy.setData('elite', true)
+      const ex = enemy.scaleX * 1.32, ey = enemy.scaleY * 1.32
+      enemy.setScale(ex, ey); enemy.setData('bsx', ex); enemy.setData('bsy', ey)
+      enemy.setData('baseTint', 0xfde047); enemy.setTint(0xfde047)
+      const aura = this.add.circle(enemy.x, enemy.y, 24, 0xfbbf24, 0).setStrokeStyle(2, 0xfde047, 0.85).setDepth(17)
+      enemy.setData('aura', aura)
+      this.tweens.add({ targets: aura, scale: { from: 0.9, to: 1.28 }, alpha: { from: 0.9, to: 0.28 }, duration: 720, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+      ;(enemy as Phaser.GameObjects.Sprite).on('destroy', () => { this.tweens.killTweensOf(aura); aura.destroy() })
+    }
 
     // Materialize: pop in with a quick scale-up + white flash so spawns read with
     // presence instead of blinking into existence. Boss keeps its own entrance.
@@ -3144,6 +3168,9 @@ export class MainScene extends Phaser.Scene {
       if (!enemy.active) return
       const type = enemy.getData('type') as string
 
+      const aura = enemy.getData('aura') as Phaser.GameObjects.Arc | undefined   // elite aura rides the enemy
+      if (aura) aura.setPosition(enemy.x, enemy.y)
+
       if (type !== 'turret' && enemy.y > this.levelH + 220) { enemy.destroy(); return }
 
       const speed = enemy.getData('speed') as number
@@ -3482,8 +3509,10 @@ export class MainScene extends Phaser.Scene {
 
     // ---- Kill ----
     const type = enemy.getData('type') as string
+    const isElite = enemy.getData('elite') === true
     const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : type === 'charger' ? 0xff7a3c : type === 'diver' ? 0xff4d6d : 0xf43f5e
     let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'turret' ? 350 : type === 'flyer' ? 250 : type === 'charger' ? 200 : type === 'diver' ? 260 : 120
+    if (isElite) pts = Math.round(pts * 2.2)
     pts = this.applyCombo(pts)
     this.kills++
     this.score += pts
@@ -3492,15 +3521,17 @@ export class MainScene extends Phaser.Scene {
 
     if (type === 'boss') { this.bossDeath(enemy); return }
 
-    this.deathParticles.setParticleTint(dcol)
-    this.deathParticles.emitParticleAt(enemy.x, enemy.y, 16)
-    this.particles.emitParticleAt(enemy.x, enemy.y, 26)
-    this.shockwave(enemy.x, enemy.y, dcol, 26)
-    this.hitstop(type === 'tank' || type === 'turret' ? 70 : 45)
-    this.cameras.main.shake(type === 'tank' || type === 'turret' ? 120 : 70, 0.014)
+    this.deathParticles.setParticleTint(isElite ? 0xfde047 : dcol)
+    this.deathParticles.emitParticleAt(enemy.x, enemy.y, isElite ? 30 : 16)
+    this.particles.emitParticleAt(enemy.x, enemy.y, isElite ? 44 : 26)
+    this.shockwave(enemy.x, enemy.y, isElite ? 0xfde047 : dcol, isElite ? 46 : 26)
+    this.hitstop(isElite ? 90 : (type === 'tank' || type === 'turret' ? 70 : 45))
+    this.cameras.main.shake(isElite ? 180 : (type === 'tank' || type === 'turret' ? 120 : 70), isElite ? 0.02 : 0.014)
     this.sfx?.explode()
-    if (type === 'tank' || type === 'turret') this.cameras.main.flash(90, 200, 120, 255, false)
-    if (Math.random() < 0.3) {
+    if (isElite) { this.cameras.main.flash(120, 253, 224, 71, false); this.popup(enemy.x, enemy.y - 40, 'ELITE DOWN', '#fde047'); this.zoomPunch(1.08, 300) }
+    else if (type === 'tank' || type === 'turret') this.cameras.main.flash(90, 200, 120, 255, false)
+    // Elites always drop; grunts drop 30% of the time.
+    if (isElite || Math.random() < 0.3) {
       const kinds = ['health', 'spread', 'rapid', 'laser', 'fire']
       this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
     }
@@ -3570,20 +3601,22 @@ export class MainScene extends Phaser.Scene {
 
   private stompEnemy(enemy: Phaser.Physics.Arcade.Sprite) {
     const type = enemy.getData('type') as string
+    const isElite = enemy.getData('elite') === true
     let pts = type === 'flyer' ? 250 : 120
+    if (isElite) pts = Math.round(pts * 2.2)
     pts = this.applyCombo(pts)
     this.kills++
     this.score += pts
     this.scoreText.setText('SCORE  ' + this.score)
-    this.popup(enemy.x, enemy.y - 20, 'STOMP +' + pts, '#fbbf24')
-    this.particles.emitParticleAt(enemy.x, enemy.y, 22)
-    this.deathParticles.setParticleTint(type === 'flyer' ? 0xa855f7 : 0xf43f5e)
-    this.deathParticles.emitParticleAt(enemy.x, enemy.y, 14)
-    this.shockwave(enemy.x, enemy.y, 0xfbbf24, 24)
-    this.hitstop(28)
-    this.cameras.main.shake(60, 0.012)
+    this.popup(enemy.x, enemy.y - 20, (isElite ? 'ELITE STOMP +' : 'STOMP +') + pts, '#fbbf24')
+    this.particles.emitParticleAt(enemy.x, enemy.y, isElite ? 30 : 22)
+    this.deathParticles.setParticleTint(isElite ? 0xfde047 : type === 'flyer' ? 0xa855f7 : 0xf43f5e)
+    this.deathParticles.emitParticleAt(enemy.x, enemy.y, isElite ? 24 : 14)
+    this.shockwave(enemy.x, enemy.y, isElite ? 0xfde047 : 0xfbbf24, isElite ? 40 : 24)
+    this.hitstop(isElite ? 70 : 28)
+    this.cameras.main.shake(isElite ? 140 : 60, isElite ? 0.018 : 0.012)
     this.sfx?.stomp()
-    if (Math.random() < 0.3) {
+    if (isElite || Math.random() < 0.3) {
       const kinds = ['health', 'spread', 'rapid', 'laser', 'fire']
       this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
     }
