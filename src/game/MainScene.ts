@@ -1775,7 +1775,7 @@ export class MainScene extends Phaser.Scene {
 
     if (kind === 'soldier' || kind === 'enemy') {
       tex = this.textures.exists('enemy_soldier') ? 'enemy_soldier' : 'enemy'
-      t = 'walker'; displayW = 47; displayH = 64
+      t = type || 'walker'; displayW = 47; displayH = 64   // respect an explicit type (e.g. 'sniper') built on the soldier body
     } else if (kind === 'flyer') {
       tex = this.textures.exists('enemy_flyer') ? 'enemy_flyer' : 'flyer'
       t = 'flyer'; displayW = 56; displayH = 56
@@ -1800,6 +1800,7 @@ export class MainScene extends Phaser.Scene {
     enemy.setDisplaySize(displayW, displayH)
     if (t === 'charger') { enemy.setData('baseTint', 0xff7a3c); enemy.setTint(0xff7a3c) }
     if (t === 'diver') { enemy.setData('baseTint', 0xff4d6d); enemy.setTint(0xff4d6d) }
+    if (t === 'sniper') { enemy.setData('baseTint', 0x93c5fd); enemy.setTint(0x93c5fd) }   // cold steel-blue long-range shooter
     if (t === 'boss') {
       // Each boss carries its behavior id + accent colour (tints the sprite + its bolts).
       const bk = this.nextBossKind
@@ -2977,7 +2978,10 @@ export class MainScene extends Phaser.Scene {
       // flyers only ever come from the front — no more "shot at from all over".
       const fromAhead = Math.random() < 0.82
       const side = Phaser.Math.Clamp(fromAhead ? camX + 540 : camX - 20, 40, this.levelW - 40)
-      if (fromAhead && Math.random() < 0.3) {
+      if (fromAhead && this.level >= 2 && Math.random() < 0.28) {
+        // Sniper reinforcement: a stationary long-range shooter that holds ground ahead of the run.
+        this.spawnEnemy('soldier', this.groundedSpawnX(side), 540, 3 + Math.floor(this.level / 2), 40, 'sniper')
+      } else if (fromAhead && Math.random() < 0.3) {
         this.spawnEnemy('flyer', side, Phaser.Math.Clamp(camTop + Phaser.Math.Between(80, 240), 40, this.levelH), 2 + Math.floor(this.level / 2), 48 + this.level * 6)
       } else {
         // Ground reinforcements walk in near ground level on SOLID ground — never spawn
@@ -3202,6 +3206,10 @@ export class MainScene extends Phaser.Scene {
           enemy.setData('dir', d); enemy.setVelocityX(d * speed); enemy.setFlipX(d < 0)
         }
       }
+      if (type === 'sniper') {   // holds ground and faces the player — a stationary long-range threat
+        enemy.setVelocityX(0)
+        enemy.setFlipX(this.player.x < enemy.x)
+      }
       if (type === 'flyer') {
         const dx = this.player.x - enemy.x, dy = this.player.y - enemy.y - 40
         enemy.setVelocityX(Phaser.Math.Clamp(dx * 0.55, -speed, speed))
@@ -3276,28 +3284,36 @@ export class MainScene extends Phaser.Scene {
         }
       }
 
-      if (type === 'tank' || type === 'flyer' || type === 'turret') {
+      if (type === 'tank' || type === 'flyer' || type === 'turret' || type === 'sniper') {
         let timer = enemy.getData('shootTimer') as number
         timer -= delta
-        // Don't let off-screen enemies snipe you — only fire when roughly on-screen.
-        const near = Math.abs(enemy.x - this.player.x) < 600 && Math.abs(enemy.y - this.player.y) < 380
+        // Don't let off-screen enemies snipe you — only fire when roughly on-screen. Snipers reach further.
+        const range = type === 'sniper' ? 780 : 600
+        const near = Math.abs(enemy.x - this.player.x) < range && Math.abs(enemy.y - this.player.y) < (type === 'sniper' ? 420 : 380)
         const alive = (enemy.getData('hp') as number) > 0
-        // Telegraph: a brief wind-up flash before turret volleys so they read as fair.
-        if (alive && near && type === 'turret' && timer <= 260 && timer > 40 && !enemy.getData('tele')) {
+        // Telegraph: turrets AND snipers flash before firing so their (fast) shots read as fair.
+        const telegraphs = type === 'turret' || type === 'sniper'
+        const teleLead = type === 'sniper' ? 420 : 260
+        if (alive && near && telegraphs && timer <= teleLead && timer > 60 && !enemy.getData('tele')) {
           enemy.setData('tele', true)
           enemy.setTintFill(0xffe08a)
-          this.time.delayedCall(170, () => this.restoreTint(enemy))
+          this.time.delayedCall(type === 'sniper' ? 260 : 170, () => this.restoreTint(enemy))
           this.sfx?.turretTele()
         }
         if (timer <= 0 && near && alive) {
           enemy.setData('tele', false)
-          let count = 1
-          if (type === 'turret') count = this.level >= 3 ? 2 : 1
-          this.enemyFire(enemy, count)
+          if (type === 'sniper') {
+            this.enemyFire(enemy, 1, 560, 0.85)   // one fast, cold, aimed bolt — dodge on the telegraph
+          } else {
+            let count = 1
+            if (type === 'turret') count = this.level >= 3 ? 2 : 1
+            this.enemyFire(enemy, count)
+          }
           let base = 900
           if (type === 'tank') base = 1100
           else if (type === 'flyer') base = 1250
           else if (type === 'turret') base = Math.max(650, 1250 - this.level * 90)
+          else if (type === 'sniper') base = Math.max(1500, 2100 - this.level * 80)
           enemy.setData('shootTimer', base)
         } else enemy.setData('shootTimer', timer <= 0 ? 140 : timer)
       }
@@ -3456,16 +3472,17 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  private enemyFire(enemy: Phaser.Physics.Arcade.Sprite, count: number) {
+  private enemyFire(enemy: Phaser.Physics.Arcade.Sprite, count: number, fixedSpd?: number, scale = 0.75) {
     for (let i = 0; i < count; i++) {
       const b = this.enemyBullets.get(enemy.x, enemy.y, 'enemyBullet') as Phaser.Physics.Arcade.Image
       if (!b) continue
-      b.setActive(true).setVisible(true); b.setScale(0.75); b.setDepth(19)
+      b.setActive(true).setVisible(true); b.setScale(scale); b.setDepth(19)
+      if (fixedSpd) b.setTint(0xbfdbfe); else b.clearTint()   // sniper bolts read cold/fast
       b.body?.reset(enemy.x, enemy.y)
       ;(b.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
       const spread = (i - (count - 1) / 2) * 0.16
       const ang = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y) + spread
-      const spd = count > 1 ? 220 : 270
+      const spd = fixedSpd ?? (count > 1 ? 220 : 270)
       b.setVelocity(Math.cos(ang) * spd, Math.sin(ang) * spd)
       b.setRotation(ang)   // bolt points toward the player
       this.time.delayedCall(2200, () => { if (b.active) b.setActive(false).setVisible(false) })
@@ -3530,8 +3547,8 @@ export class MainScene extends Phaser.Scene {
     // ---- Kill ----
     const type = enemy.getData('type') as string
     const isElite = enemy.getData('elite') === true
-    const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : type === 'charger' ? 0xff7a3c : type === 'diver' ? 0xff4d6d : 0xf43f5e
-    let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'turret' ? 350 : type === 'flyer' ? 250 : type === 'charger' ? 200 : type === 'diver' ? 260 : 120
+    const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : type === 'charger' ? 0xff7a3c : type === 'diver' ? 0xff4d6d : type === 'sniper' ? 0x93c5fd : 0xf43f5e
+    let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'turret' ? 350 : type === 'sniper' ? 320 : type === 'flyer' ? 250 : type === 'charger' ? 200 : type === 'diver' ? 260 : 120
     if (isElite) pts = Math.round(pts * 2.2)
     pts = this.applyCombo(pts)
     this.kills++
