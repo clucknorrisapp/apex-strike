@@ -573,20 +573,20 @@ const powerupInfo = (kind: string): PowerupInfo =>
 // sweep=rotating beam of bolts, lob=heavy slow shots, dash=lunge across, pound=slam +
 // ground ring, dive=swoop at you, summon=call flyers.
 const BOSS_MOVES: Record<string, string[]> = {
-  reaper:   ['burst', 'dash', 'burst', 'spread'],
-  brute:    ['lob', 'pound', 'lob', 'ring'],
-  tyrant:   ['spread', 'dive', 'summon', 'spread', 'ring'],
-  warden:   ['ring', 'sweep', 'ring', 'lob'],
-  sentinel: ['fan', 'ring', 'burst', 'dive', 'spread'],
-  wraith:   ['dash', 'ring', 'burst', 'sweep', 'spread'],
+  reaper:   ['burst', 'dash', 'lance', 'burst', 'spread'],
+  brute:    ['lob', 'pound', 'nova', 'lob', 'ring'],
+  tyrant:   ['spread', 'dive', 'cross', 'summon', 'spread', 'ring'],
+  warden:   ['ring', 'sweep', 'spiral', 'ring', 'lob'],
+  sentinel: ['fan', 'ring', 'nova', 'burst', 'dive', 'spread'],
+  wraith:   ['dash', 'ring', 'lance', 'burst', 'sweep', 'spread'],
 }
 const BOSS_MOVES_P2: Record<string, string[]> = {
-  reaper:   ['dash', 'burst', 'spread', 'dash', 'ring'],
-  brute:    ['pound', 'ring', 'lob', 'pound'],
-  tyrant:   ['dive', 'spread', 'ring', 'summon', 'dive'],
-  warden:   ['sweep', 'ring', 'sweep', 'lob', 'ring'],
-  sentinel: ['fan', 'ring', 'dive', 'sweep', 'pound', 'burst'],
-  wraith:   ['dash', 'sweep', 'ring', 'dive', 'ring', 'burst'],
+  reaper:   ['dash', 'burst', 'nova', 'spread', 'dash', 'ring'],
+  brute:    ['pound', 'cross', 'ring', 'lob', 'pound'],
+  tyrant:   ['dive', 'spread', 'spiral', 'ring', 'summon', 'dive'],
+  warden:   ['sweep', 'cross', 'ring', 'sweep', 'lob', 'ring'],
+  sentinel: ['fan', 'ring', 'dive', 'lance', 'sweep', 'pound', 'burst'],
+  wraith:   ['dash', 'sweep', 'spiral', 'ring', 'dive', 'ring', 'burst'],
 }
 const BOSS_CADENCE: Record<string, number> = { reaper: 1100, brute: 1750, tyrant: 1500, warden: 1350, sentinel: 1250, wraith: 1200 }
 const BOSS_HOME_Y: Record<string, number> = { reaper: 430, brute: 500, tyrant: 350, warden: 420, sentinel: 400, wraith: 380 }
@@ -3234,6 +3234,25 @@ export class MainScene extends Phaser.Scene {
         const n = p2 ? 2 : 1
         for (let k = 0; k < n; k++) this.spawnEnemy('flyer', enemy.x + (k ? 90 : -90), enemy.y - 20, 3, 60)
         this.popup(enemy.x, enemy.y - 74, 'SUMMON', '#' + acc.toString(16).padStart(6, '0'))
+        break }
+      case 'cross': {  // spinning plus — 4-way rings that rotate each stage, forcing lateral dodges
+        const stages = p2 ? 6 : 4
+        for (let s = 0; s < stages; s++) this.time.delayedCall(s * 90, () =>
+          this.bossFire(enemy, { count: 4, ring: true, baseAngle: s * 0.24, speed: 215, tint: acc }))
+        break }
+      case 'spiral': {  // rotating twin-arm spiral — a drifting bullet stream to weave through
+        const shots = p2 ? 16 : 11
+        for (let k = 0; k < shots; k++) this.time.delayedCall(k * 48, () =>
+          this.bossFire(enemy, { count: 2, ring: true, baseAngle: k * 0.5, speed: 205, tint: acc }))
+        break }
+      case 'lance': {  // fast heavy aimed bolt(s) — punishes standing still after the telegraph
+        this.bossFire(enemy, { count: p2 ? 3 : 1, spreadRad: 0.28, speed: 540, scale: 1.05, tint: 0xff5555 })
+        this.sfx?.hit()
+        break }
+      case 'nova': {  // offset double ring — a fast wave, then a slower interleaved one
+        const n = p2 ? 14 : 10
+        this.bossFire(enemy, { count: n, ring: true, baseAngle: 0, speed: 260, tint: acc })
+        this.time.delayedCall(170, () => this.bossFire(enemy, { count: n, ring: true, baseAngle: Math.PI / n, speed: 172, tint: acc }))
         break }
     }
   }
