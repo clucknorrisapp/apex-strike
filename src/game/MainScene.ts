@@ -48,6 +48,18 @@ const MAX_JUMPS = 2
 // 512 so the interface keeps its crisp hi-res scale independent of this.
 const WORLD_VIEW_W = 720
 
+// Per-sector music beds — each is an 8-step eighth-note phrase (bass drives, lead arps the
+// top half; 0 = rest) at its own tempo, so the six sectors sound distinct instead of sharing
+// one A-minor loop. Keyed by ThemeName.
+const MUSIC_THEMES: Record<string, { bpm: number; bass: number[]; lead: number[] }> = {
+  streets:    { bpm: 138, bass: [55, 55, 82.41, 55, 65.41, 55, 82.41, 97.99],            lead: [220, 0, 261.63, 0, 329.63, 0, 261.63, 391.99] },     // A minor — driving
+  industrial: { bpm: 122, bass: [41.20, 41.20, 61.74, 41.20, 49.00, 41.20, 61.74, 55.00], lead: [164.81, 0, 196.00, 0, 246.94, 0, 196.00, 293.66] }, // E minor — heavy / grinding
+  sky:        { bpm: 148, bass: [73.42, 73.42, 110.00, 73.42, 98.00, 73.42, 110.00, 146.83], lead: [293.66, 0, 349.23, 0, 440.00, 0, 349.23, 587.33] }, // D — bright / airy
+  core:       { bpm: 132, bass: [49.00, 49.00, 73.42, 49.00, 58.27, 49.00, 73.42, 65.41], lead: [196.00, 0, 233.08, 0, 293.66, 0, 233.08, 349.23] }, // G minor — tense
+  throne:     { bpm: 126, bass: [55, 55, 73.42, 82.41, 65.41, 55, 82.41, 110.00],         lead: [220, 0, 293.66, 0, 329.63, 0, 261.63, 440.00] },     // A minor — stately / grand
+  volt:       { bpm: 152, bass: [92.50, 92.50, 138.59, 92.50, 110.00, 92.50, 138.59, 123.47], lead: [369.99, 0, 440.00, 0, 554.37, 0, 440.00, 739.99] }, // F# minor — fast / electric
+}
+
 // Asset-free procedural sound — short Web-Audio blips, no files needed.
 class Sfx {
   private ctx: AudioContext | null = null
@@ -62,7 +74,7 @@ class Sfx {
   resume() { this.ctx?.resume?.() }
   setMuted(v: boolean) {
     this.muted = v
-    if (this.musicGain && this.ctx) this.musicGain.gain.setTargetAtTime(v ? 0 : this.MUSIC_VOL, this.ctx.currentTime, 0.02)
+    if (this.musicGain && this.ctx) this.musicGain.gain.setTargetAtTime(v ? 0 : this.targetMusicVol(), this.ctx.currentTime, 0.02)
   }
   private tone(f0: number, f1: number, dur: number, type: OscillatorType, gain: number) {
     const c = this.ctx; if (!c || this.muted) return
@@ -183,32 +195,64 @@ class Sfx {
     this.note(1046.5, 0.6, 'sine', 0.05, 0.14 + notes.length * 0.1)
   }
 
-  // ---- Procedural background music: a subtle driving synth loop ----
+  // ---- Procedural background music: a per-sector driving synth loop with a boss-intensity layer ----
   private musicGain: GainNode | null = null
   private musicTimer: ReturnType<typeof setInterval> | null = null
   private musicStep = 0
   private readonly MUSIC_VOL = 0.05
-  startMusic() {
+  private musicBass: number[] = MUSIC_THEMES.streets.bass
+  private musicLead: number[] = MUSIC_THEMES.streets.lead
+  private musicStepDur = (60 / 138) / 2
+  private musicTheme = 'streets'
+  private musicIntense = false
+  private targetMusicVol() { return this.musicIntense ? this.MUSIC_VOL * 1.5 : this.MUSIC_VOL }
+  private applyMusicTheme(theme: string) {
+    const v = MUSIC_THEMES[theme] || MUSIC_THEMES.streets
+    this.musicTheme = theme
+    this.musicBass = v.bass
+    this.musicLead = v.lead
+    this.musicStepDur = (60 / v.bpm) / 2
+  }
+  startMusic(theme = 'streets') {
     const c = this.ctx
     if (!c || this.musicTimer !== null) return
     this.musicGain = c.createGain()
-    this.musicGain.gain.value = this.muted ? 0 : this.MUSIC_VOL
+    this.musicGain.gain.value = this.muted ? 0 : this.targetMusicVol()
     this.musicGain.connect(c.destination)
     this.musicStep = 0
-    const bpm = 138, stepDur = (60 / bpm) / 2 // eighth-note pulse
-    const bass = [55, 55, 82.41, 55, 65.41, 55, 82.41, 97.99]       // A-minor drive
-    const lead = [220, 0, 261.63, 0, 329.63, 0, 261.63, 391.995]    // arp on top half of the phrase
+    this.applyMusicTheme(theme)
+    this.startMusicTimer()
+  }
+  private startMusicTimer() {
+    if (this.musicTimer !== null) { clearInterval(this.musicTimer); this.musicTimer = null }
     const tick = () => {
       const cc = this.ctx
       if (!cc || !this.musicGain) return
       const t = cc.currentTime + 0.06
       const s = this.musicStep % 8
-      this.musicNote(bass[s], t, stepDur * 0.92, 'sawtooth', 0.5)
-      if (lead[s] > 0 && this.musicStep % 16 < 8) this.musicNote(lead[s], t, stepDur * 0.5, 'square', 0.13)
+      const bass = this.musicBass, lead = this.musicLead, sd = this.musicStepDur
+      this.musicNote(bass[s], t, sd * 0.92, 'sawtooth', 0.5)
+      if (lead[s] > 0 && this.musicStep % 16 < 8) this.musicNote(lead[s], t, sd * 0.5, 'square', 0.13)
+      if (this.musicIntense) {                                   // boss fight: brighter octave-up drive + steady pulse
+        this.musicNote(bass[s] * 2, t, sd * 0.45, 'square', 0.07)
+        if (s % 2 === 0) this.musicNote(bass[s], t, sd * 0.3, 'square', 0.05)
+      }
       this.musicStep++
     }
     tick()
-    this.musicTimer = setInterval(tick, stepDur * 1000)
+    this.musicTimer = setInterval(tick, this.musicStepDur * 1000)
+  }
+  // Retune to a new sector's bed while the track keeps playing (restarts the interval at the new tempo).
+  setMusicTheme(theme: string) {
+    if (this.musicTimer === null || theme === this.musicTheme) return
+    this.applyMusicTheme(theme)
+    this.startMusicTimer()
+  }
+  // Swell + thicken the track while a boss is on the field.
+  setMusicIntensity(on: boolean) {
+    if (this.musicIntense === on) return
+    this.musicIntense = on
+    if (this.musicGain && this.ctx && !this.muted) this.musicGain.gain.setTargetAtTime(this.targetMusicVol(), this.ctx.currentTime, 0.1)
   }
   private musicNote(freq: number, t: number, dur: number, type: OscillatorType, gain: number) {
     const c = this.ctx
@@ -224,6 +268,7 @@ class Sfx {
   stopMusic() {
     if (this.musicTimer !== null) { clearInterval(this.musicTimer); this.musicTimer = null }
     if (this.musicGain) { try { this.musicGain.disconnect() } catch { /* noop */ } this.musicGain = null }
+    this.musicIntense = false
   }
   dispose() {
     this.stopMusic()
@@ -736,6 +781,7 @@ export class MainScene extends Phaser.Scene {
   private muteIcon!: Phaser.GameObjects.Text
   // Boss HP bar
   private bossRef?: Phaser.Physics.Arcade.Sprite
+  private bossMusicOn = false          // tracks whether the boss-intensity music layer is engaged
   private bossBar: Phaser.GameObjects.GameObject[] = []
   private bossBarFill?: Phaser.GameObjects.Rectangle
   // Apex Shards (collectibles)
@@ -1335,6 +1381,8 @@ export class MainScene extends Phaser.Scene {
 
     const def = this.levels()[lvl - 1]
     const theme = THEMES[def.theme]
+    this.bossMusicOn = false                 // new sector starts calm; boss layer re-arms when its guardian appears
+    this.sfx?.setMusicTheme(def.theme)       // retune the bed to this sector (no-op if music isn't playing yet)
     this.levelW = def.w
     this.levelH = def.h
     this.goalX = def.goal[0]
@@ -2531,7 +2579,7 @@ export class MainScene extends Phaser.Scene {
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     this.started = true
     this.sfx?.resume()
-    this.sfx?.startMusic()
+    this.sfx?.startMusic(this.levels()[this.level - 1]?.theme ?? 'streets')
     this.titleUI.forEach((o) => o.destroy())
     this.titleUI = []
     this.physics.resume()
@@ -2569,6 +2617,8 @@ export class MainScene extends Phaser.Scene {
     if (this.userPaused) return
     if (this.levelTransition || !this.player?.active) return
     if (this.bossRef) this.updateBossBar()
+    const bossNow = !!(this.bossRef && this.bossRef.active)   // swell the music while a boss holds the field
+    if (bossNow !== this.bossMusicOn) { this.bossMusicOn = bossNow; this.sfx?.setMusicIntensity(bossNow) }
     this.updateCompass()
     this.updateProgress()
 
