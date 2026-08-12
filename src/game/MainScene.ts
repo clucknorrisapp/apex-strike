@@ -3527,16 +3527,27 @@ export class MainScene extends Phaser.Scene {
       this.sfx?.bossLeitmotif(BOSS_LEITMOTIF[kind] || [], true)
       enemy.setData('atkT', 340)
     }
-    const p2 = this.bossPhase === 2
+    if (hp / maxHp < 0.2 && this.bossPhase === 2) {   // LAST STAND — a desperation phase at 20% HP
+      this.bossPhase = 3
+      this.screenToast('☠ ' + this.nextBossLabel + '  ·  LAST STAND', '#fca5a5', 104)
+      this.popup(enemy.x, enemy.y - 70, 'PHASE 3', '#fca5a5')
+      this.fxShake(380, 0.036)
+      this.zoomPunch(1.14, 440)
+      this.sfx?.enrage()
+      this.sfx?.bossLeitmotif(BOSS_LEITMOTIF[kind] || [], true)
+      enemy.setData('atkT', 300)
+    }
+    const p2 = this.bossPhase >= 2        // phase-2 behaviours persist into phase 3 (was === 2, which reverted at p3)
+    const p3 = this.bossPhase === 3
     const dx = this.player.x - enemy.x
     const dashing = ((enemy.getData('dashUntil') as number) || 0) > this.time.now
 
     if (!dashing) {
       const homeY = BOSS_HOME_Y[kind] ?? 420
       const xk = kind === 'brute' ? 0.3 : kind === 'reaper' ? 0.55 : 0.42
-      const mv = speed * (p2 ? 1.4 : 1)
+      const mv = speed * (p3 ? 1.7 : p2 ? 1.4 : 1)
       enemy.setVelocityX(Phaser.Math.Clamp(dx * xk, -mv, mv))
-      const bob = Math.sin(this.time.now / (p2 ? 180 : 260)) * (kind === 'brute' ? 22 : p2 ? 78 : 52)
+      const bob = Math.sin(this.time.now / (p3 ? 150 : p2 ? 180 : 260)) * (kind === 'brute' ? 22 : p2 ? 78 : 52)
       enemy.setVelocityY((homeY - enemy.y) * 1.6 + bob)   // spring back to home altitude + bob
       enemy.setFlipX(dx < 0)
     }
@@ -3563,7 +3574,7 @@ export class MainScene extends Phaser.Scene {
       enemy.setData('atkIdx', idx + 1)
       const pool = (p2 && BOSS_MOVES_P2[kind]) ? BOSS_MOVES_P2[kind] : (BOSS_MOVES[kind] || BOSS_MOVES.sentinel)
       this.bossDoMove(enemy, kind, pool[idx % pool.length], p2)
-      atkT = (BOSS_CADENCE[kind] || 1400) * (p2 ? 0.62 : 1)
+      atkT = (BOSS_CADENCE[kind] || 1400) * (p3 ? 0.42 : p2 ? 0.62 : 1)
     }
     enemy.setData('atkT', atkT)
   }
