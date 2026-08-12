@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { record as recordTelemetry, newRun, currentIds, type DeathCause } from '../dev/telemetry'
 import { loadMeta, bankShards, buyUpgrade, nextCost, UPGRADES } from './meta'
+import { evalAchievements, recordBossKill, achievementCount, loadAch, ACHIEVEMENTS, type RunSummary } from './achievements'
 import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, type BoardData, type DailyData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, type DailyMod } from './daily'
 
@@ -822,6 +823,8 @@ export class MainScene extends Phaser.Scene {
   private lives = 3
   private runStartAt = 0       // Date.now() at run start (playtest telemetry)
   private deathsThisRun = 0
+  private runNoHit = true      // stays true until the player takes any damage this run (FLAWLESS badge)
+  private runShards = 0        // Apex Shards collected this run, across all sectors (SHARDLORD badge)
   private combo = 0
   private comboTimer = 0
   private kills = 0
@@ -873,6 +876,9 @@ export class MainScene extends Phaser.Scene {
   private controlsOpen = false
   private armoryOpen = false
   private armoryUI: Phaser.GameObjects.GameObject[] = []
+  private badgesOpen = false
+  private badgesUI: Phaser.GameObjects.GameObject[] = []
+  private closeBadgesKey?: () => void
   private contractOpen = false
   private contractUI: Phaser.GameObjects.GameObject[] = []
   private contractPicks: { id: string; name: string; desc: string; hex: string }[] = []
@@ -1136,6 +1142,8 @@ export class MainScene extends Phaser.Scene {
     this.lives = 3 + meta.up.reserves
     this.runStartAt = Date.now()   // playtest telemetry: new run
     this.deathsThisRun = 0
+    this.runNoHit = true
+    this.runShards = 0
     newRun()
     this.score = 0
     this.level = 1
@@ -2564,6 +2572,45 @@ export class MainScene extends Phaser.Scene {
     back()
   }
 
+  // ---- Badge Case — the achievement grid (per-device, localStorage) ----
+  private openBadges() {
+    if (this.badgesOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen) return
+    this.badgesOpen = true
+    this.buildBadgesScreen()
+    this.closeBadgesKey = () => this.closeBadges()
+    this.input.keyboard!.on('keydown-ESC', this.closeBadgesKey)
+  }
+
+  private closeBadges() {
+    if (!this.badgesOpen) return
+    if (this.closeBadgesKey) { this.input.keyboard!.off('keydown-ESC', this.closeBadgesKey); this.closeBadgesKey = undefined }
+    this.badgesUI.forEach((o) => o.destroy())
+    this.badgesUI = []
+    this.badgesOpen = false
+    this.startGraceUntil = this.time.now + 400   // the closing tap/press can't also start play
+  }
+
+  private buildBadgesScreen() {
+    this.badgesUI.forEach((o) => o.destroy()); this.badgesUI = []
+    const push = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.badgesUI.push(o); return o }
+    const st = loadAch()
+    const owned = new Set(st.unlocked)
+    push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.985).setScrollFactor(0).setDepth(250).setInteractive())
+    push(this.add.text(256, 18, 'BADGE CASE', { fontFamily: 'monospace', fontSize: '18px', color: '#c084fc', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    push(this.add.text(256, 39, st.unlocked.length + ' / ' + ACHIEVEMENTS.length + ' earned', { fontFamily: 'monospace', fontSize: '9px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    // Two columns of badge rows — earned in full colour, locked dimmed with the requirement shown.
+    ACHIEVEMENTS.forEach((a, i) => {
+      const x = (i % 2) === 0 ? 22 : 266
+      const y = 58 + Math.floor(i / 2) * 40
+      const has = owned.has(a.id)
+      push(this.add.text(x + 12, y + 13, a.glyph, { fontFamily: 'monospace', fontSize: '20px', color: has ? a.hex : '#6b7280' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setAlpha(has ? 1 : 0.4))
+      push(this.add.text(x + 32, y + 3, a.name, { fontFamily: 'monospace', fontSize: '10px', color: has ? a.hex : '#9ca3af', fontStyle: 'bold' }).setScrollFactor(0).setDepth(251).setAlpha(has ? 1 : 0.55))
+      push(this.add.text(x + 32, y + 18, a.desc, { fontFamily: 'monospace', fontSize: '7px', color: has ? '#71717a' : '#52525b' }).setScrollFactor(0).setDepth(251).setAlpha(has ? 1 : 0.55))
+    })
+    const back = push(this.add.text(256, 366, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    back.on('pointerdown', () => this.closeBadges())
+  }
+
   // ---- Daily Challenge — a rotating modifier + its own daily board (pure skill; Armory ignored) ----
   private openDaily() {
     if (this.dailyOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen) return
@@ -2735,6 +2782,7 @@ export class MainScene extends Phaser.Scene {
     this.tweens.killTweensOf(s)
     s.destroy()
     this.shardsGot++
+    this.runShards++
     this.score += 75
     this.scoreText.setText('SCORE  ' + this.score)
     this.shardText?.setText('◆ ' + this.shardsGot + '/' + this.shardsTotal)
@@ -2867,6 +2915,14 @@ export class MainScene extends Phaser.Scene {
     // Apex Armory — banked shards.
     const bank = loadMeta().shards
     els.push(this.add.text(256, 318, bank > 0 ? ('◆ ' + bank + '  BANKED') : 'collect ◆ shards to fund upgrades', { fontFamily: 'monospace', fontSize: '9px', color: bank > 0 ? '#67e8f9' : '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    // Badge case — tap to view the achievement grid; shows earned / total.
+    const bc = achievementCount()
+    const badgeCol = bc.unlocked > 0 ? '#c084fc' : '#52525b'
+    const badges = this.add.text(256, 330, '❖ BADGES  ' + bc.unlocked + '/' + bc.total, { fontFamily: 'monospace', fontSize: '9px', color: badgeCol }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    badges.on('pointerover', () => badges.setColor('#e9d5ff'))
+    badges.on('pointerout', () => badges.setColor(badgeCol))
+    badges.on('pointerdown', () => this.openBadges())
+    els.push(badges)
     // ARMORY · LEADERBOARD · CONTROLS — also ABOVE the start catcher.
     const mkBtn = (x: number, label: string, color: string, hover: string, act: () => void) => {
       const b = this.add.text(x, 342, label, { fontFamily: 'monospace', fontSize: '10px', color }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
@@ -2896,7 +2952,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private beginPlay() {
-    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen) return
+    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.badgesOpen) return
     if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     this.started = true
@@ -2954,7 +3010,7 @@ export class MainScene extends Phaser.Scene {
       }
       return
     }
-    if (this.armoryOpen || this.leaderboardOpen || this.dailyOpen) return   // a menu screen owns input (pointer-driven)
+    if (this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.badgesOpen) return   // a menu screen owns input (pointer-driven)
     if (this.gameOver) {
       // Restart on any gamepad button (tap/click/key handled by listeners set at game over).
       const gp = this.readPad()
@@ -3188,6 +3244,7 @@ export class MainScene extends Phaser.Scene {
     this.fxFlash(120, 120, 40, 200, false)
     this.sfx?.hurt()
     this.health -= 2
+    this.runNoHit = false
     this.combo = 0; this.comboText.setText('')
     this.updateHealth()
     this.invulnUntil = this.time.now + 700
@@ -3874,6 +3931,7 @@ export class MainScene extends Phaser.Scene {
     boss.setData('hp', 0)
     boss.setVelocity(0, 0)
     ;(boss.body as Phaser.Physics.Arcade.Body).enable = false
+    recordBossKill((boss.getData('bossKind') as string) || this.nextBossKind)   // durable badge bit for this boss kind
     this.hitstop(150)
     // Guardian stages: killing the guardian opens the extraction (then walk to the goal).
     if (this.extractionLocked) {
@@ -3967,6 +4025,7 @@ export class MainScene extends Phaser.Scene {
     if (this.time.now < this.invulnUntil || this.gameOver || this.levelTransition || this.time.now < this.dashIframeUntil) return
     this.buzz(60)   // firm hit buzz on mobile
     this.health -= 1
+    this.runNoHit = false
     this.combo = 0; this.comboText.setText('')
     this.updateHealth()
     this.invulnUntil = this.time.now + 800
@@ -4266,6 +4325,22 @@ export class MainScene extends Phaser.Scene {
     t.on('pointerdown', () => this.restartRun(true))
   }
 
+  // Fold this run into the badge set and celebrate anything newly earned (staggered toasts over
+  // the results screen). Runs for campaign AND daily runs — kills/combos/wins are real either way.
+  private evalBadges(win: boolean) {
+    const summary: RunSummary = {
+      score: this.score, kills: this.kills, maxCombo: this.maxCombo, sector: this.level,
+      win, noHit: this.runNoHit, gunMaxed: Object.values(this.weaponLvl).some((v) => v >= 2),
+      dailyStreak: getDailyStreak().streak, shards: this.runShards,
+    }
+    const newly = evalAchievements(summary)
+    newly.forEach((a, i) => this.time.delayedCall(750 + i * 850, () => {
+      if (!this.gameOver) return
+      this.screenToast(a.glyph + '  BADGE — ' + a.name, a.hex, 150)
+      this.sfx?.pickup()
+    }))
+  }
+
   private triggerGameOver() {
     this.gameOver = true
     this.recordRun('gameover')
@@ -4277,6 +4352,7 @@ export class MainScene extends Phaser.Scene {
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
     const { best, record, prevBest } = this.saveBest()
+    this.evalBadges(false)
     this.gameOverAt = this.time.now
     // Whole-screen tap-to-restart (the small text alone was too easy to miss on touch),
     // plus any key restarts; gamepad restart is handled in update(). 400ms grace so the
@@ -4306,6 +4382,7 @@ export class MainScene extends Phaser.Scene {
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
     const { best, record, prevBest } = this.saveBest()
+    this.evalBadges(true)
     this.gameOverAt = this.time.now
     this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200).setInteractive()
       .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.restartRun() })
