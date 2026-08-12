@@ -865,6 +865,7 @@ export class MainScene extends Phaser.Scene {
   // Pause / mute
   private userPaused = false
   private muted = false
+  private reduceMotion = false          // accessibility: suppress screen-shake / flashes / zoom-punch / vignette pulse
   private prevStart = false
   private pauseUI: Phaser.GameObjects.GameObject[] = []
   private muteIcon!: Phaser.GameObjects.Text
@@ -904,9 +905,14 @@ export class MainScene extends Phaser.Scene {
     this.physics.world.pause()
     this.time.delayedCall(ms, () => { if (!this.userPaused) this.physics.world.resume() })
   }
+  // Reduced-motion gates: all screen-shake, screen-flash and zoom-punch route through these, so the
+  // accessibility toggle can suppress the motion-heavy effects without touching gameplay.
+  private fxShake(dur: number, intensity: number) { const cam = this.cameras.main; if (!this.reduceMotion) cam.shake(dur, intensity) }
+  private fxFlash(dur: number, r?: number, g?: number, b?: number, force?: boolean) { const cam = this.cameras.main; if (!this.reduceMotion) cam.flash(dur, r, g, b, force) }
   // Snap-zoom the world camera in then ease back — a cinematic accent for the biggest beats.
   // The HUD lives on uiCam so its crispness is untouched; zoomTo(base) self-heals after a resize.
   private zoomPunch(mult = 1.12, dur = 200) {
+    if (this.reduceMotion) return
     const cam = this.cameras.main
     const base = this.scale.width / WORLD_VIEW_W
     // Tween a proxy value and setZoom each frame (frame-rate independent, unlike chained zoomTo
@@ -945,7 +951,7 @@ export class MainScene extends Phaser.Scene {
     const n = Phaser.Math.Clamp(Math.floor(speed / 90), 3, 12)
     this.deathParticles.setParticleTint(0xcbd5e1)
     this.deathParticles.emitParticleAt(this.player.x, y, n)
-    if (speed > 760) this.cameras.main.shake(70, 0.008)
+    if (speed > 760) this.fxShake(70, 0.008)
   }
 
   // Combo escalation — pop + colour-climb the counter, with a burst at every x5 milestone.
@@ -971,7 +977,7 @@ export class MainScene extends Phaser.Scene {
     const col = c >= 15 ? 0x67e8f9 : c >= 10 ? 0xf43f5e : 0xfb923c
     this.screenToast(label + '  x' + c, '#' + col.toString(16).padStart(6, '0'), 100)
     if (this.player?.active) this.shockwave(this.player.x, this.player.y, col, 46)
-    this.cameras.main.shake(90, 0.008)
+    this.fxShake(90, 0.008)
     this.sfx?.explode()
   }
 
@@ -981,8 +987,12 @@ export class MainScene extends Phaser.Scene {
     if (this.dangerTween) { this.dangerTween.stop(); this.dangerTween = undefined }
     const critical = this.started && !this.gameOver && this.health > 0 && this.health <= 2
     if (critical) {
-      this.dangerVignette.setAlpha(0.12)
-      this.dangerTween = this.tweens.add({ targets: this.dangerVignette, alpha: this.health <= 1 ? 0.42 : 0.26, duration: this.health <= 1 ? 420 : 760, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+      if (this.reduceMotion) {
+        this.dangerVignette.setAlpha(this.health <= 1 ? 0.34 : 0.2)   // steady, no pulse, under reduced motion
+      } else {
+        this.dangerVignette.setAlpha(0.12)
+        this.dangerTween = this.tweens.add({ targets: this.dangerVignette, alpha: this.health <= 1 ? 0.42 : 0.26, duration: this.health <= 1 ? 420 : 760, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+      }
     } else {
       this.tweens.add({ targets: this.dangerVignette, alpha: 0, duration: 220 })
     }
@@ -1102,6 +1112,7 @@ export class MainScene extends Phaser.Scene {
 
     // Restore the saved mute preference (persists across page reloads too).
     try { this.muted = localStorage.getItem('apex_muted') === '1' } catch { /* ignore */ }
+    try { this.reduceMotion = localStorage.getItem('apex_reducefx') === '1' } catch { /* ignore */ }
     this.sfx.setMuted(this.muted)
 
     // Backdrop pinned to the camera. Sized to the pulled-back world view (plus a
@@ -1915,7 +1926,7 @@ export class MainScene extends Phaser.Scene {
     if (t === 'boss') {
       this.bossRef = enemy; this.createBossBar(hp)
       this.sfx?.bossRoar()                     // every boss roars on entrance — guardians AND the inline throne boss
-      this.cameras.main.shake(220, 0.015)
+      this.fxShake(220, 0.015)
       if (this.isBossLevel()) this.screenToast('⚠ ' + this.nextBossLabel, '#f43f5e', 110)   // final boss announces itself (guardians toast at their spawn site)
     }
 
@@ -2579,6 +2590,13 @@ export class MainScene extends Phaser.Scene {
     this.screenToast(this.muted ? 'SOUND OFF' : 'SOUND ON')
   }
 
+  private toggleReduceMotion() {
+    this.reduceMotion = !this.reduceMotion
+    try { localStorage.setItem('apex_reducefx', this.reduceMotion ? '1' : '0') } catch { /* ignore */ }
+    this.sfx?.swap()
+    this.screenToast(this.reduceMotion ? 'REDUCED MOTION ON' : 'REDUCED MOTION OFF', '#94a3b8')
+  }
+
   private collectShard(
     _p: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile,
     sObj: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile
@@ -2730,6 +2748,13 @@ export class MainScene extends Phaser.Scene {
     mkBtn(108, '[ ARMORY ]', '#fbbf24', '#fde68a', () => this.openArmory())
     mkBtn(256, '[ LEADERBOARD ]', '#67e8f9', '#a5f3fc', () => this.openLeaderboard())
     mkBtn(404, '[ CONTROLS ]', '#c4b5fd', '#f0abfc', () => this.openControls())
+    // Accessibility: reduce-motion toggle (persisted) — suppresses shake / flash / zoom-punch / vignette pulse.
+    const motionLabel = () => 'MOTION:  ' + (this.reduceMotion ? 'REDUCED' : 'FULL')
+    const motion = this.add.text(256, 364, motionLabel(), { fontFamily: 'monospace', fontSize: '9px', color: '#94a3b8' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    motion.on('pointerover', () => motion.setColor('#e2e8f0'))
+    motion.on('pointerout', () => motion.setColor('#94a3b8'))
+    motion.on('pointerdown', () => { this.toggleReduceMotion(); motion.setText(motionLabel()) })
+    els.push(motion)
     // Full-screen catcher: a tap on empty space starts. Below the button, above the dim.
     const startCatcher = this.add.rectangle(256, 192, 512, 384, 0x000000, 0.001).setScrollFactor(0).setDepth(240.5).setInteractive()
     startCatcher.on('pointerdown', () => this.beginPlay())
@@ -3019,8 +3044,8 @@ export class MainScene extends Phaser.Scene {
     if (this.gameOver || this.levelTransition) return
     this.player.setVelocity(0, 0)
     this.player.setPosition(this.safeRespawnX(), this.lastGroundY - 48)
-    this.cameras.main.shake(180, 0.02)
-    this.cameras.main.flash(120, 120, 40, 200, false)
+    this.fxShake(180, 0.02)
+    this.fxFlash(120, 120, 40, 200, false)
     this.sfx?.hurt()
     this.health -= 2
     this.combo = 0; this.comboText.setText('')
@@ -3419,7 +3444,7 @@ export class MainScene extends Phaser.Scene {
       this.bossPhase = 2
       this.screenToast('⚠ ' + this.nextBossLabel + ' ENRAGED', '#f43f5e', 96)
       this.popup(enemy.x, enemy.y - 70, 'PHASE 2', '#f43f5e')
-      this.cameras.main.shake(320, 0.03)
+      this.fxShake(320, 0.03)
       this.zoomPunch(1.10, 380)
       this.sfx?.enrage()
       enemy.setData('atkT', 340)
@@ -3517,7 +3542,7 @@ export class MainScene extends Phaser.Scene {
         this.time.delayedCall(360, () => {
           if (!enemy.active) return
           enemy.setVelocity(0, -300)   // recover
-          this.cameras.main.shake(300, 0.032)
+          this.fxShake(300, 0.032)
           this.shockwave(enemy.x, 590, 0xffffff, 74)
           this.shockwave(enemy.x, 590, acc, 54)
           this.bossFire(enemy, { count: p2 ? 12 : 8, spreadRad: 2.8, aimed: false, baseAngle: -Math.PI / 2, speed: 250, tint: acc })
@@ -3664,10 +3689,10 @@ export class MainScene extends Phaser.Scene {
     this.particles.emitParticleAt(enemy.x, enemy.y, isElite ? 44 : 26)
     this.shockwave(enemy.x, enemy.y, isElite ? 0xfde047 : dcol, isElite ? 46 : 26)
     this.hitstop(isElite ? 90 : (type === 'tank' || type === 'turret' ? 70 : 45))
-    this.cameras.main.shake(isElite ? 180 : (type === 'tank' || type === 'turret' ? 120 : 70), isElite ? 0.02 : 0.014)
+    this.fxShake(isElite ? 180 : (type === 'tank' || type === 'turret' ? 120 : 70), isElite ? 0.02 : 0.014)
     this.sfx?.explode()
-    if (isElite) { this.cameras.main.flash(120, 253, 224, 71, false); this.popup(enemy.x, enemy.y - 40, 'ELITE DOWN', '#fde047'); this.zoomPunch(1.08, 300) }
-    else if (type === 'tank' || type === 'turret') this.cameras.main.flash(90, 200, 120, 255, false)
+    if (isElite) { this.fxFlash(120, 253, 224, 71, false); this.popup(enemy.x, enemy.y - 40, 'ELITE DOWN', '#fde047'); this.zoomPunch(1.08, 300) }
+    else if (type === 'tank' || type === 'turret') this.fxFlash(90, 200, 120, 255, false)
     // Elites always drop; grunts drop 30% of the time.
     if (isElite || Math.random() < 0.3) {
       const kinds = ['health', 'spread', 'rapid', 'laser', 'fire']
@@ -3697,11 +3722,11 @@ export class MainScene extends Phaser.Scene {
         this.deathParticles.setParticleTint(0xfb923c)
         this.deathParticles.emitParticleAt(ex, ey, 10)
         this.shockwave(ex, ey, 0xfbbf24, 22)
-        this.cameras.main.shake(120, 0.02)
+        this.fxShake(120, 0.02)
         this.sfx?.explode()
         if (boss.active) boss.setTintFill(n % 2 ? 0xffffff : 0xff6030)
         if (ev.repeatCount === 0) {
-          this.cameras.main.flash(320, 255, 210, 130, false)
+          this.fxFlash(320, 255, 210, 130, false)
           this.zoomPunch(1.16, 460)
           this.shockwave(boss.x, boss.y, 0xffffff, 64)
           this.deathParticles.setParticleTint(0xfbbf24)
@@ -3752,7 +3777,7 @@ export class MainScene extends Phaser.Scene {
     this.deathParticles.emitParticleAt(enemy.x, enemy.y, isElite ? 24 : 14)
     this.shockwave(enemy.x, enemy.y, isElite ? 0xfde047 : 0xfbbf24, isElite ? 40 : 24)
     this.hitstop(isElite ? 70 : 28)
-    this.cameras.main.shake(isElite ? 140 : 60, isElite ? 0.018 : 0.012)
+    this.fxShake(isElite ? 140 : 60, isElite ? 0.018 : 0.012)
     this.sfx?.stomp()
     if (isElite || Math.random() < 0.3) {
       const kinds = ['health', 'spread', 'rapid', 'laser', 'fire']
@@ -3779,8 +3804,8 @@ export class MainScene extends Phaser.Scene {
     this.invulnUntil = this.time.now + 800
     this.player.setTint(0xff0030)
     this.hitstop(70)
-    this.cameras.main.shake(140, 0.018)
-    this.cameras.main.flash(100, 255, 30, 40, false)
+    this.fxShake(140, 0.018)
+    this.fxFlash(100, 255, 30, 40, false)
     this.sfx?.hurt()
     this.player.setVelocityY(-260)
     this.time.delayedCall(200, () => { if (this.player.active) this.player.clearTint() })   // brief hit flash; i-frames run on the timestamp
@@ -3812,7 +3837,7 @@ export class MainScene extends Phaser.Scene {
     // OWN color + a big named callout (name + what it does) + a HUD pulse on what changed.
     this.particles.emitParticleAt(px, py, 20)
     this.shockwave(px, py, info.color, 30)
-    this.cameras.main.flash(90, (info.color >> 16) & 255, (info.color >> 8) & 255, info.color & 255, false)
+    this.fxFlash(90, (info.color >> 16) & 255, (info.color >> 8) & 255, info.color & 255, false)
     this.pickupCallout(px, py, info)
     this.sfx?.pickup()
     if (kind === 'health') { this.health = Math.min(this.maxHealth, this.health + 1); this.updateHealth(); this.pulseHud(this.healthText) }
@@ -3826,7 +3851,7 @@ export class MainScene extends Phaser.Scene {
         if (lv !== (this.weaponLvl[kind] || 0)) {
           this.weaponLvl[kind] = lv
           this.popup(px, py - 42, 'MASTERY ' + '★'.repeat(lv), info.hex)
-          this.cameras.main.shake(80, 0.006)
+          this.fxShake(80, 0.006)
         }
       }
       this.updateWeaponHUD(); this.pulseHud(this.weaponText)
