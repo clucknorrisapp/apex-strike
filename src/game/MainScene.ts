@@ -3791,12 +3791,43 @@ export class MainScene extends Phaser.Scene {
   }
 
   // Persist the best score across sessions; report whether this run beat it.
-  private saveBest(): { best: number; record: boolean } {
+  private saveBest(): { best: number; record: boolean; prevBest: number } {
     let best = 0
     try { best = parseInt(localStorage.getItem('apex_best') || '0', 10) || 0 } catch { best = 0 }
+    const prevBest = best
     const record = this.score > best
     if (record) { try { localStorage.setItem('apex_best', String(this.score)) } catch { /* ignore */ } best = this.score }
-    return { best, record }
+    return { best, record, prevBest }
+  }
+
+  // Death-screen retention hooks (shared by MISSION FAILED / SECTOR DOMINATED): a personal-best
+  // delta, the player's live GLOBAL RANK (fetched async, graceful when offline), and a one-tap
+  // SHARE that copies a result line to the clipboard. All degrade silently with no wallet/board.
+  private deathExtras(sector: number, prevBest: number, record: boolean) {
+    const delta = this.score - prevBest
+    const pb = record
+      ? (prevBest > 0 ? '+' + delta.toLocaleString() + ' over your best' : 'your first ranked run')
+      : delta === 0 ? 'matched your best' : (-delta).toLocaleString() + ' to beat your best'
+    this.add.text(256, 246, pb, { fontFamily: 'monospace', fontSize: '9px', color: record ? '#4ade80' : '#71717a' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    // Async global rank — appears if the board is online and we have a wallet-tied rank.
+    fetchLeaderboard().then((d) => {
+      if (!this.gameOver) return
+      let line = ''
+      if (d.you && d.you.rank) line = '◆  GLOBAL RANK  #' + d.you.rank
+      else if (d.online && d.top.length) line = '◆  TOP  ' + d.top[0].score.toLocaleString() + ' to catch #1'
+      if (line) this.add.text(256, 257, line, { fontFamily: 'monospace', fontSize: '9px', color: '#67e8f9' })
+        .setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    }).catch(() => { /* offline — the local Best line already stands in */ })
+    // One-tap share (topOnly input means this never triggers the tap-to-restart backdrop).
+    const share = this.add.text(256, 300, '⧉  SHARE RESULT', { fontFamily: 'monospace', fontSize: '10px', color: '#c4b5fd', backgroundColor: '#1e1b4b', padding: { x: 10, y: 5 } })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true })
+    share.on('pointerover', () => share.setColor('#e9d5ff'))
+    share.on('pointerdown', () => {
+      const txt = 'APEX STRIKE — ' + this.score.toLocaleString() + ' · Sector ' + sector + ' ▸ play at apexstrike.app'
+      try { (navigator as Navigator).clipboard?.writeText(txt) } catch { /* clipboard blocked */ }
+      share.setText('COPIED ✓  — paste anywhere').setColor('#4ade80')
+    })
   }
 
   // Shared results block: score, run stats, and a NEW RECORD flourish.
@@ -3816,7 +3847,7 @@ export class MainScene extends Phaser.Scene {
     else submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
-    const { best, record } = this.saveBest()
+    const { best, record, prevBest } = this.saveBest()
     this.gameOverAt = this.time.now
     // Whole-screen tap-to-restart (the small text alone was too easy to miss on touch),
     // plus any key restarts; gamepad restart is handled in update(). 400ms grace so the
@@ -3828,6 +3859,7 @@ export class MainScene extends Phaser.Scene {
     this.resultsCard(record)
     this.add.text(256, 212, 'Reached Sector ' + this.level, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    if (!this.dailyRun) this.deathExtras(this.level, prevBest, record)
     const btn = this.add.text(256, 268, '[ CLICK / TAP TO RESTART ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.scene.restart())
@@ -3840,7 +3872,7 @@ export class MainScene extends Phaser.Scene {
     else submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
-    const { best, record } = this.saveBest()
+    const { best, record, prevBest } = this.saveBest()
     this.gameOverAt = this.time.now
     this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200).setInteractive()
       .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.scene.restart() })
@@ -3849,6 +3881,7 @@ export class MainScene extends Phaser.Scene {
     this.resultsCard(record)
     this.add.text(256, 212, 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    if (!this.dailyRun) this.deathExtras(this.level, prevBest, record)
     const btn = this.add.text(256, 268, '[ CLICK / TAP TO PLAY AGAIN ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.scene.restart())
