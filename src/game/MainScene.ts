@@ -768,6 +768,8 @@ export class MainScene extends Phaser.Scene {
   private camLookX = -140   // current (lerped) camera lead offset; leads the direction you run
   private camLookTarget = -140
   private camDip = 0        // transient downward camera nudge on a hard landing (decays)
+  private recoilX = 0       // per-shot camera kick (decays) — weapon recoil punch
+  private recoilY = 0
   private sfx?: Sfx
   private lastSfxShot = 0
   private lastFired = 0
@@ -1079,7 +1081,7 @@ export class MainScene extends Phaser.Scene {
     this.maxCombo = 0
     this.prevOnGround = false
     this.fallSpeed = 0
-    this.camLookX = -140; this.camLookTarget = -140; this.camDip = 0
+    this.camLookX = -140; this.camLookTarget = -140; this.camDip = 0; this.recoilX = 0; this.recoilY = 0
     this.invulnUntil = 0
     this.facingRight = true
     this.weapon = 'normal'
@@ -2883,7 +2885,8 @@ export class MainScene extends Phaser.Scene {
     this.camLookX += (this.camLookTarget - this.camLookX) * 0.05
     if (landed && this.fallSpeed > 380) this.camDip = Math.min(22, this.fallSpeed * 0.03)
     this.camDip *= 0.86
-    this.cameras.main.setFollowOffset(this.camLookX, 24 + this.camDip)
+    this.recoilX *= 0.72; this.recoilY *= 0.72   // weapon recoil kick decays back to rest
+    this.cameras.main.setFollowOffset(this.camLookX + this.recoilX, 24 + this.camDip + this.recoilY)
 
     // Fell into a pit (below the content floor)
     if (this.player.y > this.levelH + 150) { this.pitFall(); return }
@@ -3271,6 +3274,16 @@ export class MainScene extends Phaser.Scene {
     this.particles.emitParticleAt(baseX, baseY, 3)
     if (this.time.now - this.lastSfxShot > 55) { this.sfx?.weaponShot(this.weapon); this.lastSfxShot = this.time.now }
     this.muzzleFlash(baseX, baseY, dir, angle)
+    // Weapon recoil — a per-shot camera kick opposite the muzzle, so heavy guns FEEL heavy. Gated under
+    // reduced motion; heavy guns also shove the body slightly (never while dashing, so the burst is clean).
+    if (!this.reduceMotion) {
+      const K = this.weapon === 'laser' || this.weapon === 'fire' ? 7 : this.weapon === 'spread' ? 5 : this.weapon === 'rapid' ? 2 : 4
+      this.recoilX -= dir * Math.cos(aimRad) * K
+      this.recoilY -= Math.sin(aimRad) * K
+      if ((this.weapon === 'laser' || this.weapon === 'fire') && this.time.now >= this.dashUntil) {
+        (this.player.body as Phaser.Physics.Arcade.Body).velocity.x -= dir * 40
+      }
+    }
 
     if (this.weapon === 'spread') {
       // Base 3-pellet fan; mastery adds a pair of wider outer pellets per level (L1 = 5, L2 = 7).
