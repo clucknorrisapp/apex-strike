@@ -202,6 +202,8 @@ class Sfx {
   }
   // Turret wind-up — a short high tick so on-screen turret volleys read by ear too.
   turretTele() { this.tone(760, 1240, 0.07, 'square', 0.03) }
+  // Landing a hit on a boss — a beefier thunk than the grunt tick, so chipping the boss has weight.
+  bossHit() { this.tone(200, 96, 0.07, 'square', 0.05); this.noise(0.045, 0.028) }
 
   // ---- Procedural background music: a per-sector driving synth loop with a boss-intensity layer ----
   private musicGain: GainNode | null = null
@@ -2544,6 +2546,13 @@ export class MainScene extends Phaser.Scene {
     this.bossBar = [frame, fill, label]
   }
 
+  // A quick white flash over the boss bar on each hit — the HP chip reads as impact, not just decay.
+  private bossBarChip() {
+    if (!this.bossBarFill) return
+    const flash = this.add.rectangle(256, 26, 308, 16, 0xffffff, 0.5).setScrollFactor(0).setDepth(207)
+    this.tweens.add({ targets: flash, alpha: 0, duration: 120, onComplete: () => flash.destroy() })
+  }
+
   private updateBossBar() {
     const boss = this.bossRef
     if (!boss || !boss.active) { this.destroyBossBar(); this.bossRef = undefined; return }
@@ -3399,6 +3408,7 @@ export class MainScene extends Phaser.Scene {
   ) {
     const bullet = bulletObj as Phaser.Physics.Arcade.Image
     const enemy = enemyObj as Phaser.Physics.Arcade.Sprite
+    const bx = bullet.x, by = bullet.y                 // impact point, for contact sparks
     bullet.setActive(false).setVisible(false)
 
     const dmg = this.weapon === 'laser' ? 3 : this.weapon === 'fire' ? 2 : 1
@@ -3409,8 +3419,20 @@ export class MainScene extends Phaser.Scene {
     this.particles.emitParticleAt(enemy.x, enemy.y, 5)
 
     if (hp > 0) {
-      // Alive — flinch with a quick squash punch so non-lethal hits still read.
       const bsx = enemy.getData('bsx') as number, bsy = enemy.getData('bsy') as number
+      if ((enemy.getData('type') as string) === 'boss') {
+        // Bosses are the climax — chipping one should land with weight, not feel like plinking a grunt:
+        // contact sparks at the impact point, a micro-hitstop, a chip flash on the bar, a beefier thunk.
+        this.particles.emitParticleAt(bx, by, 8)
+        this.shockwave(bx, by, 0xffffff, 14)
+        this.tweens.killTweensOf(enemy)
+        this.tweens.add({ targets: enemy, scaleX: bsx * 1.09, scaleY: bsy * 0.91, duration: 45, yoyo: true, onComplete: () => { if (enemy.active) enemy.setScale(bsx, bsy) } })
+        this.hitstop(16)                               // isPaused guard prevents rapid-fire hits from stacking freezes
+        this.bossBarChip()
+        this.sfx?.bossHit()
+        return
+      }
+      // Alive grunt — flinch with a quick squash punch so non-lethal hits still read.
       this.tweens.killTweensOf(enemy)
       this.tweens.add({ targets: enemy, scaleX: bsx * 1.18, scaleY: bsy * 0.84, duration: 55, yoyo: true, onComplete: () => { if (enemy.active) enemy.setScale(bsx, bsy) } })
       this.sfx?.hit()
