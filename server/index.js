@@ -89,6 +89,39 @@ function throttled(key, limit = 30, windowMs = 60_000) {
   return arr.length > limit
 }
 
+// ---- rank + rival helpers -------------------------------------------------
+// The next player strictly above `score` (the rank one rung up) — a named, beatable target.
+async function rivalAbove(score) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.score, p.handle FROM scores s LEFT JOIN players p ON p.wallet = s.wallet
+        WHERE s.score > $1 ORDER BY s.score ASC, s.updated_at DESC LIMIT 1`, [score])
+    return rows[0] || null
+  } catch { return null }
+}
+// Authoritative global rank for a score = count of strictly-higher scores + 1.
+async function globalRank(score) {
+  try {
+    const { rows } = await pool.query(`SELECT count(*) + 1 AS rank FROM scores WHERE score > $1`, [score])
+    return rows[0] ? Number(rows[0].rank) : null
+  } catch { return null }
+}
+// Daily-scoped equivalents.
+async function dailyRivalAbove(day, score) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT d.score, p.handle FROM daily_scores d LEFT JOIN players p ON p.wallet = d.wallet
+        WHERE d.day = $1 AND d.score > $2 ORDER BY d.score ASC, d.updated_at DESC LIMIT 1`, [day, score])
+    return rows[0] || null
+  } catch { return null }
+}
+async function dailyRank(day, score) {
+  try {
+    const { rows } = await pool.query(`SELECT count(*) + 1 AS rank FROM daily_scores WHERE day = $1 AND score > $2`, [day, score])
+    return rows[0] ? Number(rows[0].rank) : null
+  } catch { return null }
+}
+
 // ---- API -----------------------------------------------------------------
 const app = express()
 app.disable('x-powered-by')
@@ -103,7 +136,7 @@ app.get('/api/leaderboard', async (req, res) => {
         ORDER BY s.score DESC, s.updated_at ASC
         LIMIT 10`
     )
-    let you = null
+    let you = null, next = null
     const wallet = String(req.query.wallet || '').toLowerCase()
     if (WALLET_RE.test(wallet)) {
       const { rows } = await pool.query(
@@ -112,8 +145,9 @@ app.get('/api/leaderboard', async (req, res) => {
            FROM scores s LEFT JOIN players p ON p.wallet = s.wallet
           WHERE s.wallet = $1`, [wallet])
       you = rows[0] || null
+      if (you) next = await rivalAbove(you.score)   // the named rank one rung up — a beatable target
     }
-    res.json({ online: true, top, you })
+    res.json({ online: true, top, you, next })
   } catch (e) {
     console.error('[api] leaderboard:', e.message)
     res.json({ online: false, top: [], you: null })
@@ -145,7 +179,12 @@ app.post('/api/scores', async (req, res) => {
            runs   = scores.runs + 1,
            updated_at = now()
        RETURNING score, sector`, [wallet, score, sector])
-    res.json({ ok: true, best: rows[0] })
+    const best = rows[0] || null
+    // Rank + rival are computed AFTER the upsert commits in this same request, so the
+    // death screen reads them from this response — no POST-then-GET race, no stale standing.
+    const rank = best ? await globalRank(best.score) : null
+    const next = best ? await rivalAbove(best.score) : null
+    res.json({ ok: true, best, rank, next })
   } catch (e) {
     console.error('[api] scores:', e.message)
     res.status(500).json({ ok: false, error: 'server' })
@@ -183,7 +222,7 @@ app.get('/api/daily', async (req, res) => {
         WHERE d.day = $1
         ORDER BY d.score DESC, d.updated_at ASC
         LIMIT 10`, [day])
-    let you = null
+    let you = null, next = null
     const wallet = String(req.query.wallet || '').toLowerCase()
     if (WALLET_RE.test(wallet)) {
       const { rows } = await pool.query(
@@ -192,8 +231,9 @@ app.get('/api/daily', async (req, res) => {
            FROM daily_scores d LEFT JOIN players p ON p.wallet = d.wallet
           WHERE d.day = $1 AND d.wallet = $2`, [day, wallet])
       you = rows[0] || null
+      if (you) next = await dailyRivalAbove(day, you.score)
     }
-    res.json({ online: true, day, top, you })
+    res.json({ online: true, day, top, you, next })
   } catch (e) { console.error('[api] daily:', e.message); res.json({ online: false, day, top: [], you: null }) }
 })
 
@@ -221,7 +261,10 @@ app.post('/api/daily/scores', async (req, res) => {
            score  = GREATEST(daily_scores.score, EXCLUDED.score),
            updated_at = now()
        RETURNING score, sector`, [day, wallet, score, sector])
-    res.json({ ok: true, best: rows[0] })
+    const best = rows[0] || null
+    const rank = best ? await dailyRank(day, best.score) : null
+    const next = best ? await dailyRivalAbove(day, best.score) : null
+    res.json({ ok: true, best, rank, next })
   } catch (e) { console.error('[api] daily/scores:', e.message); res.status(500).json({ ok: false, error: 'server' }) }
 })
 

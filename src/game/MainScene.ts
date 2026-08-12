@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { record as recordTelemetry, newRun, currentIds, type DeathCause } from '../dev/telemetry'
 import { loadMeta, bankShards, buyUpgrade, nextCost, UPGRADES } from './meta'
-import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, type BoardData, type DailyData } from '../net/leaderboard'
+import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, type BoardData, type DailyData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, type DailyMod } from './daily'
 
 const ASSETS = {
@@ -824,6 +824,7 @@ export class MainScene extends Phaser.Scene {
   private comboText!: Phaser.GameObjects.Text
   private gameOver = false
   private gameOverAt = 0   // time the game-over screen appeared, for a brief restart grace
+  private deathToken = 0   // bumped each game-over so a late async rank paint can't bleed onto the next run
   private levelTransition = false
   private controllerSeen = false
   private invulnUntil = 0        // i-frames as a timestamp so overlapping grants extend (never truncate) each other
@@ -2485,6 +2486,11 @@ export class MainScene extends Phaser.Scene {
     })
     if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
       T(256, 292, `YOU  ·  #${data.you.rank}  ·  ${data.you.score}  ·  S${data.you.sector}`, 11, '#fde68a', 0.5)
+      if (data.next) {
+        const who = (data.next.handle || 'the rank above').slice(0, 14)
+        const gap = Math.max(1, data.next.score - data.you.score).toLocaleString()
+        T(256, 308, `▲  ${gap} to pass ${who}`, 9, '#fbbf24', 0.5)
+      }
     }
     if (hasWallet()) {
       const set = push(this.add.text(256, 324, localHandle() ? '[ CHANGE NAME ]' : '[ SET NAME ]', { fontFamily: 'monospace', fontSize: '10px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
@@ -4096,22 +4102,39 @@ export class MainScene extends Phaser.Scene {
   // Death-screen retention hooks (shared by MISSION FAILED / SECTOR DOMINATED): a personal-best
   // delta, the player's live GLOBAL RANK (fetched async, graceful when offline), and a one-tap
   // SHARE that copies a result line to the clipboard. All degrade silently with no wallet/board.
-  private deathExtras(sector: number, prevBest: number, record: boolean) {
+  private deathExtras(sector: number, prevBest: number, record: boolean, submit: Promise<SubmitResult | null> | null, token: number) {
     const delta = this.score - prevBest
     const pb = record
       ? (prevBest > 0 ? '+' + delta.toLocaleString() + ' over your best' : 'your first ranked run')
       : delta === 0 ? 'matched your best' : (-delta).toLocaleString() + ' to beat your best'
     this.add.text(256, 246, pb, { fontFamily: 'monospace', fontSize: '9px', color: record ? '#4ade80' : '#71717a' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    // Async global rank — appears if the board is online and we have a wallet-tied rank.
-    fetchLeaderboard().then((d) => {
-      if (!this.gameOver) return
-      let line = ''
-      if (d.you && d.you.rank) line = '◆  GLOBAL RANK  #' + d.you.rank
-      else if (d.online && d.top.length) line = '◆  TOP  ' + d.top[0].score.toLocaleString() + ' to catch #1'
-      if (line) this.add.text(256, 257, line, { fontFamily: 'monospace', fontSize: '9px', color: '#67e8f9' })
+    // The rank line is painted once, guarded by the run token so a slow response from a
+    // previous run can never bleed onto this (or the next) death screen.
+    const rankLine = (s: string) => {
+      if (!this.gameOver || this.deathToken !== token) return
+      this.add.text(256, 257, s, { fontFamily: 'monospace', fontSize: '9px', color: '#67e8f9' })
         .setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    }).catch(() => { /* offline — the local Best line already stands in */ })
+    }
+    // Authoritative rank comes back from the score POST itself (no POST-then-GET race). A
+    // named rival one rung up turns the number into a concrete next-run target. Only when we
+    // have no wallet-tied rank (offline / no wallet) do we fall back to a read-only board read.
+    ;(submit || Promise.resolve(null)).then((r) => {
+      if (r && r.rank) {
+        let line = '◆  GLOBAL RANK  #' + r.rank
+        if (r.next) {
+          const who = (r.next.handle || 'RIVAL').slice(0, 12)
+          const gap = Math.max(1, r.next.score - this.score).toLocaleString()
+          line = '◆  RANK #' + r.rank + '    ▲ ' + gap + ' to pass ' + who
+        }
+        rankLine(line)
+        return
+      }
+      if (!this.gameOver || this.deathToken !== token) return
+      fetchLeaderboard().then((d) => {
+        if (d.online && d.top.length) rankLine('◆  TOP  ' + d.top[0].score.toLocaleString() + ' to catch #1')
+      }).catch(() => { /* offline — the local Best line already stands in */ })
+    }).catch(() => { /* swallow — the local Best line already stands in */ })
     // One-tap share (topOnly input means this never triggers the tap-to-restart backdrop).
     const share = this.add.text(256, 300, '⧉  SHARE RESULT', { fontFamily: 'monospace', fontSize: '10px', color: '#c4b5fd', backgroundColor: '#1e1b4b', padding: { x: 10, y: 5 } })
       .setOrigin(0.5).setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true })
@@ -4136,8 +4159,10 @@ export class MainScene extends Phaser.Scene {
   private triggerGameOver() {
     this.gameOver = true
     this.recordRun('gameover')
+    const token = ++this.deathToken
+    let submit: Promise<SubmitResult | null> | null = null
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
-    else submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
+    else submit = submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
     const { best, record, prevBest } = this.saveBest()
@@ -4152,7 +4177,7 @@ export class MainScene extends Phaser.Scene {
     this.resultsCard(record)
     this.add.text(256, 212, 'Reached Sector ' + this.level, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    if (!this.dailyRun) this.deathExtras(this.level, prevBest, record)
+    if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token)
     const btn = this.add.text(256, 268, '[ CLICK / TAP TO RESTART ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.scene.restart())
@@ -4161,8 +4186,10 @@ export class MainScene extends Phaser.Scene {
   private showVictory() {
     this.gameOver = true
     this.recordRun('win')
+    const token = ++this.deathToken
+    let submit: Promise<SubmitResult | null> | null = null
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
-    else submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
+    else submit = submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
     const { best, record, prevBest } = this.saveBest()
@@ -4174,7 +4201,7 @@ export class MainScene extends Phaser.Scene {
     this.resultsCard(record)
     this.add.text(256, 212, 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    if (!this.dailyRun) this.deathExtras(this.level, prevBest, record)
+    if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token)
     const btn = this.add.text(256, 268, '[ CLICK / TAP TO PLAY AGAIN ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.scene.restart())

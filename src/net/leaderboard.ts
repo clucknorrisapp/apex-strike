@@ -4,7 +4,10 @@
 
 export interface BoardRow { wallet: string; handle: string | null; score: number; sector: number }
 export interface BoardYou { handle: string | null; score: number; sector: number; rank: number }
-export interface BoardData { online: boolean; top: BoardRow[]; you: BoardYou | null }
+export interface RivalRow { handle: string | null; score: number }   // the named rank one rung above you
+export interface BoardData { online: boolean; top: BoardRow[]; you: BoardYou | null; next: RivalRow | null }
+// What a score POST hands back: authoritative rank + rival computed after the upsert commits.
+export interface SubmitResult { ok: boolean; best: { score: number; sector: number } | null; rank: number | null; next: RivalRow | null }
 
 const WALLET_RE = /^0x[0-9a-fA-F]{40}$/
 
@@ -24,35 +27,41 @@ export async function fetchLeaderboard(): Promise<BoardData> {
     const w = myWallet()
     const res = await fetch('/api/leaderboard' + (w ? '?wallet=' + w : ''), { headers: { accept: 'application/json' } })
     const d = await res.json()
-    return { online: !!d.online, top: Array.isArray(d.top) ? d.top : [], you: d.you || null }
-  } catch { return { online: false, top: [], you: null } }
+    return { online: !!d.online, top: Array.isArray(d.top) ? d.top : [], you: d.you || null, next: d.next || null }
+  } catch { return { online: false, top: [], you: null, next: null } }
 }
 
-// Fire-and-forget on run end. keepalive lets the POST survive the scene teardown.
-export async function submitScore(score: number, sector: number): Promise<void> {
+// Post a run to the global board and return the authoritative rank + rival the server
+// computes after the upsert commits. keepalive lets the POST survive scene teardown, yet
+// the death screen can still await this promise (the page stays up) to render the real rank
+// with no POST-then-GET race. Returns null when there's nothing to post (no wallet / offline).
+export async function submitScore(score: number, sector: number): Promise<SubmitResult | null> {
   const wallet = myWallet()
-  if (!wallet) return
+  if (!wallet) return null
   const handle = localHandle()
   try {
-    await fetch('/api/scores', {
+    const res = await fetch('/api/scores', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ wallet, handle: handle || undefined, score: Math.max(0, Math.round(score)), sector }),
       keepalive: true,
     })
-  } catch { /* offline / no board — ignore */ }
+    if (!res.ok) return null
+    const d = await res.json()
+    return { ok: !!d.ok, best: d.best || null, rank: typeof d.rank === 'number' ? d.rank : null, next: d.next || null }
+  } catch { return null }   // offline / no board — caller falls back to the local Best line
 }
 
 // ---- Daily Challenge board (scoped by UTC day) ----
-export interface DailyData { online: boolean; day: string; top: BoardRow[]; you: BoardYou | null }
+export interface DailyData { online: boolean; day: string; top: BoardRow[]; you: BoardYou | null; next: RivalRow | null }
 
 export async function fetchDaily(day: string): Promise<DailyData> {
   try {
     const w = myWallet()
     const res = await fetch('/api/daily?day=' + encodeURIComponent(day) + (w ? '&wallet=' + w : ''), { headers: { accept: 'application/json' } })
     const d = await res.json()
-    return { online: !!d.online, day, top: Array.isArray(d.top) ? d.top : [], you: d.you || null }
-  } catch { return { online: false, day, top: [], you: null } }
+    return { online: !!d.online, day, top: Array.isArray(d.top) ? d.top : [], you: d.you || null, next: d.next || null }
+  } catch { return { online: false, day, top: [], you: null, next: null } }
 }
 
 export async function submitDaily(day: string, score: number, sector: number): Promise<void> {
