@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useCallback, type CSSProperties } from 'react'
 import Phaser from 'phaser'
 import { MainScene } from './MainScene'
-import { loadMeta } from './meta'
 
 // Subscribe to a media query (re-renders on change).
 function useMedia(query: string): boolean {
@@ -91,14 +90,30 @@ export function Game() {
   const isPortrait = useMedia('(orientation: portrait)')
   const [isFs, setIsFs] = useState(false)
   const [gutterW, setGutterW] = useState(0)
-  // Phase Dash is an Armory unlock; hide the on-screen DASH button until it's owned so a fresh
-  // player never taps a prominent button that does nothing (reads as 'broken' on first touch).
-  const [dashUnlocked, setDashUnlocked] = useState(() => { try { return loadMeta().up.dash > 0 } catch { return false } })
+  // The scene drives the gutter via the __APEX bridge (an 'apex-state' event): which state it's
+  // in ('title'|'playing'|'paused'|'contract'|'over') and whether DASH is live THIS run
+  // (dashLevel>0 — a Daily zeroes it). We render the action cluster only during play and the DASH
+  // slot only when dash is actually available, so no dead buttons and nothing bleeds through overlays.
+  const [sceneState, setSceneState] = useState<string>('title')
+  const [dashActive, setDashActive] = useState(false)
   useEffect(() => {
-    const refresh = () => { try { setDashUnlocked(loadMeta().up.dash > 0) } catch { /* storage blocked */ } }
-    window.addEventListener('apex-armory-changed', refresh)
-    return () => window.removeEventListener('apex-armory-changed', refresh)
+    const read = () => {
+      const w = window as unknown as { __APEX?: { state?: string; dashActive?: boolean } }
+      setSceneState(w.__APEX?.state || 'title')
+      setDashActive(!!w.__APEX?.dashActive)
+    }
+    read()
+    window.addEventListener('apex-state', read)
+    return () => window.removeEventListener('apex-state', read)
   }, [])
+  // Leaving play (death, pause, contract, title) clears any still-held gutter inputs, so a button
+  // that unmounted mid-hold can't leave FIRE / a move direction stuck true into the next run.
+  useEffect(() => {
+    if (sceneState !== 'playing') {
+      const w = window as unknown as { __APEX?: { pad: Record<string, boolean> } }
+      if (w.__APEX?.pad) for (const k in w.__APEX.pad) w.__APEX.pad[k] = false
+    }
+  }, [sceneState])
 
   useEffect(() => {
     if (!containerRef.current || gameRef.current) return
@@ -247,31 +262,40 @@ export function Game() {
   // Size buttons to FIT the measured gutter so a cluster can never overflow / clip.
   const bs = Math.max(44, Math.min(84, Math.floor((gutterW - 40) / 3)))   // base unit for the right-side action buttons (fit to gutterW)
   const aw = Math.max(84, Math.min(150, gutterW - 28))                    // action button width
+  const playing = sceneState === 'playing'
   const gutterControls = showGutter && (
     <>
-      {/* LEFT side — floating virtual joystick (drag to run + 8-way aim) */}
-      <Joystick setPad={setPad} zoneW={Math.max(gutterW, 168)} />
-      {/* RIGHT gutter — dash+swap / jump / fire, anchored to the RIGHT edge */}
-      <div style={{ position: 'absolute', right: 14, bottom: '7%', display: 'flex', flexDirection: 'column', gap: 10, width: aw, zIndex: 30 }}>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {dashUnlocked ? (
-            <>
-              {hold('dash', '» DASH', { flex: 1, height: 38, fontSize: 12, background: 'rgba(8,51,68,0.55)', border: '2px solid rgba(34,211,238,0.85)' })}
-              {tap('swap', '⇄', { width: 44, height: 38, fontSize: 16, background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)' })}
-            </>
-          ) : (
-            /* Phase Dash not yet unlocked — SWAP takes the whole row instead of a dead DASH button */
-            tap('swap', '⇄ SWAP', { flex: 1, height: 38, fontSize: 13, background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)' })
-          )}
+      {/* Movement + action cluster: ONLY during live play — never on the title, the contract/
+          pause overlay, or the death screen (where it used to swallow tap-to-restart). */}
+      {playing && (
+        <>
+          {/* LEFT side — floating virtual joystick (drag to run + 8-way aim) */}
+          <Joystick setPad={setPad} zoneW={Math.max(gutterW, 168)} />
+          {/* RIGHT gutter — dash+swap / jump / fire, anchored to the RIGHT edge */}
+          <div style={{ position: 'absolute', right: 14, bottom: '7%', display: 'flex', flexDirection: 'column', gap: 10, width: aw, zIndex: 30 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {dashActive ? (
+                <>
+                  {hold('dash', '» DASH', { flex: 1, height: 38, fontSize: 12, background: 'rgba(8,51,68,0.55)', border: '2px solid rgba(34,211,238,0.85)' })}
+                  {tap('swap', '⇄', { width: 44, height: 38, fontSize: 16, background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)' })}
+                </>
+              ) : (
+                /* Dash not available this run (locked, or a Daily) — SWAP takes the whole row instead of a dead DASH button */
+                tap('swap', '⇄ SWAP', { flex: 1, height: 38, fontSize: 13, background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)' })
+              )}
+            </div>
+            {hold('jump', 'JUMP', { background: 'rgba(20,83,45,0.5)', border: '2px solid rgba(74,222,128,0.85)', height: Math.round(bs * 1.05), fontSize: 16 })}
+            {hold('shoot', 'FIRE', { background: 'rgba(76,5,25,0.55)', border: '2px solid rgba(244,63,94,0.9)', height: Math.round(bs * 1.35), fontSize: 18 })}
+          </div>
+        </>
+      )}
+      {/* Top-left — pause + mute: available while playing or paused (so you can unpause / mute) */}
+      {(playing || sceneState === 'paused') && (
+        <div style={{ position: 'absolute', left: 12, top: 12, display: 'flex', gap: 8, zIndex: 30 }}>
+          {tap('pause', 'II', { background: 'rgba(30,27,75,0.55)', border: '1px solid rgba(168,85,247,0.6)', width: 42, height: 32, fontSize: 13 })}
+          {tap('mute', '♪', { background: 'rgba(30,27,75,0.55)', border: '1px solid rgba(168,85,247,0.6)', width: 42, height: 32, fontSize: 13 })}
         </div>
-        {hold('jump', 'JUMP', { background: 'rgba(20,83,45,0.5)', border: '2px solid rgba(74,222,128,0.85)', height: Math.round(bs * 1.05), fontSize: 16 })}
-        {hold('shoot', 'FIRE', { background: 'rgba(76,5,25,0.55)', border: '2px solid rgba(244,63,94,0.9)', height: Math.round(bs * 1.35), fontSize: 18 })}
-      </div>
-      {/* Top-left — pause + mute */}
-      <div style={{ position: 'absolute', left: 12, top: 12, display: 'flex', gap: 8, zIndex: 30 }}>
-        {tap('pause', 'II', { background: 'rgba(30,27,75,0.55)', border: '1px solid rgba(168,85,247,0.6)', width: 42, height: 32, fontSize: 13 })}
-        {tap('mute', '♪', { background: 'rgba(30,27,75,0.55)', border: '1px solid rgba(168,85,247,0.6)', width: 42, height: 32, fontSize: 13 })}
-      </div>
+      )}
     </>
   )
 
@@ -297,7 +321,7 @@ export function Game() {
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
           <div className="flex items-center gap-3">
-            <span className="text-violet-400/70 text-xs">v1.98 — Contract Focus</span>
+            <span className="text-violet-400/70 text-xs">v1.99 — Live Gutter</span>
             <button
               onClick={toggleFullscreen}
               className="text-xs text-violet-200 px-2 py-1 rounded-md border border-violet-700/60 hover:border-fuchsia-500/70 hover:text-fuchsia-200 transition-colors"

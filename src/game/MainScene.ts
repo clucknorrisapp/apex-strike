@@ -689,7 +689,7 @@ const PAD_BIND_LABEL: Record<PadBindAction, string> = { fire: 'FIRE', jump: 'JUM
 type PadState = { buttons: boolean[]; axes: number[]; id: string }
 // Bridge to the React DOM gutter controls (off-canvas buttons in the letterbox
 // gutters). React writes `pad` + `gutter`; the scene installs `act` for pause/mute/swap.
-type ApexBridge = { pad: Record<string, boolean>; gutter: boolean; act: ((name: string) => void) | null }
+type ApexBridge = { pad: Record<string, boolean>; gutter: boolean; act: ((name: string) => void) | null; state?: string; dashActive?: boolean }
 
 // One source of truth for every powerup: pod tint, display name, and a plain-language
 // descriptor of what it does. The pod sprite, the on-pickup callout, and the HUD all read
@@ -1293,7 +1293,9 @@ export class MainScene extends Phaser.Scene {
       w.__APEX.act = (name: string) => {
         if (name === 'pause') this.togglePause()
         else if (name === 'mute') this.toggleMute()
-        else if (name === 'swap') this.swapWeapon()
+        // Belt-and-suspenders: SWAP only fires during live play, never bleeding through a
+        // contract / pause / death overlay even if a stray gutter button were somehow tapped.
+        else if (name === 'swap') { if (this.started && !this.gameOver && !this.contractOpen && !this.userPaused) this.swapWeapon() }
       }
     }
 
@@ -1302,6 +1304,7 @@ export class MainScene extends Phaser.Scene {
     if (LAB_LEVELS) {
       this.started = true
       this.showBanner('SECTOR 1', def.name)
+      this.setBridge('playing')
     } else if (!this.quickRetry) {
       this.started = false
       this.showTitle()
@@ -2260,6 +2263,20 @@ export class MainScene extends Phaser.Scene {
     return !!(window as unknown as { __APEX?: ApexBridge }).__APEX?.gutter
   }
 
+  // Tell the React gutter which scene state we're in + whether DASH is live THIS run, so it can
+  // render the action cluster only during play and the DASH slot only when the run actually has
+  // dash (dashLevel>0 — a Daily zeroes it). Fixes: dead DASH in Daily, SWAP firing through
+  // overlays, and buttons lingering over the death screen's tap-to-restart.
+  private setBridge(state: string) {
+    try {
+      const w = window as unknown as { __APEX?: ApexBridge }
+      w.__APEX = w.__APEX || { pad: {}, gutter: false, act: null }
+      w.__APEX.state = state
+      w.__APEX.dashActive = this.dashLevel > 0
+      window.dispatchEvent(new CustomEvent('apex-state'))
+    } catch { /* SSR / no window — ignore */ }
+  }
+
   private anyPadButtonDown(buttons: boolean[]): boolean {
     for (let i = 0; i < buttons.length; i++) if (buttons[i]) return true
     return false
@@ -2652,6 +2669,7 @@ export class MainScene extends Phaser.Scene {
     if (this.controlsOpen) return
     if (!this.started || this.gameOver || this.levelTransition || !this.player?.active) return
     this.userPaused = !this.userPaused
+    this.setBridge(this.userPaused ? 'paused' : 'playing')
     if (this.userPaused) {
       this.physics.pause()
       const dim = this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.72).setScrollFactor(0).setDepth(230)
@@ -2793,6 +2811,7 @@ export class MainScene extends Phaser.Scene {
 
   private showTitle() {
     this.physics.pause()
+    this.setBridge('title')
     let best = 0
     try { best = parseInt(localStorage.getItem('apex_best') || '0', 10) || 0 } catch { best = 0 }
     const els: Phaser.GameObjects.GameObject[] = []
@@ -2867,6 +2886,7 @@ export class MainScene extends Phaser.Scene {
     const d = this.levels()[this.level - 1]
     this.showBanner('SECTOR 1', d?.name || '')
     this.showFirstRunCoach()
+    this.setBridge('playing')
   }
 
   // One-time control coach on a player's first run — a control card that appears after the SECTOR
@@ -4072,6 +4092,7 @@ export class MainScene extends Phaser.Scene {
     this.contractFocus = 0
     this.contractNavPrev = 0
     this.physics.pause()
+    this.setBridge('contract')
     const pool = [...CONTRACTS]
     this.contractPicks = []
     for (let i = 0; i < 3 && pool.length; i++) this.contractPicks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0])
@@ -4124,6 +4145,7 @@ export class MainScene extends Phaser.Scene {
     this.contractUI.forEach((o) => o.destroy()); this.contractUI = []
     if (chosen) this.screenToast('▸ ' + chosen.name, chosen.hex, 120)
     this.physics.resume()
+    this.setBridge('playing')
     const done = this.contractOnDone; this.contractOnDone = undefined
     if (done) done()
   }
@@ -4224,6 +4246,7 @@ export class MainScene extends Phaser.Scene {
   private triggerGameOver() {
     this.gameOver = true
     this.recordRun('gameover')
+    this.setBridge('over')
     const token = ++this.deathToken
     let submit: Promise<SubmitResult | null> | null = null
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
@@ -4252,6 +4275,7 @@ export class MainScene extends Phaser.Scene {
   private showVictory() {
     this.gameOver = true
     this.recordRun('win')
+    this.setBridge('over')
     const token = ++this.deathToken
     let submit: Promise<SubmitResult | null> | null = null
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
