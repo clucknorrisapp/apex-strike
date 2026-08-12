@@ -35,3 +35,42 @@ export function modForDay(day: string): DailyMod {
 }
 
 export function todayMod(): DailyMod { return modForDay(todayKey()) }
+
+// ---- Daily streak (don't-break-the-chain) — a per-device nudge to return each day. ----
+// Honest caveat: localStorage is per-device, so this is a motivator, not an audited stat.
+const S_KEY = 'apex_daily_streak'
+const L_KEY = 'apex_daily_last'
+
+function dayBefore(day: string): string {
+  const d = new Date(day + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+// Record that a Daily run was played today; advances the streak if yesterday was played,
+// resets to 1 on a gap, and is idempotent within the same UTC day. Returns the live streak.
+export function noteDailyPlayed(): { streak: number; playedToday: boolean } {
+  try {
+    const today = todayKey()
+    const last = localStorage.getItem(L_KEY) || ''
+    let streak = Math.max(0, Math.floor(Number(localStorage.getItem(S_KEY)) || 0))
+    if (last === today) return { streak: Math.max(1, streak), playedToday: true }   // already counted today
+    streak = last === dayBefore(today) ? streak + 1 : 1
+    localStorage.setItem(S_KEY, String(streak))
+    localStorage.setItem(L_KEY, today)
+    return { streak, playedToday: true }
+  } catch { return { streak: 1, playedToday: true } }
+}
+
+// Read the current streak without mutating. A streak is only "alive" if the last play was
+// today (playedToday) or yesterday (still continuable today); older = broken, shown as 0.
+export function getDailyStreak(): { streak: number; playedToday: boolean } {
+  try {
+    const today = todayKey()
+    const last = localStorage.getItem(L_KEY) || ''
+    const streak = Math.max(0, Math.floor(Number(localStorage.getItem(S_KEY)) || 0))
+    const playedToday = last === today
+    if (!playedToday && last !== dayBefore(today)) return { streak: 0, playedToday }
+    return { streak, playedToday }
+  } catch { return { streak: 0, playedToday: false } }
+}

@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { record as recordTelemetry, newRun, currentIds, type DeathCause } from '../dev/telemetry'
 import { loadMeta, bankShards, buyUpgrade, nextCost, UPGRADES } from './meta'
 import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, type BoardData, type DailyData } from '../net/leaderboard'
-import { todayMod, todayKey, type DailyMod } from './daily'
+import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, type DailyMod } from './daily'
 
 const ASSETS = {
   huntress: '/assets/huntress.png',
@@ -2236,7 +2236,10 @@ export class MainScene extends Phaser.Scene {
         }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
         buy.on('pointerover', () => buy.setAlpha(0.85))
         buy.on('pointerout', () => buy.setAlpha(1))
-        buy.on('pointerdown', () => { buyUpgrade(def.key); this.sfx?.pickup(); this.buildArmoryScreen() })
+        buy.on('pointerdown', () => {
+          buyUpgrade(def.key); this.sfx?.pickup(); this.buildArmoryScreen()
+          try { window.dispatchEvent(new Event('apex-armory-changed')) } catch { /* SSR/none */ }   // let the on-screen DASH button unlock live
+        })
       } else {
         push(this.add.text(470, y, '◆' + cost, { fontFamily: 'monospace', fontSize: '11px', color: '#52525b', padding: { x: 8, y: 5 } }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(251))
       }
@@ -2365,10 +2368,11 @@ export class MainScene extends Phaser.Scene {
     const T = (x: number, y: number, s: string, size: number, color: string, ox = 0) =>
       push(this.add.text(x, y, s, { fontFamily: 'monospace', fontSize: size + 'px', color }).setOrigin(ox, 0).setScrollFactor(0).setDepth(251))
     const mod = todayMod()
+    const ds = getDailyStreak()
 
     push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.985).setScrollFactor(0).setDepth(250).setInteractive())
     push(this.add.text(256, 20, 'DAILY CHALLENGE', { fontFamily: 'monospace', fontSize: '18px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
-    T(256, 40, "today's run · resets 00:00 UTC · Armory off", 8, '#71717a', 0.5)
+    T(256, 40, "today's run · resets 00:00 UTC · Armory off" + (ds.streak > 0 ? '  ·  ★ ' + ds.streak + '-day streak' : ''), 8, '#71717a', 0.5)
     push(this.add.text(256, 60, mod.name, { fontFamily: 'monospace', fontSize: '15px', color: mod.hex, fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
     T(256, 80, mod.blurb, 9, '#c4b5fd', 0.5)
     const play = push(this.add.text(256, 108, '▶  PLAY DAILY', { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold', backgroundColor: '#fbbf24', padding: { x: 14, y: 7 } }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
@@ -2584,11 +2588,18 @@ export class MainScene extends Phaser.Scene {
     this.tweens.add({ targets: prompt, alpha: 0.32, duration: 620, yoyo: true, repeat: -1 })
     els.push(prompt)
     // DAILY CHALLENGE — headline entry. ABOVE the start catcher so a tap opens it, never starts play.
-    const daily = this.add.text(256, 296, '◆  DAILY CHALLENGE  ◆', { fontFamily: 'monospace', fontSize: '12px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    // Show today's modifier name so the title visibly changes each day and hints at the run.
+    const daily = this.add.text(256, 294, '◆  DAILY · ' + todayMod().name + '  ◆', { fontFamily: 'monospace', fontSize: '12px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
     daily.on('pointerover', () => daily.setColor('#fde68a'))
     daily.on('pointerout', () => daily.setColor('#fbbf24'))
     daily.on('pointerdown', () => this.openDaily())
     els.push(daily)
+    // Don't-break-the-chain streak nudge (per-device).
+    const ds = getDailyStreak()
+    if (ds.streak > 0) {
+      els.push(this.add.text(256, 307, '★ ' + ds.streak + '-DAY STREAK' + (ds.playedToday ? '  ✓' : '  · play to keep it'),
+        { fontFamily: 'monospace', fontSize: '8px', color: ds.playedToday ? '#4ade80' : '#fbbf24' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    }
     // Apex Armory — banked shards.
     const bank = loadMeta().shards
     els.push(this.add.text(256, 318, bank > 0 ? ('◆ ' + bank + '  BANKED') : 'collect ◆ shards to fund upgrades', { fontFamily: 'monospace', fontSize: '9px', color: bank > 0 ? '#67e8f9' : '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
@@ -3674,7 +3685,7 @@ export class MainScene extends Phaser.Scene {
   private triggerGameOver() {
     this.gameOver = true
     this.recordRun('gameover')
-    if (this.dailyRun) submitDaily(todayKey(), this.score, this.level)
+    if (this.dailyRun) { submitDaily(todayKey(), this.score, this.level); noteDailyPlayed() }
     else submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
@@ -3698,7 +3709,7 @@ export class MainScene extends Phaser.Scene {
   private showVictory() {
     this.gameOver = true
     this.recordRun('win')
-    if (this.dailyRun) submitDaily(todayKey(), this.score, this.level)
+    if (this.dailyRun) { submitDaily(todayKey(), this.score, this.level); noteDailyPlayed() }
     else submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
