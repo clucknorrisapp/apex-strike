@@ -698,7 +698,7 @@ export class MainScene extends Phaser.Scene {
   private gameOverAt = 0   // time the game-over screen appeared, for a brief restart grace
   private levelTransition = false
   private controllerSeen = false
-  private invulnerable = false
+  private invulnUntil = 0        // i-frames as a timestamp so overlapping grants extend (never truncate) each other
   private facingRight = true
   private aimUp = false
   private aimDown = false
@@ -943,7 +943,7 @@ export class MainScene extends Phaser.Scene {
     this.maxCombo = 0
     this.prevOnGround = false
     this.fallSpeed = 0
-    this.invulnerable = false
+    this.invulnUntil = 0
     this.facingRight = true
     this.weapon = 'normal'
     this.altWeapon = 'normal'
@@ -1805,9 +1805,11 @@ export class MainScene extends Phaser.Scene {
     // pod is on approach — before you ever touch it. A soft pulse keeps it eye-catching.
     const badge = this.add.text(x, y, info.glyph, { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold' }).setOrigin(0.5).setDepth(15)
     const tag = this.add.text(x, y + 28, info.label, { fontFamily: 'monospace', fontSize: '9px', color: info.hex, fontStyle: 'bold', stroke: '#0a0612', strokeThickness: 3 }).setOrigin(0.5).setDepth(15)
-    this.tweens.add({ targets: [p, badge], scale: '*=1.12', duration: 620, yoyo: true, repeat: -1, ease: 'Sine.inOut' })
+    const pulseTw = this.tweens.add({ targets: [p, badge], scale: '*=1.12', duration: 620, yoyo: true, repeat: -1, ease: 'Sine.inOut' })
     p.setData('badge', badge); p.setData('tag', tag)
-    ;(p as Phaser.GameObjects.Sprite).on('destroy', () => { badge.destroy(); tag.destroy() })
+    // Kill the infinite pulse when the pod is collected or the level rebuilds — otherwise the
+    // repeat:-1 tween keeps running against a destroyed target and leaks across pods/sectors.
+    ;(p as Phaser.GameObjects.Sprite).on('destroy', () => { pulseTw.remove(); badge.destroy(); tag.destroy() })
   }
 
   private createHUD() {
@@ -2652,6 +2654,12 @@ export class MainScene extends Phaser.Scene {
       if (this.heartT <= 0) { const fast = this.health <= 1; this.sfx?.heartbeat(fast); this.heartT = fast ? 820 : 1180 }
     } else this.heartT = 0
 
+    // i-frame blink — flicker the player while invulnerable, snap back to solid when it ends.
+    if (this.player.active) {
+      if (time < this.invulnUntil) this.player.setAlpha((time % 120) < 60 ? 1 : 0.4)
+      else if (this.player.alpha !== 1) this.player.setAlpha(1)
+    }
+
     if (this.combo > 0) {
       this.comboTimer -= delta
       if (this.comboTimer <= 0) { this.combo = 0; this.comboText.setText('').setAlpha(1) }
@@ -2818,16 +2826,17 @@ export class MainScene extends Phaser.Scene {
     this.health -= 2
     this.combo = 0; this.comboText.setText('')
     this.updateHealth()
-    this.invulnerable = true
+    this.invulnUntil = this.time.now + 700
     this.player.setTint(0xff3060)
-    this.time.delayedCall(700, () => { this.invulnerable = false; if (this.player.active) this.player.clearTint() })
+    this.time.delayedCall(200, () => { if (this.player.active) this.player.clearTint() })   // brief hit flash (i-frames run on the timestamp)
     if (this.health <= 0) {
       this.lives -= 1; this.livesText.setText('LIVES  ' + this.lives)
       this.recordDeath('pit', this.lastGroundX, this.lastGroundY)   // hot-spot = the ledge they fell from
       if (this.lives <= 0) this.triggerGameOver()
       else {
-        this.health = this.maxHealth; this.updateHealth(); this.jumpsLeft = this.maxJumps; this.invulnerable = true
-        this.time.delayedCall(1300, () => { this.invulnerable = false; if (this.player.active) this.player.clearTint() })
+        this.health = this.maxHealth; this.updateHealth(); this.jumpsLeft = this.maxJumps
+        this.invulnUntil = this.time.now + 1300
+        this.player.clearTint()
       }
     }
   }
@@ -3475,18 +3484,18 @@ export class MainScene extends Phaser.Scene {
   }
 
   private damagePlayer(cause: DeathCause = 'enemy', killer?: string) {
-    if (this.invulnerable || this.gameOver || this.levelTransition || this.time.now < this.dashIframeUntil) return
+    if (this.time.now < this.invulnUntil || this.gameOver || this.levelTransition || this.time.now < this.dashIframeUntil) return
     this.health -= 1
     this.combo = 0; this.comboText.setText('')
     this.updateHealth()
-    this.invulnerable = true
+    this.invulnUntil = this.time.now + 800
     this.player.setTint(0xff0030)
     this.hitstop(70)
     this.cameras.main.shake(140, 0.018)
     this.cameras.main.flash(100, 255, 30, 40, false)
     this.sfx?.hurt()
     this.player.setVelocityY(-260)
-    this.time.delayedCall(800, () => { this.invulnerable = false; if (this.player.active) this.player.clearTint() })
+    this.time.delayedCall(200, () => { if (this.player.active) this.player.clearTint() })   // brief hit flash; i-frames run on the timestamp
 
     if (this.health <= 0) {
       this.lives -= 1; this.livesText.setText('LIVES  ' + this.lives)
@@ -3495,8 +3504,9 @@ export class MainScene extends Phaser.Scene {
       else {
         this.health = this.maxHealth; this.updateHealth()
         this.player.setPosition(this.safeRespawnX(), this.lastGroundY - 48)
-        this.player.setVelocity(0, 0); this.jumpsLeft = this.maxJumps; this.invulnerable = true
-        this.time.delayedCall(1500, () => { this.invulnerable = false; this.player.clearTint() })
+        this.player.setVelocity(0, 0); this.jumpsLeft = this.maxJumps
+        this.invulnUntil = this.time.now + 1500   // full respawn i-frames — no stale timer can cut this short now
+        this.player.clearTint()
       }
     }
   }
@@ -3632,7 +3642,7 @@ export class MainScene extends Phaser.Scene {
     // input that killed you can't instantly restart.
     this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200).setInteractive()
       .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.scene.restart() })
-    this.input.keyboard!.once('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.scene.restart() })
+    this.input.keyboard!.on('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.scene.restart() })
     this.add.text(256, 96, 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '21px', color: '#f43f5e' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.resultsCard(record)
     this.add.text(256, 212, 'Reached Sector ' + this.level, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
@@ -3653,7 +3663,7 @@ export class MainScene extends Phaser.Scene {
     this.gameOverAt = this.time.now
     this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200).setInteractive()
       .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.scene.restart() })
-    this.input.keyboard!.once('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.scene.restart() })
+    this.input.keyboard!.on('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.scene.restart() })
     this.add.text(256, 92, 'SECTOR DOMINATED', { fontFamily: 'monospace', fontSize: '19px', color: '#22d3ee' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.resultsCard(record)
     this.add.text(256, 212, 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
