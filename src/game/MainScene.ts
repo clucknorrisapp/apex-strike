@@ -100,6 +100,89 @@ class Sfx {
   dash() { this.tone(200, 520, 0.14, 'sawtooth', 0.05) }
   swap() { this.tone(440, 720, 0.08, 'square', 0.05) }
 
+  // ---- Audio depth: fixed-pitch note helper + expressive one-shots ----
+  // note() plays a discrete pitch (optionally gliding to a second pitch) at an absolute
+  // time offset, so sequences (fanfares, heartbeats) can be scheduled sample-accurately.
+  private note(freq: number, dur: number, type: OscillatorType, gain: number, when = 0, glideTo?: number) {
+    const c = this.ctx; if (!c || this.muted) return
+    const t = c.currentTime + when
+    const o = c.createOscillator(); const g = c.createGain()
+    o.type = type
+    o.frequency.setValueAtTime(freq, t)
+    if (glideTo) o.frequency.exponentialRampToValueAtTime(Math.max(1, glideTo), t + dur)
+    g.gain.setValueAtTime(0.0001, t)
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.008)
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+    o.connect(g); g.connect(c.destination)
+    o.start(t); o.stop(t + dur + 0.02)
+  }
+  // Distinct fire sound per weapon so the arsenal reads by ear, not just by colour.
+  weaponShot(weapon: string) {
+    switch (weapon) {
+      case 'spread':                                              // three detuned pops
+        this.note(700, 0.05, 'square', 0.032, 0, 470)
+        this.note(770, 0.05, 'square', 0.028, 0.006, 520)
+        this.note(630, 0.05, 'square', 0.028, 0.012, 430)
+        break
+      case 'rapid':                                               // tight high tick
+        this.tone(1000 + Math.random() * 140, 640, 0.032, 'square', 0.03)
+        break
+      case 'laser':                                               // descending zap
+        this.note(1450, 0.13, 'sawtooth', 0.045, 0, 250)
+        break
+      case 'fire':                                                // crackly low burst
+        this.tone(360 + Math.random() * 80, 150, 0.06, 'sawtooth', 0.05)
+        this.noise(0.05, 0.035)
+        break
+      default:                                                    // normal blaster
+        this.tone(820 + Math.random() * 180, 300, 0.05, 'square', 0.045)
+    }
+  }
+  // Combo pitch-ladder — each successive kill in a chain climbs a pentatonic step.
+  comboBlip(step: number) {
+    if (step < 2) return
+    const semis = [0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24, 27]
+    const s = semis[Math.min(step - 2, semis.length - 1)]
+    const f = 330 * Math.pow(2, s / 12)
+    this.note(f, 0.1, 'triangle', 0.05, 0, f * 1.5)
+    if (step >= 5) this.note(f * 2, 0.08, 'sine', 0.028, 0.015)   // sparkle harmonic on big chains
+  }
+  // Low-health heartbeat — a lub-dub thump; the scene drives the cadence and speeds it up when critical.
+  heartbeat(fast: boolean) {
+    this.note(96, 0.13, 'sine', 0.16, 0, 46)
+    this.note(80, 0.16, 'sine', 0.12, 0.15, 38)
+    if (fast) this.note(150, 0.05, 'square', 0.025, 0)
+  }
+  // Boss entrance — a low detuned swell with a noise bed.
+  bossRoar() {
+    const c = this.ctx; if (!c || this.muted) return
+    this.note(55, 0.9, 'sawtooth', 0.10, 0, 84)
+    this.note(41.2, 0.9, 'sawtooth', 0.085, 0, 62)
+    this.note(110, 0.5, 'square', 0.035, 0.12, 72)
+    this.noise(0.6, 0.045)
+  }
+  // Phase-2 enrage stinger — a rising alarm.
+  enrage() {
+    this.note(220, 0.5, 'sawtooth', 0.09, 0, 660)
+    this.note(233, 0.5, 'sawtooth', 0.06, 0.05, 700)
+    this.note(880, 0.16, 'square', 0.045, 0)
+    this.noise(0.3, 0.05)
+  }
+  // Sector clear — bright ascending triad + capstone.
+  fanfare() {
+    const notes = [392, 523.25, 659.25, 783.99]
+    notes.forEach((f, i) => this.note(f, 0.2, 'square', 0.06, i * 0.085))
+    this.note(1046.5, 0.45, 'sine', 0.05, notes.length * 0.085)
+  }
+  // Boss defeated — an impact then a triumphant rising run.
+  bossDefeat() {
+    this.note(180, 0.18, 'sawtooth', 0.08, 0, 90)
+    this.noise(0.25, 0.05)
+    const notes = [261.63, 392, 523.25, 659.25, 783.99]
+    notes.forEach((f, i) => this.note(f, 0.24, 'square', 0.06, 0.14 + i * 0.1))
+    this.note(1046.5, 0.6, 'sine', 0.05, 0.14 + notes.length * 0.1)
+  }
+
   // ---- Procedural background music: a subtle driving synth loop ----
   private musicGain: GainNode | null = null
   private musicTimer: ReturnType<typeof setInterval> | null = null
@@ -556,6 +639,7 @@ export class MainScene extends Phaser.Scene {
   private comboTimer = 0
   private kills = 0
   private maxCombo = 0
+  private heartT = 0                 // countdown to the next low-health heartbeat thump
   private prevOnGround = false
   private fallSpeed = 0
   private deathParticles!: Phaser.GameObjects.Particles.ParticleEmitter
@@ -726,6 +810,7 @@ export class MainScene extends Phaser.Scene {
     this.tweens.killTweensOf(this.comboText)
     this.comboText.setScale(1)
     this.tweens.add({ targets: this.comboText, scale: { from: c % 5 === 0 ? 1.5 : 1.3, to: 1 }, duration: 200, ease: 'Back.easeOut' })
+    this.sfx?.comboBlip(c)
     if (c >= 5 && c % 5 === 0) this.comboMilestone(c)
     return pts
   }
@@ -2510,6 +2595,13 @@ export class MainScene extends Phaser.Scene {
     this.bgFar.tilePositionX = cx * 0.22; this.bgFar.tilePositionY = cy * 0.1
     this.bgMid.tilePositionX = cx * 0.45; this.bgMid.tilePositionY = cy * 0.2
 
+    // Low-health heartbeat — thump on a cadence that quickens when critical. Driven here so
+    // it naturally falls silent while paused / on game-over / mid-transition (all early-return above).
+    if (this.health > 0 && this.health <= 2) {
+      this.heartT -= delta
+      if (this.heartT <= 0) { const fast = this.health <= 1; this.sfx?.heartbeat(fast); this.heartT = fast ? 820 : 1180 }
+    } else this.heartT = 0
+
     if (this.combo > 0) {
       this.comboTimer -= delta
       if (this.comboTimer <= 0) { this.combo = 0; this.comboText.setText('').setAlpha(1) }
@@ -2543,7 +2635,7 @@ export class MainScene extends Phaser.Scene {
       this.spawnEnemy('boss', eb.x, eb.y, eb.hp, eb.speed)
       this.screenToast('⚠ GUARDIAN  ·  ' + eb.label, '#f43f5e', 110)
       this.cameras.main.shake(220, 0.015)
-      this.sfx?.hurt()
+      this.sfx?.bossRoar()
     }
 
     // Reached the extraction point? Boss stages clear by kill-all; guardian stages stay
@@ -2861,7 +2953,7 @@ export class MainScene extends Phaser.Scene {
     }
 
     this.particles.emitParticleAt(baseX, baseY, 3)
-    if (this.time.now - this.lastSfxShot > 55) { this.sfx?.shoot(); this.lastSfxShot = this.time.now }
+    if (this.time.now - this.lastSfxShot > 55) { this.sfx?.weaponShot(this.weapon); this.lastSfxShot = this.time.now }
     this.muzzleFlash(baseX, baseY, dir, angle)
 
     if (this.weapon === 'spread') {
@@ -3032,6 +3124,7 @@ export class MainScene extends Phaser.Scene {
       this.screenToast('⚠ ' + this.nextBossLabel + ' ENRAGED', '#f43f5e', 96)
       this.popup(enemy.x, enemy.y - 70, 'PHASE 2', '#f43f5e')
       this.cameras.main.shake(320, 0.03)
+      this.sfx?.enrage()
       enemy.setData('atkT', 340)
     }
     const p2 = this.bossPhase === 2
@@ -3250,7 +3343,7 @@ export class MainScene extends Phaser.Scene {
           this.deathParticles.setParticleTint(0xfbbf24)
           this.deathParticles.emitParticleAt(boss.x, boss.y, 44)
           this.particles.emitParticleAt(boss.x, boss.y, 60)
-          this.sfx?.clear()
+          this.sfx?.bossDefeat()
           boss.destroy()
           // Only the final boss STAGE clears by kill-all; guardian stages clear by reaching
           // the (now-unlocked) extraction.
@@ -3415,7 +3508,7 @@ export class MainScene extends Phaser.Scene {
   private onLevelClear() {
     if (this.levelTransition) return
     this.levelTransition = true
-    this.sfx?.clear()
+    this.sfx?.fanfare()
     if (this.level < this.levels().length) {
       const next = this.level + 1
       const msg = this.add.text(256, 150, `SECTOR ${next}\n${this.levels()[next - 1].name}`, {
