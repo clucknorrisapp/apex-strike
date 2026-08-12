@@ -2682,6 +2682,26 @@ export class MainScene extends Phaser.Scene {
     this.physics.resume()
     const d = this.levels()[this.level - 1]
     this.showBanner('SECTOR 1', d?.name || '')
+    this.showFirstRunCoach()
+  }
+
+  // One-time control coach on a player's first run — a control card that appears after the SECTOR
+  // banner clears and fades on its own. Adapts to touch vs keyboard; remembered so it never nags again.
+  private showFirstRunCoach() {
+    try { if (localStorage.getItem('apex_coached') === '1') return } catch { return }
+    try { localStorage.setItem('apex_coached', '1') } catch { /* storage blocked — show once, don't persist */ }
+    const touch = this.sys.game.device.input.touch
+    const lines = touch
+      ? ['LEFT — drag to move & aim', 'RIGHT — FIRE · JUMP · DASH', 'grab ◆ pods · beat the sector boss']
+      : ['MOVE  A/D ◄►      JUMP  W/▲ (double)', 'FIRE  SPACE (hold)      AIM  hold ▲/▼', 'SWAP  Q      DASH  SHIFT']
+    this.time.delayedCall(1500, () => {
+      if (this.gameOver || !this.started) return
+      const els: Phaser.GameObjects.GameObject[] = []
+      els.push(this.add.rectangle(256, 214, 372, 76, 0x0a0612, 0.8).setScrollFactor(0).setDepth(190).setStrokeStyle(1, 0x22d3ee, 0.55))
+      els.push(this.add.text(256, 187, '▸ CONTROLS ◂', { fontFamily: 'monospace', fontSize: '10px', color: '#22d3ee', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(191))
+      lines.forEach((ln, i) => els.push(this.add.text(256, 206 + i * 15, ln, { fontFamily: 'monospace', fontSize: '9px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(191)))
+      this.time.delayedCall(4600, () => this.tweens.add({ targets: els, alpha: 0, duration: 500, onComplete: () => els.forEach((o) => o.destroy()) }))
+    })
   }
 
   private popup(x: number, y: number, text: string, color = '#e879f9') {
