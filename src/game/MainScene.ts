@@ -825,6 +825,7 @@ export class MainScene extends Phaser.Scene {
   private gameOver = false
   private gameOverAt = 0   // time the game-over screen appeared, for a brief restart grace
   private deathToken = 0   // bumped each game-over so a late async rank paint can't bleed onto the next run
+  private quickRetry = false   // set by init() when a death/victory RETRY restarts straight into a run (skips the title)
   private levelTransition = false
   private controllerSeen = false
   private invulnUntil = 0        // i-frames as a timestamp so overlapping grants extend (never truncate) each other
@@ -1095,6 +1096,12 @@ export class MainScene extends Phaser.Scene {
     this.load.on('loaderror', (f: Phaser.Loader.File) => { if (f.key?.startsWith('bg_')) console.warn('bg missing', f.key) })
   }
 
+  // Phaser passes scene.restart()'s data here, before create(). A death/victory RETRY sets
+  // quickRetry so this run skips the title and drops straight into play; a plain restart clears it.
+  init(data?: { quickRetry?: boolean }) {
+    this.quickRetry = !!(data && data.quickRetry)
+  }
+
   create() {
     this.gameOver = false
     this.levelTransition = false
@@ -1286,11 +1293,12 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    // Real game opens on a title screen; the Level Lab drops straight into play.
+    // Real game opens on a title screen; the Level Lab drops straight into play. A quick-retry
+    // skips the title entirely — beginPlay() runs at the end of create() (below), after cameras.
     if (LAB_LEVELS) {
       this.started = true
       this.showBanner('SECTOR 1', def.name)
-    } else {
+    } else if (!this.quickRetry) {
       this.started = false
       this.showTitle()
     }
@@ -1304,6 +1312,15 @@ export class MainScene extends Phaser.Scene {
         ;(window as unknown as { __scene?: MainScene }).__scene = this
       }
     } catch { /* ignore */ }
+
+    // Quick-retry: a death/victory RETRY skips the title and drops straight into a fresh run.
+    // Runs last so cameras/input are fully set up; consumes the flag so a later restart-to-title
+    // still shows the title, and clears the prior run's `started` so beginPlay() proceeds.
+    if (this.quickRetry && !LAB_LEVELS) {
+      this.quickRetry = false
+      this.started = false
+      this.beginPlay()
+    }
   }
 
   // Render at 2x on the real game (1024x768) while keeping every coordinate in
@@ -2639,7 +2656,7 @@ export class MainScene extends Phaser.Scene {
       const resume = this.add.text(256, 226, '[ RESUME ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(231).setInteractive({ useHandCursor: true })
       resume.on('pointerdown', () => this.togglePause())
       const restart = this.add.text(256, 250, '[ RESTART MISSION ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(231).setInteractive({ useHandCursor: true })
-      restart.on('pointerdown', () => this.scene.restart())
+      restart.on('pointerdown', () => this.restartRun())
       const controls = this.add.text(256, 278, '[ CONTROLS ]', { fontFamily: 'monospace', fontSize: '11px', color: '#a5b4fc' }).setOrigin(0.5).setScrollFactor(0).setDepth(231).setInteractive({ useHandCursor: true })
       controls.on('pointerdown', () => this.openControls())
       this.pauseUI = [dim, title, hint, resume, restart, controls]
@@ -2887,7 +2904,7 @@ export class MainScene extends Phaser.Scene {
     if (this.gameOver) {
       // Restart on any gamepad button (tap/click/key handled by listeners set at game over).
       const gp = this.readPad()
-      if (gp && time > this.gameOverAt + 400 && this.anyPadButtonDown(gp.buttons)) this.scene.restart()
+      if (gp && time > this.gameOverAt + 400 && this.anyPadButtonDown(gp.buttons)) this.restartRun()
       return
     }
     if (!this.started) {
@@ -4156,6 +4173,21 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
+  // A death/victory/pause restart. Non-daily runs quick-retry straight back into play (skip the
+  // title); a daily death is a one-run board so it — and the explicit [ TITLE ] link — go home.
+  private restartRun(toTitle = false) {
+    this.scene.restart(toTitle || this.dailyRun ? {} : { quickRetry: true })
+  }
+
+  // The small secondary "back to the title" link on a death/victory screen (depth 202 so it sits
+  // above the full-screen restart backdrop; topOnly input means its click won't also quick-retry).
+  private titleLink() {
+    const t = this.add.text(256, 330, '[ TITLE ]', { fontFamily: 'monospace', fontSize: '9px', color: '#52525b' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true })
+    t.on('pointerover', () => t.setColor('#a5b4fc'))
+    t.on('pointerdown', () => this.restartRun(true))
+  }
+
   private triggerGameOver() {
     this.gameOver = true
     this.recordRun('gameover')
@@ -4171,16 +4203,17 @@ export class MainScene extends Phaser.Scene {
     // plus any key restarts; gamepad restart is handled in update(). 400ms grace so the
     // input that killed you can't instantly restart.
     this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200).setInteractive()
-      .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.scene.restart() })
-    this.input.keyboard!.on('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.scene.restart() })
+      .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.restartRun() })
+    this.input.keyboard!.on('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.restartRun() })
     this.add.text(256, 96, 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '21px', color: '#f43f5e' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.resultsCard(record)
     this.add.text(256, 212, 'Reached Sector ' + this.level, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token)
-    const btn = this.add.text(256, 268, '[ CLICK / TAP TO RESTART ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
+    const btn = this.add.text(256, 268, this.dailyRun ? '[ CLICK / TAP TO RESTART ]' : '[ RETRY — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
-    btn.on('pointerdown', () => this.scene.restart())
+    btn.on('pointerdown', () => this.restartRun())
+    if (!this.dailyRun) this.titleLink()
   }
 
   private showVictory() {
@@ -4195,15 +4228,16 @@ export class MainScene extends Phaser.Scene {
     const { best, record, prevBest } = this.saveBest()
     this.gameOverAt = this.time.now
     this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200).setInteractive()
-      .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.scene.restart() })
-    this.input.keyboard!.on('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.scene.restart() })
+      .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.restartRun() })
+    this.input.keyboard!.on('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.restartRun() })
     this.add.text(256, 92, 'SECTOR DOMINATED', { fontFamily: 'monospace', fontSize: '19px', color: '#22d3ee' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.resultsCard(record)
     this.add.text(256, 212, 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token)
-    const btn = this.add.text(256, 268, '[ CLICK / TAP TO PLAY AGAIN ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
+    const btn = this.add.text(256, 268, '[ PLAY AGAIN — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
-    btn.on('pointerdown', () => this.scene.restart())
+    btn.on('pointerdown', () => this.restartRun())
+    if (!this.dailyRun) this.titleLink()
   }
 }
