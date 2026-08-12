@@ -84,6 +84,17 @@ class Sfx {
     } catch { this.ctx = null }
   }
   private dest(): AudioNode { return this.master ?? this.ctx!.destination }
+  // Positional output: routes a one-shot through a StereoPanner (clamped ±0.9 so nothing pins
+  // fully to one ear) into the master bus. pan == null → dead-center (the master directly), so
+  // every existing centered sound is untouched. A fresh panner per shot — they're cheap + GC'd.
+  private out(pan?: number): AudioNode {
+    const c = this.ctx
+    if (!c || pan == null || !c.createStereoPanner) return this.dest()
+    const p = c.createStereoPanner()
+    p.pan.value = Math.max(-0.9, Math.min(0.9, pan))
+    p.connect(this.dest())
+    return p
+  }
   // Sidechain duck: dip the music bed briefly so SFX (which bypass duckGain into the master) punch through.
   duck(depth = 0.45, dur = 0.28) {
     const c = this.ctx, dg = this.duckGain; if (!c || !dg || this.muted) return
@@ -97,7 +108,7 @@ class Sfx {
     this.muted = v
     if (this.musicGain && this.ctx) this.musicGain.gain.setTargetAtTime(v ? 0 : this.targetMusicVol(), this.ctx.currentTime, 0.02)
   }
-  private tone(f0: number, f1: number, dur: number, type: OscillatorType, gain: number) {
+  private tone(f0: number, f1: number, dur: number, type: OscillatorType, gain: number, pan?: number) {
     const c = this.ctx; if (!c || this.muted) return
     const t = c.currentTime
     const o = c.createOscillator(); const g = c.createGain()
@@ -106,10 +117,10 @@ class Sfx {
     o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur)
     g.gain.setValueAtTime(gain, t)
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
-    o.connect(g); g.connect(this.dest())
+    o.connect(g); g.connect(this.out(pan))
     o.start(t); o.stop(t + dur + 0.02)
   }
-  private noise(dur: number, gain: number) {
+  private noise(dur: number, gain: number, pan?: number) {
     const c = this.ctx; if (!c || this.muted) return
     const t = c.currentTime
     const n = Math.floor(c.sampleRate * dur)
@@ -120,12 +131,12 @@ class Sfx {
     const g = c.createGain()
     g.gain.setValueAtTime(gain, t)
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
-    src.connect(g); g.connect(this.dest()); src.start(t)
+    src.connect(g); g.connect(this.out(pan)); src.start(t)
   }
   shoot() { this.tone(820 + Math.random() * 180, 300, 0.05, 'square', 0.045) }
   jump() { this.tone(420, 780, 0.12, 'square', 0.05) }
   hit() { this.tone(240, 140, 0.05, 'square', 0.035) }
-  explode() { this.noise(0.28, 0.09); this.duck() }
+  explode(pan?: number) { this.noise(0.28, 0.09, pan); this.duck() }
   pickup() { this.tone(620, 1240, 0.16, 'sine', 0.06) }
   // Distinct pickup motif per powerup so you hear WHICH pod you grabbed, eyes on the action.
   pickupMotif(kind: string) {
@@ -139,7 +150,10 @@ class Sfx {
     }
   }
   hurt() { this.tone(300, 70, 0.28, 'sawtooth', 0.08); this.duck() }
-  stomp() { this.tone(520, 150, 0.1, 'square', 0.06) }
+  stomp(pan?: number) { this.tone(520, 150, 0.1, 'square', 0.06, pan) }
+  // Enemy muzzle blip — lower, softer + shorter than the player's shot so it reads as "incoming",
+  // and panned to the shooter's side so you can locate an off-screen threat by ear.
+  enemyShot(pan?: number) { this.tone(300, 150, 0.05, 'square', 0.03, pan) }
   clear() { this.tone(520, 940, 0.14, 'square', 0.05) }
   dash() { this.tone(200, 520, 0.14, 'sawtooth', 0.05) }
   swap() { this.tone(440, 720, 0.08, 'square', 0.05) }
@@ -148,7 +162,7 @@ class Sfx {
   // ---- Audio depth: fixed-pitch note helper + expressive one-shots ----
   // note() plays a discrete pitch (optionally gliding to a second pitch) at an absolute
   // time offset, so sequences (fanfares, heartbeats) can be scheduled sample-accurately.
-  private note(freq: number, dur: number, type: OscillatorType, gain: number, when = 0, glideTo?: number) {
+  private note(freq: number, dur: number, type: OscillatorType, gain: number, when = 0, glideTo?: number, pan?: number) {
     const c = this.ctx; if (!c || this.muted) return
     const t = c.currentTime + when
     const o = c.createOscillator(); const g = c.createGain()
@@ -158,7 +172,7 @@ class Sfx {
     g.gain.setValueAtTime(0.0001, t)
     g.gain.exponentialRampToValueAtTime(gain, t + 0.008)
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
-    o.connect(g); g.connect(this.dest())
+    o.connect(g); g.connect(this.out(pan))
     o.start(t); o.stop(t + dur + 0.02)
   }
   // Distinct fire sound per weapon so the arsenal reads by ear, not just by colour.
@@ -243,7 +257,7 @@ class Sfx {
     else this.tone(210, 560, 0.24, 'sawtooth', 0.045)                                                  // rising charge whine
   }
   // Turret wind-up — a short high tick so on-screen turret volleys read by ear too.
-  turretTele() { this.tone(760, 1240, 0.07, 'square', 0.03) }
+  turretTele(pan?: number) { this.tone(760, 1240, 0.07, 'square', 0.03, pan) }
   // Landing a hit on a boss — a beefier thunk than the grunt tick, so chipping the boss has weight.
   bossHit() { this.tone(200, 96, 0.07, 'square', 0.05); this.noise(0.045, 0.028); this.duck(0.3, 0.16) }
 
@@ -2277,6 +2291,14 @@ export class MainScene extends Phaser.Scene {
     } catch { /* SSR / no window — ignore */ }
   }
 
+  // World x → stereo pan (-1..1) around the camera's screen center (the Sfx side clamps to ±0.9),
+  // so a threat's sound lands on the ear matching the side of the screen it's on — audio threat radar.
+  private panAt(x: number): number {
+    const cam = this.cameras?.main
+    const mid = cam ? cam.midPoint.x : x
+    return Math.max(-1, Math.min(1, (x - mid) / (WORLD_VIEW_W / 2)))
+  }
+
   private anyPadButtonDown(buttons: boolean[]): boolean {
     for (let i = 0; i < buttons.length; i++) if (buttons[i]) return true
     return false
@@ -3541,7 +3563,7 @@ export class MainScene extends Phaser.Scene {
           enemy.setData('tele', true)
           enemy.setTintFill(0xffe08a)
           this.time.delayedCall(type === 'sniper' ? 260 : 170, () => this.restoreTint(enemy))
-          this.sfx?.turretTele()
+          this.sfx?.turretTele(this.panAt(enemy.x))
         }
         if (timer <= 0 && near && alive) {
           enemy.setData('tele', false)
@@ -3728,6 +3750,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private enemyFire(enemy: Phaser.Physics.Arcade.Sprite, count: number, fixedSpd?: number, scale = 0.75) {
+    this.sfx?.enemyShot(this.panAt(enemy.x))   // panned muzzle blip — hear which side the shot came from
     for (let i = 0; i < count; i++) {
       const b = this.enemyBullets.get(enemy.x, enemy.y, 'enemyBullet') as Phaser.Physics.Arcade.Image
       if (!b) continue
@@ -3834,7 +3857,7 @@ export class MainScene extends Phaser.Scene {
     this.shockwave(enemy.x, enemy.y, isElite ? 0xfde047 : dcol, isElite ? 46 : 26)
     this.hitstop(isElite ? 90 : (type === 'tank' || type === 'turret' ? 70 : 45))
     this.fxShake(isElite ? 180 : (type === 'tank' || type === 'turret' ? 120 : 70), isElite ? 0.02 : 0.014)
-    this.sfx?.explode()
+    this.sfx?.explode(this.panAt(enemy.x))
     if (isElite) { this.fxFlash(120, 253, 224, 71, false); this.popup(enemy.x, enemy.y - 40, 'ELITE DOWN', '#fde047'); this.zoomPunch(1.08, 300) }
     else if (type === 'tank' || type === 'turret') this.fxFlash(90, 200, 120, 255, false)
     // Elites always drop; grunts drop 30% of the time.
@@ -3867,7 +3890,7 @@ export class MainScene extends Phaser.Scene {
         this.deathParticles.emitParticleAt(ex, ey, 10)
         this.shockwave(ex, ey, 0xfbbf24, 22)
         this.fxShake(120, 0.02)
-        this.sfx?.explode()
+        this.sfx?.explode(this.panAt(ex))
         if (boss.active) boss.setTintFill(n % 2 ? 0xffffff : 0xff6030)
         if (ev.repeatCount === 0) {
           this.fxFlash(320, 255, 210, 130, false)
@@ -3922,7 +3945,7 @@ export class MainScene extends Phaser.Scene {
     this.shockwave(enemy.x, enemy.y, isElite ? 0xfde047 : 0xfbbf24, isElite ? 40 : 24)
     this.hitstop(isElite ? 70 : 28)
     this.fxShake(isElite ? 140 : 60, isElite ? 0.018 : 0.012)
-    this.sfx?.stomp()
+    this.sfx?.stomp(this.panAt(enemy.x))
     if (isElite || Math.random() < 0.3) {
       const kinds = ['health', 'spread', 'rapid', 'laser', 'fire']
       this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
