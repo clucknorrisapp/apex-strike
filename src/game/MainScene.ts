@@ -657,6 +657,18 @@ const BOSS_HOME_Y: Record<string, number> = { reaper: 430, brute: 500, tyrant: 3
 const BOSS_ACCENT: Record<string, number> = { reaper: 0xf43f5e, brute: 0xfb923c, tyrant: 0x67e8f9, warden: 0xc084fc, sentinel: 0xfbbf24, wraith: 0x818cf8 }
 const bossAccent = (kind: string): number => BOSS_ACCENT[kind] ?? 0xfbbf24
 
+// Apex Contracts — between every sector (campaign only) you pick 1 of 3 boons that persist for the
+// rest of the run, turning the fixed campaign into a lightweight roguelite with real decisions.
+// Effects apply through the scene's existing stat machinery (see applyContract).
+const CONTRACTS: { id: string; name: string; desc: string; hex: string }[] = [
+  { id: 'heal',      name: 'FIELD MEDIC', desc: 'refill all hearts',          hex: '#4ade80' },
+  { id: 'vitality',  name: 'IRONHEART',   desc: '+1 max heart (full refill)', hex: '#f472b6' },
+  { id: 'reserves',  name: 'SECOND WIND', desc: '+1 extra life',              hex: '#67e8f9' },
+  { id: 'firepower', name: 'OVERCLOCK',   desc: 'permanently faster fire',    hex: '#fbbf24' },
+  { id: 'boots',     name: 'AIR SURGE',   desc: '+1 air-jump',                hex: '#c084fc' },
+  { id: 'mastery',   name: 'GUNSMITH',    desc: '+1 mastery on your gun',     hex: '#22d3ee' },
+]
+
 export class MainScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
@@ -751,6 +763,12 @@ export class MainScene extends Phaser.Scene {
   private controlsOpen = false
   private armoryOpen = false
   private armoryUI: Phaser.GameObjects.GameObject[] = []
+  private contractOpen = false
+  private contractUI: Phaser.GameObjects.GameObject[] = []
+  private contractPicks: { id: string; name: string; desc: string; hex: string }[] = []
+  private contractOnDone?: () => void
+  private contractKey?: (e: KeyboardEvent) => void
+  private contractPadPrev = false
   private closeArmoryKey = () => this.closeArmory()
   private leaderboardOpen = false
   private leaderboardUI: Phaser.GameObjects.GameObject[] = []
@@ -2720,6 +2738,13 @@ export class MainScene extends Phaser.Scene {
     this.routeCameras()  // route any newly-spawned objects to the right camera
     this.pollGamepadInput()                                          // arm-on-input READY toast + gpdebug overlay
     if (this.controlsOpen) { this.updateControlsRebind(); return }   // controls / rebind screen owns input
+    if (this.contractOpen) {   // Apex Contract screen — gamepad picks the first boon (edge-detected) so pad-only players aren't stuck
+      const gp = this.readPad()
+      const down = !!(gp && this.anyPadButtonDown(gp.buttons))
+      if (down && !this.contractPadPrev && this.contractPicks[0]) this.pickContract(this.contractPicks[0].id)
+      this.contractPadPrev = down
+      return
+    }
     if (this.armoryOpen || this.leaderboardOpen || this.dailyOpen) return   // a menu screen owns input (pointer-driven)
     if (this.gameOver) {
       // Restart on any gamepad button (tap/click/key handled by listeners set at game over).
@@ -3818,24 +3843,84 @@ export class MainScene extends Phaser.Scene {
     this.levelTransition = true
     this.sfx?.fanfare()
     if (this.level < this.levels().length) {
-      const next = this.level + 1
-      const msg = this.add.text(256, 150, `SECTOR ${next}\n${this.levels()[next - 1].name}`, {
-        fontFamily: 'monospace', fontSize: '16px', color: '#22d3ee', align: 'center',
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(200)
-      this.time.delayedCall(1300, () => {
-        msg.destroy()
-        this.level = next
-        this.levelText.setText('SECTOR  ' + next)
-        const d = this.levels()[next - 1]
-        this.buildLevel(next)
-        this.player.setPosition(d.spawn[0], d.spawn[1])
-        this.player.setVelocity(0, 0); this.jumpsLeft = this.maxJumps
-        this.lastGroundX = d.spawn[0]; this.lastGroundY = d.spawn[1]
-        this.health = this.maxHealth; this.updateHealth()   // fresh full hearts at every new level
-        this.levelTransition = false
-        this.showBanner('SECTOR ' + next, d.name)
-      })
+      // Campaign: offer an Apex Contract between sectors, then advance. Daily stays pure (no boons).
+      if (this.dailyRun) this.advanceSector()
+      else this.time.delayedCall(900, () => this.offerContract(() => this.advanceSector()))
     } else this.showVictory()
+  }
+
+  private advanceSector() {
+    const next = this.level + 1
+    const msg = this.add.text(256, 150, `SECTOR ${next}\n${this.levels()[next - 1].name}`, {
+      fontFamily: 'monospace', fontSize: '16px', color: '#22d3ee', align: 'center',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(200)
+    this.time.delayedCall(1300, () => {
+      msg.destroy()
+      this.level = next
+      this.levelText.setText('SECTOR  ' + next)
+      const d = this.levels()[next - 1]
+      this.buildLevel(next)
+      this.player.setPosition(d.spawn[0], d.spawn[1])
+      this.player.setVelocity(0, 0); this.jumpsLeft = this.maxJumps
+      this.lastGroundX = d.spawn[0]; this.lastGroundY = d.spawn[1]
+      this.health = this.maxHealth; this.updateHealth()   // fresh full hearts at every new level
+      this.levelTransition = false
+      this.showBanner('SECTOR ' + next, d.name)
+    })
+  }
+
+  // Apex Contract screen — 3 random boons, pick one (pointer / 1-2-3 / gamepad) to keep for the run.
+  private offerContract(onDone: () => void) {
+    this.contractOpen = true
+    this.contractOnDone = onDone
+    this.contractPadPrev = true                    // ignore the button still held from clearing the sector
+    this.physics.pause()
+    const pool = [...CONTRACTS]
+    this.contractPicks = []
+    for (let i = 0; i < 3 && pool.length; i++) this.contractPicks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0])
+    const keep = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.contractUI.push(o); return o }
+    keep(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.94).setScrollFactor(0).setDepth(230).setInteractive())
+    keep(this.add.text(256, 66, 'APEX CONTRACT', { fontFamily: 'monospace', fontSize: '18px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(231))
+    keep(this.add.text(256, 90, 'choose one boon — it lasts the rest of the run', { fontFamily: 'monospace', fontSize: '9px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(231))
+    this.contractPicks.forEach((b, i) => {
+      const y = 138 + i * 56
+      const col = Phaser.Display.Color.HexStringToColor(b.hex).color
+      const card = keep(this.add.rectangle(256, y, 306, 48, 0x1e1b4b, 0.6).setScrollFactor(0).setDepth(231).setStrokeStyle(2, col, 0.85).setInteractive({ useHandCursor: true }))
+      keep(this.add.text(256, y - 9, (i + 1) + '.  ' + b.name, { fontFamily: 'monospace', fontSize: '12px', color: b.hex, fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(232))
+      keep(this.add.text(256, y + 10, b.desc, { fontFamily: 'monospace', fontSize: '9px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(232))
+      card.on('pointerover', () => card.setFillStyle(0x2e2a5c, 0.8))
+      card.on('pointerout', () => card.setFillStyle(0x1e1b4b, 0.6))
+      card.on('pointerdown', () => this.pickContract(b.id))
+    })
+    keep(this.add.text(256, 322, '① ② ③ or tap · gamepad picks the first', { fontFamily: 'monospace', fontSize: '8px', color: '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(231))
+    const kh = (e: KeyboardEvent) => { const n = parseInt(e.key, 10); if (n >= 1 && n <= this.contractPicks.length) this.pickContract(this.contractPicks[n - 1].id) }
+    this.contractKey = kh
+    this.input.keyboard!.on('keydown', kh)
+  }
+
+  private pickContract(id: string) {
+    if (!this.contractOpen) return
+    this.contractOpen = false
+    if (this.contractKey) { this.input.keyboard!.off('keydown', this.contractKey); this.contractKey = undefined }
+    this.applyContract(id)
+    this.sfx?.pickup()
+    const chosen = this.contractPicks.find((b) => b.id === id)
+    this.contractUI.forEach((o) => o.destroy()); this.contractUI = []
+    if (chosen) this.screenToast('▸ ' + chosen.name, chosen.hex, 120)
+    this.physics.resume()
+    const done = this.contractOnDone; this.contractOnDone = undefined
+    if (done) done()
+  }
+
+  private applyContract(id: string) {
+    switch (id) {
+      case 'heal':      this.health = this.maxHealth; this.updateHealth(); break
+      case 'vitality':  this.maxHealth++; this.health = this.maxHealth; this.updateHealth(); break
+      case 'reserves':  this.lives++; this.livesText.setText('LIVES  ' + this.lives); break
+      case 'firepower': this.fireBonus += 14; break
+      case 'boots':     this.maxJumps++; break
+      case 'mastery':   this.weaponLvl[this.weapon] = Math.min(2, (this.weaponLvl[this.weapon] || 0) + 1); this.updateWeaponHUD(); break
+    }
   }
 
   // Persist the best score across sessions; report whether this run beat it.
