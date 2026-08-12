@@ -194,6 +194,14 @@ class Sfx {
     notes.forEach((f, i) => this.note(f, 0.24, 'square', 0.06, 0.14 + i * 0.1))
     this.note(1046.5, 0.6, 'sine', 0.05, 0.14 + notes.length * 0.1)
   }
+  // Boss wind-up telegraph — a distinct pre-attack cue per move class (dodge-by-ear).
+  bossTele(cls: 'charge' | 'lunge' | 'summon') {
+    if (cls === 'lunge') { this.tone(430, 90, 0.26, 'sawtooth', 0.05); this.noise(0.16, 0.03) }        // low descending whoosh
+    else if (cls === 'summon') { this.tone(330, 460, 0.18, 'square', 0.04); this.note(494, 0.14, 'square', 0.03, 0.06) }  // mid warble
+    else this.tone(210, 560, 0.24, 'sawtooth', 0.045)                                                  // rising charge whine
+  }
+  // Turret wind-up — a short high tick so on-screen turret volleys read by ear too.
+  turretTele() { this.tone(760, 1240, 0.07, 'square', 0.03) }
 
   // ---- Procedural background music: a per-sector driving synth loop with a boss-intensity layer ----
   private musicGain: GainNode | null = null
@@ -633,6 +641,15 @@ const BOSS_MOVES_P2: Record<string, string[]> = {
   sentinel: ['fan', 'ring', 'dive', 'lance', 'sweep', 'pound', 'burst'],
   wraith:   ['dash', 'sweep', 'spiral', 'ring', 'dive', 'ring', 'burst'],
 }
+// Classify each boss move so the wind-up telegraph can play a matching audio cue —
+// a rising whine for projectile volleys, a low whoosh for lunges, a warble for summons —
+// letting players dodge by ear when the boss is off-screen or the field is bullet-soup.
+const BOSS_MOVE_CLASS: Record<string, 'charge' | 'lunge' | 'summon'> = {
+  burst: 'charge', fan: 'charge', spread: 'charge', ring: 'charge', lob: 'charge', sweep: 'charge',
+  cross: 'charge', spiral: 'charge', lance: 'charge', nova: 'charge',
+  dash: 'lunge', dive: 'lunge', pound: 'lunge', summon: 'summon',
+}
+
 const BOSS_CADENCE: Record<string, number> = { reaper: 1100, brute: 1750, tyrant: 1500, warden: 1350, sentinel: 1250, wraith: 1200 }
 const BOSS_HOME_Y: Record<string, number> = { reaper: 430, brute: 500, tyrant: 350, warden: 420, sentinel: 400, wraith: 380 }
 const BOSS_ACCENT: Record<string, number> = { reaper: 0xf43f5e, brute: 0xfb923c, tyrant: 0x67e8f9, warden: 0xc084fc, sentinel: 0xfbbf24, wraith: 0x818cf8 }
@@ -1774,7 +1791,12 @@ export class MainScene extends Phaser.Scene {
       this.time.delayedCall(110, () => this.restoreTint(enemy))
     }
 
-    if (t === 'boss') { this.bossRef = enemy; this.createBossBar(hp) }
+    if (t === 'boss') {
+      this.bossRef = enemy; this.createBossBar(hp)
+      this.sfx?.bossRoar()                     // every boss roars on entrance — guardians AND the inline throne boss
+      this.cameras.main.shake(220, 0.015)
+      if (this.isBossLevel()) this.screenToast('⚠ ' + this.nextBossLabel, '#f43f5e', 110)   // final boss announces itself (guardians toast at their spawn site)
+    }
 
     if (t === 'flyer' || t === 'boss' || t === 'diver') {
       enemy.setVelocity(speed * (Math.random() > 0.5 ? 1 : -1), t === 'boss' ? 15 : speed * 0.3)
@@ -2690,10 +2712,8 @@ export class MainScene extends Phaser.Scene {
       this.bossPhase = 1
       this.nextBossLabel = eb.label
       this.nextBossKind = eb.kind
-      this.spawnEnemy('boss', eb.x, eb.y, eb.hp, eb.speed)
+      this.spawnEnemy('boss', eb.x, eb.y, eb.hp, eb.speed)   // roar + shake fire inside spawnEnemy now
       this.screenToast('⚠ GUARDIAN  ·  ' + eb.label, '#f43f5e', 110)
-      this.cameras.main.shake(220, 0.015)
-      this.sfx?.bossRoar()
     }
 
     // Reached the extraction point? Boss stages clear by kill-all; guardian stages stay
@@ -3153,6 +3173,7 @@ export class MainScene extends Phaser.Scene {
           enemy.setData('tele', true)
           enemy.setTintFill(0xffe08a)
           this.time.delayedCall(170, () => this.restoreTint(enemy))
+          this.sfx?.turretTele()
         }
         if (timer <= 0 && near && alive) {
           enemy.setData('tele', false)
@@ -3211,6 +3232,10 @@ export class MainScene extends Phaser.Scene {
       enemy.setTintFill(0xffe08a)
       this.time.delayedCall(190, () => this.restoreTint(enemy))
       this.shockwave(enemy.x, enemy.y, acc, 42)
+      // Audio telegraph: classify the move that's about to fire so it can be dodged by ear.
+      const pool = (p2 && BOSS_MOVES_P2[kind]) ? BOSS_MOVES_P2[kind] : (BOSS_MOVES[kind] || BOSS_MOVES.sentinel)
+      const upcoming = pool[((enemy.getData('atkIdx') as number) || 0) % pool.length]
+      this.sfx?.bossTele(BOSS_MOVE_CLASS[upcoming] || 'charge')
     }
     if (atkT <= 0) {
       enemy.setData('tele2', false)
