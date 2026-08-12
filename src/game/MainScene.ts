@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { record as recordTelemetry, newRun, currentIds, type DeathCause } from '../dev/telemetry'
 import { loadMeta, bankShards, buyUpgrade, nextCost, UPGRADES } from './meta'
 import { evalAchievements, recordBossKill, achievementCount, loadAch, ACHIEVEMENTS, type RunSummary } from './achievements'
+import { renderFlexCard, shareCard, type FlexSummary } from './flexcard'
 import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, type BoardData, type DailyData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, type DailyMod } from './daily'
 
@@ -848,6 +849,7 @@ export class MainScene extends Phaser.Scene {
   private gameOver = false
   private gameOverAt = 0   // time the game-over screen appeared, for a brief restart grace
   private deathToken = 0   // bumped each game-over so a late async rank paint can't bleed onto the next run
+  private shareRank: number | null = null   // authoritative rank for the current death screen, for the flex card
   private quickRetry = false   // set by init() when a death/victory RETRY restarts straight into a run (skips the title)
   private levelTransition = false
   private controllerSeen = false
@@ -4363,7 +4365,8 @@ export class MainScene extends Phaser.Scene {
   // Death-screen retention hooks (shared by MISSION FAILED / SECTOR DOMINATED): a personal-best
   // delta, the player's live GLOBAL RANK (fetched async, graceful when offline), and a one-tap
   // SHARE that copies a result line to the clipboard. All degrade silently with no wallet/board.
-  private deathExtras(sector: number, prevBest: number, record: boolean, submit: Promise<SubmitResult | null> | null, token: number) {
+  private deathExtras(sector: number, prevBest: number, record: boolean, submit: Promise<SubmitResult | null> | null, token: number, win: boolean) {
+    this.shareRank = null   // the flex card reads this once the POST resolves (below)
     const delta = this.score - prevBest
     const pb = record
       ? (prevBest > 0 ? '+' + delta.toLocaleString() + ' over your best' : 'your first ranked run')
@@ -4382,6 +4385,7 @@ export class MainScene extends Phaser.Scene {
     // have no wallet-tied rank (offline / no wallet) do we fall back to a read-only board read.
     ;(submit || Promise.resolve(null)).then((r) => {
       if (r && r.rank) {
+        if (this.gameOver && this.deathToken === token) this.shareRank = r.rank   // feed the flex card
         let line = '◆  GLOBAL RANK  #' + r.rank
         if (r.next) {
           const who = (r.next.handle || 'RIVAL').slice(0, 12)
@@ -4396,14 +4400,36 @@ export class MainScene extends Phaser.Scene {
         if (d.online && d.top.length) rankLine('◆  TOP  ' + d.top[0].score.toLocaleString() + ' to catch #1')
       }).catch(() => { /* offline — the local Best line already stands in */ })
     }).catch(() => { /* swallow — the local Best line already stands in */ })
-    // One-tap share (topOnly input means this never triggers the tap-to-restart backdrop).
-    const share = this.add.text(256, 300, '⧉  SHARE RESULT', { fontFamily: 'monospace', fontSize: '10px', color: '#c4b5fd', backgroundColor: '#1e1b4b', padding: { x: 10, y: 5 } })
+    // One-tap share: render a procedural PNG flex card and hand it to the OS share sheet
+    // (mobile) or download it + copy the text (desktop). topOnly input keeps this off the
+    // tap-to-restart backdrop. Card is built lazily on tap, so a death that's never shared costs nothing.
+    const share = this.add.text(256, 300, '⧉  SHARE CARD', { fontFamily: 'monospace', fontSize: '10px', color: '#c4b5fd', backgroundColor: '#1e1b4b', padding: { x: 10, y: 5 } })
       .setOrigin(0.5).setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true })
     share.on('pointerover', () => share.setColor('#e9d5ff'))
+    let sharing = false
     share.on('pointerdown', () => {
-      const txt = 'APEX STRIKE — ' + this.score.toLocaleString() + ' · Sector ' + sector + ' ▸ play at apexstrike.app'
-      try { (navigator as Navigator).clipboard?.writeText(txt) } catch { /* clipboard blocked */ }
-      share.setText('COPIED ✓  — paste anywhere').setColor('#4ade80')
+      if (sharing) return
+      sharing = true
+      const rankTxt = this.shareRank ? ' · rank #' + this.shareRank : ''
+      const txt = 'APEX STRIKE — ' + this.score.toLocaleString() + ' · Sector ' + sector + rankTxt + ' ▸ play at apexstrike.app'
+      const theme = THEMES[this.levels()[this.level - 1]?.theme ?? 'streets']
+      const hx = (n: number) => '#' + (n >>> 0).toString(16).padStart(6, '0')
+      const summary: FlexSummary = {
+        score: this.score, sector, kills: this.kills, maxCombo: this.maxCombo, win,
+        rank: this.shareRank, handle: localHandle() || null,
+        topHex: hx(theme.accent), botHex: hx(theme.bg),
+      }
+      share.setText('preparing…').setColor('#a5b4fc')
+      try {
+        const canvas = renderFlexCard(summary)
+        shareCard(canvas, txt).then((outcome) => {
+          share.setText(outcome === 'shared' ? 'SHARED ✓' : outcome === 'downloaded' ? 'SAVED ✓  — image + text copied' : 'COPIED ✓  — paste anywhere').setColor('#4ade80')
+          sharing = false
+        }).catch(() => { share.setText('COPIED ✓').setColor('#4ade80'); sharing = false })
+      } catch {
+        try { (navigator as Navigator).clipboard?.writeText(txt) } catch { /* clipboard blocked */ }
+        share.setText('COPIED ✓  — paste anywhere').setColor('#4ade80'); sharing = false
+      }
     })
   }
 
@@ -4471,7 +4497,7 @@ export class MainScene extends Phaser.Scene {
     this.resultsCard(record)
     this.add.text(256, 212, 'Reached Sector ' + this.level, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token)
+    if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token, false)
     const btn = this.add.text(256, 268, this.dailyRun ? '[ CLICK / TAP TO RESTART ]' : '[ RETRY — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
@@ -4498,7 +4524,7 @@ export class MainScene extends Phaser.Scene {
     this.resultsCard(record)
     this.add.text(256, 212, 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token)
+    if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token, true)
     const btn = this.add.text(256, 268, '[ PLAY AGAIN — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
