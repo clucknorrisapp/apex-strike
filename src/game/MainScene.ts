@@ -1801,6 +1801,12 @@ export class MainScene extends Phaser.Scene {
     if (t === 'charger') { enemy.setData('baseTint', 0xff7a3c); enemy.setTint(0xff7a3c) }
     if (t === 'diver') { enemy.setData('baseTint', 0xff4d6d); enemy.setTint(0xff4d6d) }
     if (t === 'sniper') { enemy.setData('baseTint', 0x93c5fd); enemy.setTint(0x93c5fd) }   // cold steel-blue long-range shooter
+    if (t === 'shielder') {   // slate bruiser with a frontal energy shield — hit it from above (aim down) or behind
+      enemy.setData('baseTint', 0x94a3b8); enemy.setTint(0x94a3b8)
+      const shield = this.add.rectangle(enemy.x, enemy.y, 9, 48, 0x67e8f9, 0.42).setStrokeStyle(2, 0xa5f3fc, 0.9).setDepth(19)
+      enemy.setData('shield', shield)
+      ;(enemy as Phaser.GameObjects.Sprite).on('destroy', () => shield.destroy())
+    }
     if (t === 'boss') {
       // Each boss carries its behavior id + accent colour (tints the sprite + its bolts).
       const bk = this.nextBossKind
@@ -2978,7 +2984,10 @@ export class MainScene extends Phaser.Scene {
       // flyers only ever come from the front — no more "shot at from all over".
       const fromAhead = Math.random() < 0.82
       const side = Phaser.Math.Clamp(fromAhead ? camX + 540 : camX - 20, 40, this.levelW - 40)
-      if (fromAhead && this.level >= 2 && Math.random() < 0.28) {
+      if (fromAhead && this.level >= 3 && Math.random() < 0.22) {
+        // Shielder reinforcement: a slow frontal-shield bruiser you must out-position.
+        this.spawnEnemy('soldier', this.groundedSpawnX(side), 540, 7 + this.level, 34, 'shielder')
+      } else if (fromAhead && this.level >= 2 && Math.random() < 0.28) {
         // Sniper reinforcement: a stationary long-range shooter that holds ground ahead of the run.
         this.spawnEnemy('soldier', this.groundedSpawnX(side), 540, 3 + Math.floor(this.level / 2), 40, 'sniper')
       } else if (fromAhead && Math.random() < 0.3) {
@@ -3210,6 +3219,13 @@ export class MainScene extends Phaser.Scene {
         enemy.setVelocityX(0)
         enemy.setFlipX(this.player.x < enemy.x)
       }
+      if (type === 'shielder') {   // advances slowly behind its shield, always facing the player
+        const sdx = this.player.x - enemy.x
+        enemy.setFlipX(sdx < 0)
+        enemy.setVelocityX(Math.sign(sdx) * speed)
+      }
+      const shield = enemy.getData('shield') as Phaser.GameObjects.Rectangle | undefined   // shield rides the front of its bearer
+      if (shield) { const front = enemy.flipX ? -1 : 1; shield.setPosition(enemy.x + front * 24, enemy.y - 4) }
       if (type === 'flyer') {
         const dx = this.player.x - enemy.x, dy = this.player.y - enemy.y - 40
         enemy.setVelocityX(Phaser.Math.Clamp(dx * 0.55, -speed, speed))
@@ -3516,6 +3532,21 @@ export class MainScene extends Phaser.Scene {
       bullet.setActive(false).setVisible(false)
     }
 
+    // Shielder: a frontal energy shield deflects horizontal shots coming from its facing side.
+    // Counter by hitting it from ABOVE (aim down — a vertical bolt) or from BEHIND; those pass.
+    if ((enemy.getData('type') as string) === 'shielder') {
+      const bb = bullet.body as Phaser.Physics.Arcade.Body | null
+      const bvx = bb?.velocity.x ?? 0, bvy = bb?.velocity.y ?? 0
+      const front = enemy.flipX ? -1 : 1
+      const fromFront = Math.sign(bx - enemy.x) === front
+      if (fromFront && Math.abs(bvx) >= Math.abs(bvy)) {
+        this.particles.emitParticleAt(bx, by, 4)
+        this.shockwave(bx, by, 0x67e8f9, 12)
+        this.sfx?.hit()
+        return   // deflected — no damage
+      }
+    }
+
     const dmg = (this.weapon === 'laser' ? 3 : this.weapon === 'fire' ? 2 : 1) + (this.weaponLvl[this.weapon] || 0)
     const hp = (enemy.getData('hp') as number) - dmg
     enemy.setData('hp', hp)
@@ -3547,8 +3578,8 @@ export class MainScene extends Phaser.Scene {
     // ---- Kill ----
     const type = enemy.getData('type') as string
     const isElite = enemy.getData('elite') === true
-    const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : type === 'charger' ? 0xff7a3c : type === 'diver' ? 0xff4d6d : type === 'sniper' ? 0x93c5fd : 0xf43f5e
-    let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'turret' ? 350 : type === 'sniper' ? 320 : type === 'flyer' ? 250 : type === 'charger' ? 200 : type === 'diver' ? 260 : 120
+    const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : type === 'charger' ? 0xff7a3c : type === 'diver' ? 0xff4d6d : type === 'sniper' ? 0x93c5fd : type === 'shielder' ? 0x94a3b8 : 0xf43f5e
+    let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'shielder' ? 400 : type === 'turret' ? 350 : type === 'sniper' ? 320 : type === 'flyer' ? 250 : type === 'charger' ? 200 : type === 'diver' ? 260 : 120
     if (isElite) pts = Math.round(pts * 2.2)
     pts = this.applyCombo(pts)
     this.kills++
