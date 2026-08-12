@@ -832,6 +832,22 @@ export class MainScene extends Phaser.Scene {
     this.physics.world.pause()
     this.time.delayedCall(ms, () => { if (!this.userPaused) this.physics.world.resume() })
   }
+  // Snap-zoom the world camera in then ease back — a cinematic accent for the biggest beats.
+  // The HUD lives on uiCam so its crispness is untouched; zoomTo(base) self-heals after a resize.
+  private zoomPunch(mult = 1.12, dur = 200) {
+    const cam = this.cameras.main
+    const base = this.scale.width / WORLD_VIEW_W
+    // Tween a proxy value and setZoom each frame (frame-rate independent, unlike chained zoomTo
+    // effects which can race and strand the camera zoomed in). onComplete pins it exactly on base,
+    // so overlapping punches and mid-punch resizes always resolve back to the true base zoom.
+    const o = { z: cam.zoom }
+    this.tweens.add({
+      targets: o, z: base * mult, duration: Math.max(60, dur * 0.45), ease: 'Quad.easeOut',
+      yoyo: true, hold: 40,
+      onUpdate: () => cam.setZoom(o.z),
+      onComplete: () => cam.setZoom(base),
+    })
+  }
   // Expanding neon ring on kills/impacts.
   private shockwave(x: number, y: number, color: number, r = 30) {
     const ring = this.add.circle(x, y, r, color, 0).setStrokeStyle(2, color, 0.9).setDepth(23).setScale(0.25)
@@ -3204,6 +3220,7 @@ export class MainScene extends Phaser.Scene {
       this.screenToast('⚠ ' + this.nextBossLabel + ' ENRAGED', '#f43f5e', 96)
       this.popup(enemy.x, enemy.y - 70, 'PHASE 2', '#f43f5e')
       this.cameras.main.shake(320, 0.03)
+      this.zoomPunch(1.10, 380)
       this.sfx?.enrage()
       enemy.setData('atkT', 340)
     }
@@ -3442,6 +3459,7 @@ export class MainScene extends Phaser.Scene {
         if (boss.active) boss.setTintFill(n % 2 ? 0xffffff : 0xff6030)
         if (ev.repeatCount === 0) {
           this.cameras.main.flash(320, 255, 210, 130, false)
+          this.zoomPunch(1.16, 460)
           this.shockwave(boss.x, boss.y, 0xffffff, 64)
           this.deathParticles.setParticleTint(0xfbbf24)
           this.deathParticles.emitParticleAt(boss.x, boss.y, 44)
