@@ -3,6 +3,7 @@ import { record as recordTelemetry, newRun, currentIds, type DeathCause } from '
 import { loadMeta, bankShards, buyUpgrade, nextCost, UPGRADES } from './meta'
 import { evalAchievements, recordBossKill, achievementCount, loadAch, ACHIEVEMENTS, type RunSummary } from './achievements'
 import { renderFlexCard, shareCard, type FlexSummary } from './flexcard'
+import { weekKey, bossOrderForWeek, saveTrialsBest } from './rush'
 import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, type BoardData, type DailyData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, type DailyMod } from './daily'
 
@@ -686,6 +687,21 @@ export const LEVELS: LevelDef[] = [
   },
 ]
 
+// APEX TRIALS arena — a single symmetric boss-duel floor (goal [0,0] ⇒ isBossLevel). No ambient
+// waves or turrets; the rush controller spawns bosses into it one after another. Pods refill mid-fight.
+const RUSH_ARENA: LevelDef = {
+  name: 'APEX TRIALS', theme: 'throne', w: 2800, h: 760, spawn: [1400, 500], goal: [0, 0],
+  ground: [[0, 2800, 600]],
+  plats: [[560, 450, 160], [1000, 400, 150], [1800, 400, 150], [2240, 450, 160]],
+  walls: [[250, 520, 110, 160], [2550, 520, 110, 160]],
+  turrets: [],
+  enemies: [],
+  pods: [[560, 400, 'health'], [1000, 360, 'laser'], [1800, 360, 'spread'], [2240, 400, 'fire']],
+  hazards: [[780, 600, 120], [2020, 600, 120]],
+  bouncers: [[1150, 600, 100], [1650, 600, 100]],
+}
+const RUSH_LEVELS: LevelDef[] = [RUSH_ARENA]
+
 // Level Lab injection: when set, the scene plays THESE levels instead of the campaign.
 let LAB_LEVELS: LevelDef[] | null = null
 export function setLabLevels(levels: LevelDef[] | null) { LAB_LEVELS = levels }
@@ -761,6 +777,17 @@ const BOSS_MOVE_CLASS: Record<string, 'charge' | 'lunge' | 'summon'> = {
 
 const BOSS_CADENCE: Record<string, number> = { reaper: 1100, brute: 1750, tyrant: 1500, warden: 1350, sentinel: 1250, wraith: 1200, revenant: 1300 }
 const BOSS_HOME_Y: Record<string, number> = { reaper: 430, brute: 500, tyrant: 350, warden: 420, sentinel: 400, wraith: 380, revenant: 400 }
+
+// APEX TRIALS boss-rush stats per kind (base HP ramps with position in advanceTrials).
+const BOSS_RUSH: Record<string, { label: string; hp: number; speed: number }> = {
+  reaper:   { label: 'NEON REAPER',   hp: 40, speed: 64 },
+  brute:    { label: 'FOUNDRY BRUTE', hp: 46, speed: 56 },
+  tyrant:   { label: 'SKY TYRANT',    hp: 48, speed: 66 },
+  warden:   { label: 'CORE WARDEN',   hp: 50, speed: 60 },
+  sentinel: { label: 'APEX SENTINEL', hp: 48, speed: 58 },
+  wraith:   { label: 'VOLT WRAITH',   hp: 52, speed: 62 },
+  revenant: { label: 'CRYO REVENANT', hp: 54, speed: 64 },
+}
 const BOSS_ACCENT: Record<string, number> = { reaper: 0xf43f5e, brute: 0xfb923c, tyrant: 0x67e8f9, warden: 0xc084fc, sentinel: 0xfbbf24, wraith: 0x818cf8, revenant: 0x7dd3fc }
 const bossAccent = (kind: string): number => BOSS_ACCENT[kind] ?? 0xfbbf24
 // Signature 4-note phrase (semitone offsets) per boss — a melodic leitmotif to pair with the roar.
@@ -905,6 +932,9 @@ export class MainScene extends Phaser.Scene {
   private dailyUI: Phaser.GameObjects.GameObject[] = []
   private closeDailyKey = () => this.closeDaily()
   private dailyRun = false                 // this run posts to the Daily board (modifier applied, Armory ignored)
+  private rushRun = false                  // APEX TRIALS boss-rush run (own arena, 7 bosses back-to-back, local best)
+  private rushIndex = 0                    // which boss of the rush we're on
+  private rushOrder: string[] = []         // this week's boss sequence
   private dailyDay = ''                     // UTC day captured at run START — a midnight-crossing run scores its own day's board
   private rebinding: PadBindAction | null = null
   private rebindArmed = false          // true once all buttons release, so the opening tap can't self-bind
@@ -976,7 +1006,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   // Active level set — the injected Lab levels if present, else the campaign.
-  private levels(): LevelDef[] { return LAB_LEVELS ?? LEVELS }
+  private levels(): LevelDef[] { return this.rushRun ? RUSH_LEVELS : (LAB_LEVELS ?? LEVELS) }
   private isBossLevel(): boolean {
     const d = this.levels()[this.level - 1]
     return !!d && d.goal[0] === 0 && d.goal[1] === 0
@@ -1138,6 +1168,7 @@ export class MainScene extends Phaser.Scene {
     this.gameOver = false
     this.levelTransition = false
     this.dailyRun = false                  // reset here — instance fields survive scene.restart()
+    this.rushRun = false; this.rushIndex = 0
     // Apex Armory — apply persistent upgrades to this run's starting stats.
     const meta = loadMeta()
     this.maxHealth = 6 + meta.up.vitality
@@ -2678,6 +2709,60 @@ export class MainScene extends Phaser.Scene {
     this.screenToast('DAILY · ' + mod.name, mod.hex, 118)
   }
 
+  // ---- APEX TRIALS — a weekly boss rush over all 7 bosses in one arena (local best) ----
+  // Launched straight from the title (no separate screen): rebuild to the arena, start play with
+  // the player's Armory kit, and spawn the week's first boss. Each boss falls → heal + the next.
+  private startTrials() {
+    if (this.started) return
+    if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
+    this.titleUI.forEach((o) => o.destroy()); this.titleUI = []
+    this.rushRun = true
+    this.rushIndex = 0
+    this.rushOrder = bossOrderForWeek(weekKey())
+    this.dailyRun = false
+    this.level = 1
+    this.buildLevel(1)   // levels() now returns the RUSH arena
+    const d = this.levels()[0]
+    this.player.setPosition(d.spawn[0], d.spawn[1]); this.player.setVelocity(0, 0)
+    this.lastGroundX = d.spawn[0]; this.lastGroundY = d.spawn[1]
+    this.health = this.maxHealth; this.jumpsLeft = this.maxJumps
+    this.updateHealth()
+    this.levelText.setText('TRIALS')
+    this.startGraceUntil = 0
+    this.started = true
+    this.sfx?.resume(); this.sfx?.startMusic('throne')
+    this.physics.resume()
+    this.setBridge('playing')
+    this.screenToast('⚔ APEX TRIALS · ' + this.rushOrder.length + ' BOSSES', '#fbbf24', 130)
+    this.time.delayedCall(650, () => { if (this.rushRun && this.started && !this.gameOver) this.spawnTrialsBoss() })
+  }
+
+  private spawnTrialsBoss() {
+    const kind = this.rushOrder[this.rushIndex] || 'sentinel'
+    const info = BOSS_RUSH[kind] || { label: 'APEX SENTINEL', hp: 50, speed: 60 }
+    this.nextBossKind = kind
+    this.nextBossLabel = info.label
+    this.bossPhase = 1
+    this.spawnEnemy('boss', 1400, 330, info.hp + this.rushIndex * 6, info.speed)   // HP ramps each boss
+    this.screenToast('⚠ ' + (this.rushIndex + 1) + '/' + this.rushOrder.length + '  ·  ' + info.label, '#f43f5e', 110)
+  }
+
+  // A rush boss fell: heal to full, breather, drop the next — or clear the trials on the last.
+  private advanceTrials() {
+    if (this.levelTransition) return
+    this.rushIndex++
+    if (this.rushIndex >= this.rushOrder.length) { this.trialsComplete(); return }
+    this.health = this.maxHealth; this.updateHealth()
+    this.sfx?.fanfare()
+    this.screenToast('BOSS ' + this.rushIndex + '/' + this.rushOrder.length + ' DOWN  ·  HEAL + NEXT', '#4ade80', 120)
+    this.time.delayedCall(1200, () => { if (this.rushRun && this.started && !this.gameOver) this.spawnTrialsBoss() })
+  }
+
+  private trialsComplete() {
+    this.screenToast('★  TRIALS CLEARED  ★', '#fbbf24', 150)
+    this.showVictory()
+  }
+
   private buildDailyScreen(data: DailyData | null) {
     this.dailyUI.forEach((o) => o.destroy())
     this.dailyUI = []
@@ -2923,11 +3008,17 @@ export class MainScene extends Phaser.Scene {
     els.push(prompt)
     // DAILY CHALLENGE — headline entry. ABOVE the start catcher so a tap opens it, never starts play.
     // Show today's modifier name so the title visibly changes each day and hints at the run.
-    const daily = this.add.text(256, 294, '◆  DAILY · ' + todayMod().name + '  ◆', { fontFamily: 'monospace', fontSize: '12px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    const daily = this.add.text(150, 294, '◆ DAILY · ' + todayMod().name, { fontFamily: 'monospace', fontSize: '11px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
     daily.on('pointerover', () => daily.setColor('#fde68a'))
     daily.on('pointerout', () => daily.setColor('#fbbf24'))
     daily.on('pointerdown', () => this.openDaily())
     els.push(daily)
+    // APEX TRIALS — weekly boss rush; starts straight into the arena (headline entry, never starts campaign play).
+    const trials = this.add.text(378, 294, '⚔ TRIALS', { fontFamily: 'monospace', fontSize: '11px', color: '#fca5a5', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    trials.on('pointerover', () => trials.setColor('#fecaca'))
+    trials.on('pointerout', () => trials.setColor('#fca5a5'))
+    trials.on('pointerdown', () => this.startTrials())
+    els.push(trials)
     // Don't-break-the-chain streak nudge (per-device).
     const ds = getDailyStreak()
     if (ds.streak > 0) {
@@ -4245,6 +4336,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private onLevelClear() {
+    if (this.rushRun) { this.advanceTrials(); return }   // boss rush drives its own progression (heal + next boss)
     if (this.levelTransition) return
     this.levelTransition = true
     this.sfx?.fanfare()
@@ -4446,7 +4538,7 @@ export class MainScene extends Phaser.Scene {
   // A death/victory/pause restart. Non-daily runs quick-retry straight back into play (skip the
   // title); a daily death is a one-run board so it — and the explicit [ TITLE ] link — go home.
   private restartRun(toTitle = false) {
-    this.scene.restart(toTitle || this.dailyRun ? {} : { quickRetry: true })
+    this.scene.restart(toTitle || this.dailyRun || this.rushRun ? {} : { quickRetry: true })
   }
 
   // The small secondary "back to the title" link on a death/victory screen (depth 202 so it sits
@@ -4481,10 +4573,10 @@ export class MainScene extends Phaser.Scene {
     const token = ++this.deathToken
     let submit: Promise<SubmitResult | null> | null = null
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
-    else submit = submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
+    else if (!this.rushRun) submit = submitScore(this.score, this.level)     // campaign only — trials & daily don't post to the global board
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
-    const { best, record, prevBest } = this.saveBest()
+    const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score) : this.saveBest()
     this.evalBadges(false)
     this.gameOverAt = this.time.now
     // Whole-screen tap-to-restart (the small text alone was too easy to miss on touch),
@@ -4495,13 +4587,14 @@ export class MainScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.restartRun() })
     this.add.text(256, 96, 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '21px', color: '#f43f5e' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.resultsCard(record)
-    this.add.text(256, 212, 'Reached Sector ' + this.level, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    const midline = this.rushRun ? 'APEX TRIALS  ·  ' + this.rushIndex + '/' + this.rushOrder.length + ' bosses' : 'Reached Sector ' + this.level
+    this.add.text(256, 212, midline, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token, false)
-    const btn = this.add.text(256, 268, this.dailyRun ? '[ CLICK / TAP TO RESTART ]' : '[ RETRY — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
+    if (!this.dailyRun && !this.rushRun) this.deathExtras(this.level, prevBest, record, submit, token, false)
+    const btn = this.add.text(256, 268, (this.dailyRun || this.rushRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ RETRY — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
-    if (!this.dailyRun) this.titleLink()
+    if (!this.dailyRun && !this.rushRun) this.titleLink()
   }
 
   private showVictory() {
@@ -4511,23 +4604,23 @@ export class MainScene extends Phaser.Scene {
     const token = ++this.deathToken
     let submit: Promise<SubmitResult | null> | null = null
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
-    else submit = submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
+    else if (!this.rushRun) submit = submitScore(this.score, this.level)     // campaign only — trials & daily don't post to the global board
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
-    const { best, record, prevBest } = this.saveBest()
-    this.evalBadges(true)
+    const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score) : this.saveBest()
+    this.evalBadges(!this.rushRun)   // a Trials clear isn't a campaign win (no CHAMPION), but kills/combos/boss-mask still fold in
     this.gameOverAt = this.time.now
     this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200).setInteractive()
       .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.restartRun() })
     this.input.keyboard!.on('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.restartRun() })
-    this.add.text(256, 92, 'SECTOR DOMINATED', { fontFamily: 'monospace', fontSize: '19px', color: '#22d3ee' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    this.add.text(256, 92, this.rushRun ? 'TRIALS CLEARED' : 'SECTOR DOMINATED', { fontFamily: 'monospace', fontSize: '19px', color: '#22d3ee' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.resultsCard(record)
-    this.add.text(256, 212, 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    this.add.text(256, 212, this.rushRun ? 'All ' + this.rushOrder.length + ' bosses down — Apex Trials complete.' : 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token, true)
-    const btn = this.add.text(256, 268, '[ PLAY AGAIN — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
+    if (!this.dailyRun && !this.rushRun) this.deathExtras(this.level, prevBest, record, submit, token, true)
+    const btn = this.add.text(256, 268, this.rushRun ? '[ CLICK / TAP TO CONTINUE ]' : '[ PLAY AGAIN — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
-    if (!this.dailyRun) this.titleLink()
+    if (!this.dailyRun && !this.rushRun) this.titleLink()
   }
 }
