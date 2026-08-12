@@ -117,6 +117,17 @@ class Sfx {
   hit() { this.tone(240, 140, 0.05, 'square', 0.035) }
   explode() { this.noise(0.28, 0.09) }
   pickup() { this.tone(620, 1240, 0.16, 'sine', 0.06) }
+  // Distinct pickup motif per powerup so you hear WHICH pod you grabbed, eyes on the action.
+  pickupMotif(kind: string) {
+    switch (kind) {
+      case 'health': this.note(523.25, 0.12, 'sine', 0.06, 0); this.note(783.99, 0.17, 'sine', 0.05, 0.09); break      // C->G warm heal
+      case 'spread': this.note(523.25, 0.07, 'triangle', 0.05, 0); this.note(659.25, 0.07, 'triangle', 0.05, 0.05); this.note(783.99, 0.1, 'triangle', 0.05, 0.1); break  // up-arp
+      case 'rapid':  this.tone(880, 1320, 0.05, 'square', 0.04); this.note(990, 0.05, 'square', 0.035, 0.05, 1480); break  // fast tick-up
+      case 'laser':  this.note(659.25, 0.14, 'sawtooth', 0.05, 0, 1318.5); break                                       // bright zap up
+      case 'fire':   this.note(196, 0.2, 'sawtooth', 0.05, 0, 392); this.noise(0.06, 0.02); break                      // low warm swell
+      default:       this.pickup()
+    }
+  }
   hurt() { this.tone(300, 70, 0.28, 'sawtooth', 0.08) }
   stomp() { this.tone(520, 150, 0.1, 'square', 0.06) }
   clear() { this.tone(520, 940, 0.14, 'square', 0.05) }
@@ -3849,7 +3860,7 @@ export class MainScene extends Phaser.Scene {
     this.shockwave(px, py, info.color, 30)
     this.fxFlash(90, (info.color >> 16) & 255, (info.color >> 8) & 255, info.color & 255, false)
     this.pickupCallout(px, py, info)
-    this.sfx?.pickup()
+    this.sfx?.pickupMotif(kind)
     if (kind === 'health') { this.health = Math.min(this.maxHealth, this.health + 1); this.updateHealth(); this.pulseHud(this.healthText) }
     else {
       if (kind !== this.weapon) {
