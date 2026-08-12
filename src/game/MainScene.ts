@@ -759,6 +759,7 @@ export class MainScene extends Phaser.Scene {
   private dailyUI: Phaser.GameObjects.GameObject[] = []
   private closeDailyKey = () => this.closeDaily()
   private dailyRun = false                 // this run posts to the Daily board (modifier applied, Armory ignored)
+  private dailyDay = ''                     // UTC day captured at run START — a midnight-crossing run scores its own day's board
   private rebinding: PadBindAction | null = null
   private rebindArmed = false          // true once all buttons release, so the opening tap can't self-bind
   private rebindHint?: Phaser.GameObjects.Text
@@ -1943,7 +1944,10 @@ export class MainScene extends Phaser.Scene {
       const release = () => { this.touch[key] = false; bg.setFillStyle(tint, 0.42) }
       bg.on('pointerdown', press)
       bg.on('pointerup', release)
-      bg.on('pointerout', release)
+      // Release only when the finger actually LIFTS (over or off the button) — not on mere drift.
+      // pointerout used to drop held FIRE/JUMP/move the instant a thumb slid off; pointerupoutside
+      // keeps the input held through the drift and releases on the real lift.
+      bg.on('pointerupoutside', release)
       this.touchUI.push(bg, txt)
     }
     // Left thumb — move (violet) + 8-way aim (cyan). Cross layout, bottom-left.
@@ -2354,6 +2358,7 @@ export class MainScene extends Phaser.Scene {
     this.dailyOpen = false
     // the day's modifier defines the START stats (base, not Armory — everyone equal)
     this.dailyRun = true
+    this.dailyDay = todayKey()               // anchor the board to the day the run STARTED, not when it ends
     this.maxHealth = mod.maxHealth ?? 6
     this.lives = mod.lives ?? 3
     this.fireBonus = mod.fireBonus ?? 0
@@ -3754,7 +3759,7 @@ export class MainScene extends Phaser.Scene {
   private triggerGameOver() {
     this.gameOver = true
     this.recordRun('gameover')
-    if (this.dailyRun) { submitDaily(todayKey(), this.score, this.level); noteDailyPlayed() }
+    if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
     else submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
@@ -3778,7 +3783,7 @@ export class MainScene extends Phaser.Scene {
   private showVictory() {
     this.gameOver = true
     this.recordRun('win')
-    if (this.dailyRun) { submitDaily(todayKey(), this.score, this.level); noteDailyPlayed() }
+    if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
     else submitScore(this.score, this.level)     // post to our global leaderboard (no-op if offline / no wallet)
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
