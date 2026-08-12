@@ -58,6 +58,7 @@ const MUSIC_THEMES: Record<string, { bpm: number; bass: number[]; lead: number[]
   core:       { bpm: 132, bass: [49.00, 49.00, 73.42, 49.00, 58.27, 49.00, 73.42, 65.41], lead: [196.00, 0, 233.08, 0, 293.66, 0, 233.08, 349.23] }, // G minor — tense
   throne:     { bpm: 126, bass: [55, 55, 73.42, 82.41, 65.41, 55, 82.41, 110.00],         lead: [220, 0, 293.66, 0, 329.63, 0, 261.63, 440.00] },     // A minor — stately / grand
   volt:       { bpm: 152, bass: [92.50, 92.50, 138.59, 92.50, 110.00, 92.50, 138.59, 123.47], lead: [369.99, 0, 440.00, 0, 554.37, 0, 440.00, 739.99] }, // F# minor — fast / electric
+  frost:      { bpm: 118, bass: [65.41, 65.41, 98.00, 65.41, 82.41, 65.41, 98.00, 87.31],     lead: [523.25, 0, 622.25, 0, 783.99, 0, 622.25, 1046.50] }, // C minor — slow, crystalline highs
 }
 
 // Asset-free procedural sound — short Web-Audio blips, no files needed.
@@ -287,7 +288,7 @@ class Sfx {
   }
 }
 
-export type ThemeName = 'streets' | 'industrial' | 'sky' | 'core' | 'throne' | 'volt'
+export type ThemeName = 'streets' | 'industrial' | 'sky' | 'core' | 'throne' | 'volt' | 'frost'
 
 export interface Theme {
   bg: number
@@ -306,6 +307,7 @@ export const THEMES: Record<ThemeName, Theme> = {
   core:       { bg: 0x120406, far: 0x2e0d14, mid: 0x4a141f, rim: 0xf43f5e, fill: 0x45141d, ledge: 0x5a1a26, accent: 0xfb7185 },
   throne:     { bg: 0x0b0714, far: 0x241a3a, mid: 0x3a2a5c, rim: 0xfbbf24, fill: 0x362a52, ledge: 0x4a3a2a, accent: 0xfde68a },
   volt:       { bg: 0x070a16, far: 0x141a34, mid: 0x1e2a52, rim: 0x818cf8, fill: 0x1c2348, ledge: 0x2a3566, accent: 0xa5b4fc },
+  frost:      { bg: 0x060c14, far: 0x0e2233, mid: 0x18384f, rim: 0x7dd3fc, fill: 0x1a3a52, ledge: 0x2a5573, accent: 0xe0f2fe },
 }
 
 export interface EnemySpawn { kind: string; x: number; y: number; hp: number; speed: number }
@@ -560,6 +562,47 @@ export const LEVELS: LevelDef[] = [
     endBoss: { x: 9280, y: 430, hp: 60, speed: 62, label: 'VOLT WRAITH', kind: 'wraith' },
   },
   {
+    // CRYO VAULT — a frozen data-vault penultimate sector. Geometry is the proven VOLT SPIRE
+    // layout (guaranteed-completable staircases, movers, hazard pits, launch pads) re-skinned in
+    // cold blues, with a tougher enemy mix and the CRYO REVENANT guardian holding the extraction.
+    name: 'CRYO VAULT', theme: 'frost', w: 9600, h: 800, spawn: [120, 500], goal: [9560, 540],
+    ground: [[0, 780, 600], [960, 1540, 600], [1720, 2300, 600], [2480, 4260, 600], [4440, 5400, 600], [5580, 6560, 600], [6760, 7040, 600], [7240, 7520, 600], [7720, 9600, 600]],
+    plats: [[280, 430, 150], [1050, 410, 150], [2000, 390, 150], [2200, 300, 140], [3000, 380, 150], [3500, 310, 150], [4300, 400, 150], [5100, 390, 150], [6300, 400, 150], [6820, 350, 150], [8760, 320, 150], [8940, 360, 150], [9120, 320, 150]],
+    walls: [
+      [500, 500, 160, 200],
+      [1250, 480, 180, 240], [1450, 540, 180, 120],
+      [2900, 500, 180, 220], [3100, 440, 180, 320],
+      [4950, 500, 180, 220], [5150, 440, 180, 320],
+      [7960, 540, 160, 160], [8140, 430, 160, 270], [8320, 320, 160, 380],
+    ],
+    turrets: [[1250, 480], [2000, 390], [3100, 440], [5150, 440], [6300, 400], [8320, 320], [8940, 360]],
+    enemies: [
+      { kind: 'soldier', x: 250, y: 566, hp: 6, speed: 80 }, { kind: 'soldier', x: 340, y: 566, hp: 6, speed: 80 },
+      { kind: 'tank', x: 700, y: 560, hp: 11, speed: 32 }, { kind: 'charger', x: 1080, y: 566, hp: 7, speed: 72 },
+      { kind: 'soldier', x: 1780, y: 566, hp: 6, speed: 82 }, { kind: 'tank', x: 2050, y: 560, hp: 11, speed: 32 },
+      { kind: 'charger', x: 2600, y: 566, hp: 7, speed: 72 }, { kind: 'tank', x: 2750, y: 560, hp: 12, speed: 32 },
+      { kind: 'soldier', x: 3300, y: 566, hp: 6, speed: 82 }, { kind: 'charger', x: 3450, y: 566, hp: 7, speed: 74 },
+      { kind: 'tank', x: 3620, y: 560, hp: 12, speed: 32 }, { kind: 'soldier', x: 4020, y: 566, hp: 6, speed: 82 },
+      { kind: 'charger', x: 4160, y: 566, hp: 7, speed: 74 }, { kind: 'tank', x: 4720, y: 560, hp: 11, speed: 32 },
+      { kind: 'soldier', x: 5300, y: 566, hp: 6, speed: 84 }, { kind: 'charger', x: 5380, y: 566, hp: 7, speed: 74 },
+      { kind: 'tank', x: 5850, y: 560, hp: 12, speed: 32 }, { kind: 'charger', x: 6050, y: 566, hp: 7, speed: 74 },
+      { kind: 'charger', x: 6900, y: 566, hp: 7, speed: 76 }, { kind: 'soldier', x: 7380, y: 566, hp: 6, speed: 84 },
+      { kind: 'tank', x: 8500, y: 560, hp: 12, speed: 32 }, { kind: 'charger', x: 8700, y: 566, hp: 7, speed: 76 },
+      { kind: 'soldier', x: 8900, y: 566, hp: 7, speed: 86 }, { kind: 'charger', x: 9260, y: 566, hp: 8, speed: 76 },
+      { kind: 'diver', x: 1050, y: 300, hp: 6, speed: 114 }, { kind: 'diver', x: 2050, y: 300, hp: 6, speed: 114 },
+      { kind: 'diver', x: 3000, y: 300, hp: 6, speed: 116 }, { kind: 'diver', x: 4600, y: 300, hp: 6, speed: 116 },
+      { kind: 'diver', x: 5100, y: 300, hp: 6, speed: 118 }, { kind: 'diver', x: 6300, y: 300, hp: 6, speed: 118 },
+      { kind: 'diver', x: 7000, y: 300, hp: 6, speed: 120 }, { kind: 'diver', x: 8600, y: 300, hp: 6, speed: 120 },
+      { kind: 'flyer', x: 850, y: 280, hp: 6, speed: 88 }, { kind: 'flyer', x: 4700, y: 280, hp: 6, speed: 90 },
+      { kind: 'flyer', x: 6100, y: 280, hp: 6, speed: 90 }, { kind: 'flyer', x: 8100, y: 270, hp: 6, speed: 92 },
+    ],
+    pods: [[350, 510, 'laser'], [1000, 510, 'health'], [2000, 350, 'spread'], [3300, 545, 'rapid'], [4520, 545, 'health'], [5650, 545, 'fire'], [6300, 360, 'health'], [6820, 310, 'laser'], [8500, 510, 'health'], [9120, 280, 'spread']],
+    movers: [[850, 590, 120, 'h', 85, 0.9], [1630, 590, 130, 'h', 95, 0.9], [2390, 590, 120, 'h', 85, 0.9], [4350, 590, 120, 'h', 85, 0.9], [5490, 590, 120, 'h', 85, 0.9], [6660, 590, 130, 'h', 100, 0.9], [7140, 590, 130, 'h', 100, 0.9], [7620, 590, 130, 'h', 100, 0.9], [2200, 470, 110, 'v', 150, 0.7]],
+    hazards: [[650, 600, 110], [1780, 600, 120], [3450, 600, 120], [5300, 600, 110], [6250, 600, 110], [8600, 600, 90], [9300, 600, 90]],
+    bouncers: [[2100, 600, 90], [3800, 600, 90], [8760, 600, 90]],
+    endBoss: { x: 9280, y: 430, hp: 62, speed: 64, label: 'CRYO REVENANT', kind: 'revenant' },
+  },
+  {
     // APEX THRONE — the final boss arena. A compact, symmetric throne where the
     // Apex boss looms dead-center over a single solid floor (kept low enough to
     // stay in the pulled-back frame). Flanking ledges + a pair of launch pads give
@@ -634,6 +677,7 @@ const BOSS_MOVES: Record<string, string[]> = {
   warden:   ['ring', 'sweep', 'spiral', 'ring', 'lob'],
   sentinel: ['fan', 'ring', 'nova', 'burst', 'dive', 'spread'],
   wraith:   ['dash', 'ring', 'lance', 'burst', 'sweep', 'spread'],
+  revenant: ['spread', 'nova', 'lance', 'ring', 'sweep', 'burst'],
 }
 const BOSS_MOVES_P2: Record<string, string[]> = {
   reaper:   ['dash', 'burst', 'nova', 'spread', 'dash', 'ring'],
@@ -642,6 +686,7 @@ const BOSS_MOVES_P2: Record<string, string[]> = {
   warden:   ['sweep', 'cross', 'ring', 'sweep', 'lob', 'ring'],
   sentinel: ['fan', 'ring', 'dive', 'lance', 'sweep', 'pound', 'burst'],
   wraith:   ['dash', 'sweep', 'spiral', 'ring', 'dive', 'ring', 'burst'],
+  revenant: ['nova', 'lance', 'spiral', 'ring', 'spread', 'dash', 'nova'],
 }
 // Classify each boss move so the wind-up telegraph can play a matching audio cue —
 // a rising whine for projectile volleys, a low whoosh for lunges, a warble for summons —
@@ -652,9 +697,9 @@ const BOSS_MOVE_CLASS: Record<string, 'charge' | 'lunge' | 'summon'> = {
   dash: 'lunge', dive: 'lunge', pound: 'lunge', summon: 'summon',
 }
 
-const BOSS_CADENCE: Record<string, number> = { reaper: 1100, brute: 1750, tyrant: 1500, warden: 1350, sentinel: 1250, wraith: 1200 }
-const BOSS_HOME_Y: Record<string, number> = { reaper: 430, brute: 500, tyrant: 350, warden: 420, sentinel: 400, wraith: 380 }
-const BOSS_ACCENT: Record<string, number> = { reaper: 0xf43f5e, brute: 0xfb923c, tyrant: 0x67e8f9, warden: 0xc084fc, sentinel: 0xfbbf24, wraith: 0x818cf8 }
+const BOSS_CADENCE: Record<string, number> = { reaper: 1100, brute: 1750, tyrant: 1500, warden: 1350, sentinel: 1250, wraith: 1200, revenant: 1300 }
+const BOSS_HOME_Y: Record<string, number> = { reaper: 430, brute: 500, tyrant: 350, warden: 420, sentinel: 400, wraith: 380, revenant: 400 }
+const BOSS_ACCENT: Record<string, number> = { reaper: 0xf43f5e, brute: 0xfb923c, tyrant: 0x67e8f9, warden: 0xc084fc, sentinel: 0xfbbf24, wraith: 0x818cf8, revenant: 0x7dd3fc }
 const bossAccent = (kind: string): number => BOSS_ACCENT[kind] ?? 0xfbbf24
 
 // Apex Contracts — between every sector (campaign only) you pick 1 of 3 boons that persist for the
