@@ -31,6 +31,7 @@ const WORLD_BG: Record<string, string> = {
 // ---- Feel kit (Contra run-and-gun + Mario-grade jump) ----
 const GROUND_ENEMIES = new Set(['soldier', 'tank', 'charger', 'turret'])  // get drop shadows
 const RUN = 275          // horizontal top speed
+const DASH_SPEED = 640   // Phase Dash burst speed
 const ACCEL = 1500       // ground acceleration (doubled when reversing = snappy turns)
 const AIR_ACCEL = 950
 const DRAG = 1700        // deceleration when no input
@@ -458,10 +459,10 @@ interface TouchState {
 
 // Gamepad actions that can be remapped (press-to-bind, persisted to localStorage).
 // Movement + aim stay on the d-pad / left stick; only these action buttons rebind.
-type PadBindAction = 'fire' | 'jump' | 'swap' | 'pause'
-const PAD_BIND_DEFAULTS: Record<PadBindAction, number> = { fire: 2, jump: 0, swap: 3, pause: 9 }
-const PAD_BIND_ORDER: PadBindAction[] = ['fire', 'jump', 'swap', 'pause']
-const PAD_BIND_LABEL: Record<PadBindAction, string> = { fire: 'FIRE', jump: 'JUMP', swap: 'SWAP WEAPON', pause: 'PAUSE' }
+type PadBindAction = 'fire' | 'jump' | 'swap' | 'pause' | 'dash'
+const PAD_BIND_DEFAULTS: Record<PadBindAction, number> = { fire: 2, jump: 0, swap: 3, pause: 9, dash: 5 }
+const PAD_BIND_ORDER: PadBindAction[] = ['fire', 'jump', 'swap', 'dash', 'pause']
+const PAD_BIND_LABEL: Record<PadBindAction, string> = { fire: 'FIRE', jump: 'JUMP', swap: 'SWAP WEAPON', pause: 'PAUSE', dash: 'DASH' }
 // Normalised gamepad snapshot read straight from navigator.getGamepads() (see readPad).
 type PadState = { buttons: boolean[]; axes: number[]; id: string }
 // Bridge to the React DOM gutter controls (off-canvas buttons in the letterbox
@@ -618,6 +619,15 @@ export class MainScene extends Phaser.Scene {
   private lastGroundAt = 0
   private jumpBufferAt = -9999
   private prevJump = false
+  // Phase Dash (Armory-unlocked dodge). dashLevel 0 = locked.
+  private dashKey!: Phaser.Input.Keyboard.Key
+  private dashLevel = 0
+  private dashCd = 700
+  private dashUntil = 0
+  private dashCdUntil = 0
+  private dashIframeUntil = 0
+  private dashDir = 1
+  private prevDash = false
   private isJumping = false
   private lastGroundX = 80
   private lastGroundY = 480
@@ -742,6 +752,22 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
+  // Phase Dash trail — tinted afterimages + a puff + ring.
+  private dashFx() {
+    const col = this.dashLevel >= 2 ? 0x67e8f9 : 0x22d3ee
+    const key = this.player.texture.key
+    for (let i = 1; i <= 3; i++) {
+      const g = this.add.image(this.player.x - this.dashDir * i * 13, this.player.y, key)
+        .setFlipX(this.player.flipX).setDisplaySize(this.player.displayWidth, this.player.displayHeight)
+        .setTint(col).setAlpha(0.45).setDepth((this.player.depth || 0) - 1).setBlendMode(Phaser.BlendModes.ADD)
+      this.tweens.add({ targets: g, alpha: 0, duration: 200, delay: i * 18, onComplete: () => g.destroy() })
+    }
+    const b = this.player.body as Phaser.Physics.Arcade.Body
+    this.deathParticles.setParticleTint(col)
+    this.deathParticles.emitParticleAt(this.player.x, b.bottom, 6)
+    this.shockwave(this.player.x, this.player.y, col, 20)
+  }
+
   preload() {
     // Hero pose set — one consistent side-view lioness across all states, each
     // aligned to a shared canvas so they swap without jitter (ready/run/jump/crouch).
@@ -770,6 +796,9 @@ export class MainScene extends Phaser.Scene {
     this.maxHealth = 6 + meta.up.vitality
     this.maxJumps = MAX_JUMPS + meta.up.boots
     this.fireBonus = meta.up.firepower * 12
+    this.dashLevel = meta.up.dash
+    this.dashCd = this.dashLevel >= 2 ? 480 : 700
+    this.dashUntil = 0; this.dashCdUntil = 0; this.dashIframeUntil = 0; this.prevDash = false
     this.health = this.maxHealth
     this.lives = 3 + meta.up.reserves
     this.runStartAt = Date.now()   // playtest telemetry: new run
@@ -887,6 +916,7 @@ export class MainScene extends Phaser.Scene {
       right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
     }
     this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+    this.dashKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT)
 
     // Web-Audio needs a user gesture before it can play
     const resumeAudio = () => this.sfx?.resume()
@@ -1947,6 +1977,7 @@ export class MainScene extends Phaser.Scene {
       'Crouch     hold ↓ / S',
       'Fire       SPACE (hold)',
       'Swap gun   Q',
+      'Dash       SHIFT  (Armory)',
       'Pause      P / Esc',
       'Mute       M',
     ]
@@ -2015,7 +2046,7 @@ export class MainScene extends Phaser.Scene {
     push(this.add.text(256, 62, '◆ ' + meta.shards, { fontFamily: 'monospace', fontSize: '16px', color: '#67e8f9', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
 
     UPGRADES.forEach((def, i) => {
-      const y = 98 + i * 56
+      const y = 88 + i * 50
       const tier = meta.up[def.key]
       const cost = nextCost(def.key, tier)
       push(this.add.text(34, y - 8, def.glyph + '  ' + def.name, { fontFamily: 'monospace', fontSize: '12px', color: def.hex, fontStyle: 'bold' }).setScrollFactor(0).setDepth(251))
@@ -2038,7 +2069,7 @@ export class MainScene extends Phaser.Scene {
       }
     })
 
-    push(this.add.text(256, 330, 'Shards bank automatically as you grab them in a run.', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    push(this.add.text(256, 322, 'Shards bank automatically as you grab them in a run.', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
     const back = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
     back.on('pointerdown', () => this.closeArmory())
   }
@@ -2141,6 +2172,7 @@ export class MainScene extends Phaser.Scene {
     this.lives = mod.lives ?? 3
     this.fireBonus = mod.fireBonus ?? 0
     this.maxJumps = MAX_JUMPS + (mod.bonusJumps ?? 0)
+    this.dashLevel = 0        // daily = base kit, Armory off (no dash)
     this.weapon = (mod.weapon ?? 'normal') as typeof this.weapon
     this.altWeapon = this.weapon
     this.health = this.maxHealth
@@ -2751,6 +2783,26 @@ export class MainScene extends Phaser.Scene {
       this.player.setDragX(DRAG)
     }
 
+    // --- Phase Dash (Armory-unlocked dodge burst; overrides horizontal for its window) ---
+    if (this.dashLevel > 0) {
+      const dashHeld = this.dashKey.isDown || !!(dpad && dpad.dash) || !!(pad && pad.buttons[this.padBinds.dash])
+      if (dashHeld && !this.prevDash && time > this.dashCdUntil && !this.prone) {
+        const dir = left ? -1 : right ? 1 : (this.facingRight ? 1 : -1)
+        this.dashDir = dir
+        this.dashUntil = time + 175
+        this.dashCdUntil = time + this.dashCd
+        this.dashIframeUntil = time + (this.dashLevel >= 2 ? 220 : 150)
+        this.facingRight = dir > 0; this.player.setFlipX(dir < 0)
+        this.dashFx()
+        this.sfx?.jump()
+      }
+      this.prevDash = dashHeld
+    }
+    if (time < this.dashUntil) {
+      this.player.setAccelerationX(0)
+      body.setVelocityX(this.dashDir * DASH_SPEED)
+    }
+
     // --- Jump: coyote time + input buffering + variable height + double jump ---
     if (!this.onGround && time - this.lastGroundAt > COYOTE && this.jumpsLeft > this.maxJumps - 1) this.jumpsLeft = this.maxJumps - 1
     if (jump && !this.prevJump) this.jumpBufferAt = time
@@ -3261,7 +3313,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private damagePlayer(cause: DeathCause = 'enemy', killer?: string) {
-    if (this.invulnerable || this.gameOver || this.levelTransition) return
+    if (this.invulnerable || this.gameOver || this.levelTransition || this.time.now < this.dashIframeUntil) return
     this.health -= 1
     this.combo = 0; this.comboText.setText('')
     this.updateHealth()

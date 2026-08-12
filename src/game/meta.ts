@@ -3,7 +3,7 @@
 // run. This turns the campaign from a one-shot arcade run into a roguelite growth loop:
 // every run pays out, and each upgrade lets you push a little further.
 
-export type UpgradeKey = 'vitality' | 'reserves' | 'firepower' | 'boots'
+export type UpgradeKey = 'vitality' | 'reserves' | 'firepower' | 'boots' | 'dash'
 
 export interface Meta {
   shards: number                       // banked, spendable currency
@@ -27,10 +27,11 @@ export const UPGRADES: UpgradeDef[] = [
   { key: 'reserves',  name: 'RESERVES',      blurb: '+1 starting life',    max: 2, costs: [30, 75],      hex: '#67e8f9', glyph: '⛊' },
   { key: 'firepower', name: 'FIREPOWER',     blurb: 'faster fire (all guns)', max: 3, costs: [25, 55, 105], hex: '#fbbf24', glyph: '⚡' },
   { key: 'boots',     name: 'KINETIC BOOTS', blurb: '+1 air-jump',         max: 2, costs: [35, 85],      hex: '#c084fc', glyph: '➶' },
+  { key: 'dash',      name: 'PHASE DASH',    blurb: 'unlock a dodge-dash (i-frames)', max: 2, costs: [45, 95], hex: '#22d3ee', glyph: '»' },
 ]
 
 const KEY = 'apex_meta'
-const DEFAULT: Meta = { shards: 0, up: { vitality: 0, reserves: 0, firepower: 0, boots: 0 } }
+const DEFAULT: Meta = { shards: 0, up: { vitality: 0, reserves: 0, firepower: 0, boots: 0, dash: 0 } }
 
 const clampTier = (v: unknown, max: number): number => {
   const n = Math.floor(Number(v) || 0)
@@ -50,6 +51,7 @@ export function loadMeta(): Meta {
         reserves:  clampTier(up.reserves,  2),
         firepower: clampTier(up.firepower, 3),
         boots:     clampTier(up.boots,     2),
+        dash:      clampTier(up.dash,      2),
       },
     }
   } catch {
