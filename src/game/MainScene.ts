@@ -29,7 +29,7 @@ const WORLD_BG: Record<string, string> = {
 }
 
 // ---- Feel kit (Contra run-and-gun + Mario-grade jump) ----
-const GROUND_ENEMIES = new Set(['soldier', 'tank', 'charger', 'turret'])  // get drop shadows
+const GROUND_ENEMIES = new Set(['walker', 'tank', 'charger', 'turret', 'sniper', 'shielder'])  // get drop shadows (keyed by getData('type'): soldiers are 'walker')
 const RUN = 275          // horizontal top speed
 const DASH_SPEED = 640   // Phase Dash burst speed
 const ACCEL = 1500       // ground acceleration (doubled when reversing = snappy turns)
@@ -1133,7 +1133,7 @@ export class MainScene extends Phaser.Scene {
 
     // Restore the saved mute preference (persists across page reloads too).
     try { this.muted = localStorage.getItem('apex_muted') === '1' } catch { /* ignore */ }
-    try { this.reduceMotion = localStorage.getItem('apex_reducefx') === '1' } catch { /* ignore */ }
+    try { const rf = localStorage.getItem('apex_reducefx'); this.reduceMotion = rf === '1' || (rf == null && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) } catch { /* ignore */ }
     this.sfx.setMuted(this.muted)
 
     // Backdrop pinned to the camera. Sized to the pulled-back world view (plus a
@@ -3447,7 +3447,7 @@ export class MainScene extends Phaser.Scene {
           else if (type === 'turret') base = Math.max(650, 1250 - this.level * 90)
           else if (type === 'sniper') base = Math.max(1500, 2100 - this.level * 80)
           enemy.setData('shootTimer', base)
-        } else enemy.setData('shootTimer', timer <= 0 ? 140 : timer)
+        } else { enemy.setData('shootTimer', timer <= 0 ? 140 : timer); if (!near) enemy.setData('tele', false) }   // re-arm the wind-up if the target left range
       }
     })
   }
