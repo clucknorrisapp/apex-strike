@@ -194,6 +194,10 @@ class Sfx {
         this.tone(360 + Math.random() * 80, 150, 0.06, 'sawtooth', 0.05)
         this.noise(0.05, 0.035)
         break
+      case 'arc':                                                 // hollow launcher thump
+        this.tone(190, 96, 0.12, 'sine', 0.06)
+        this.noise(0.05, 0.03)
+        break
       default:                                                    // normal blaster
         this.tone(820 + Math.random() * 180, 300, 0.05, 'square', 0.045)
     }
@@ -716,6 +720,7 @@ const POWERUP_INFO: Record<string, PowerupInfo> = {
   rapid:  { label: 'RAPID',  desc: 'RAPID FIRE',      color: 0xfbbf24, hex: '#fbbf24', glyph: 'R' },
   laser:  { label: 'LASER',  desc: 'PIERCING BEAM',   color: 0xe879f9, hex: '#e879f9', glyph: 'L' },
   fire:   { label: 'FIRE',   desc: 'BURNING ROUNDS',  color: 0xfb923c, hex: '#fb923c', glyph: 'F' },
+  arc:    { label: 'ARC',    desc: 'LOBBED AoE BOMB', color: 0x84cc16, hex: '#84cc16', glyph: 'A' },
 }
 const powerupInfo = (kind: string): PowerupInfo =>
   POWERUP_INFO[kind] || { label: kind.toUpperCase(), desc: '', color: 0xffffff, hex: '#ffffff', glyph: '?' }
@@ -786,6 +791,7 @@ export class MainScene extends Phaser.Scene {
   }
   private spaceKey!: Phaser.Input.Keyboard.Key
   private bullets!: Phaser.Physics.Arcade.Group
+  private arcBombs!: Phaser.Physics.Arcade.Group      // ARC LAUNCHER lobs — their OWN group so gravity + ground collision don't touch normal bullets
   private enemyBullets!: Phaser.Physics.Arcade.Group
   private enemies!: Phaser.Physics.Arcade.Group
   private platforms!: Phaser.Physics.Arcade.StaticGroup
@@ -859,12 +865,12 @@ export class MainScene extends Phaser.Scene {
   private touchHidden = false
   private padPresentPrev = false   // edge-detect gamepad presence for TV-mode auto hide/show
   private touchToggle?: Phaser.GameObjects.Text
-  private weapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' = 'normal'
+  private weapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' | 'arc' = 'normal'
   // Two-weapon carry: a backup slot you can swap into (Q / touch / gamepad Y).
-  private altWeapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' = 'normal'
+  private altWeapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' | 'arc' = 'normal'
   // Weapon mastery (per kind, 0..2): picking up a pod for the gun you already hold levels it —
   // faster fire + more damage, plus a signature perk (laser pierces, spread gains pellets).
-  private weaponLvl: Record<string, number> = { normal: 0, spread: 0, rapid: 0, laser: 0, fire: 0 }
+  private weaponLvl: Record<string, number> = { normal: 0, spread: 0, rapid: 0, laser: 0, fire: 0, arc: 0 }
   private padSwapPrev = false
   // Gamepad remap (press-to-bind, saved to localStorage) + robustness state.
   private padBinds: Record<PadBindAction, number> = { ...PAD_BIND_DEFAULTS }
@@ -1158,7 +1164,7 @@ export class MainScene extends Phaser.Scene {
     this.facingRight = true
     this.weapon = 'normal'
     this.altWeapon = 'normal'
-    this.weaponLvl = { normal: 0, spread: 0, rapid: 0, laser: 0, fire: 0 }   // mastery is per-run, earned in-run
+    this.weaponLvl = { normal: 0, spread: 0, rapid: 0, laser: 0, fire: 0, arc: 0 }   // mastery is per-run, earned in-run
     this.padSwapPrev = false
     this.fireRate = 100
     this.jumpsLeft = this.maxJumps
@@ -1200,6 +1206,8 @@ export class MainScene extends Phaser.Scene {
     this.bouncers = this.physics.add.staticGroup()
     // Projectiles ignore world gravity so they fly straight + flat (no droop).
     this.bullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 120, allowGravity: false })
+    // Arc bombs get gravity ON (per-body) + their own colliders so they lob and burst on the ground.
+    this.arcBombs = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 24, allowGravity: true })
     this.enemyBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 80, allowGravity: false })
     this.enemies = this.physics.add.group()
     this.powerups = this.physics.add.group()
@@ -1247,6 +1255,8 @@ export class MainScene extends Phaser.Scene {
     this.physics.add.collider(this.powerups, this.platforms)
 
     this.physics.add.overlap(this.bullets, this.enemies, this.hitEnemy as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this)
+    this.physics.add.overlap(this.arcBombs, this.enemies, this.hitArcEnemy as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this)
+    this.physics.add.collider(this.arcBombs, this.platforms, this.arcHitGround as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this)
     this.physics.add.overlap(this.player, this.enemies, this.hitPlayer as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this)
     this.physics.add.overlap(this.player, this.powerups, this.collectPowerup as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this)
     this.physics.add.overlap(this.player, this.enemyBullets, this.hitByEnemyBullet as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback, undefined, this)
@@ -1477,6 +1487,15 @@ export class MainScene extends Phaser.Scene {
       g.fillStyle(0xfffbeb, 1); g.fillCircle(32, 12, 5)             // white-hot head
       g.generateTexture('fireball', 44, 24); g.destroy()
     }
+    if (!this.textures.exists('arcbomb')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      g.fillStyle(0x3f6212, 1); g.fillCircle(14, 18, 11)     // dark olive shell
+      g.fillStyle(0x65a30d, 1); g.fillCircle(14, 18, 8)      // olive body
+      g.fillStyle(0xa3e635, 1); g.fillCircle(11, 15, 4)      // lime highlight
+      g.fillStyle(0x52525b, 1); g.fillRect(12, 3, 4, 7)      // fuse cap
+      g.fillStyle(0xfbbf24, 1); g.fillCircle(14, 3, 3)       // lit spark
+      g.generateTexture('arcbomb', 28, 32); g.destroy()
+    }
     if (!this.textures.exists('enemyBullet')) {
       const g = this.make.graphics({ x: 0, y: 0 })
       g.fillStyle(0x9f1239, 1); g.fillRoundedRect(1, 3, 24, 9, 4)    // dark red shell
@@ -1590,6 +1609,7 @@ export class MainScene extends Phaser.Scene {
     this.enemies.clear(true, true)
     this.powerups.clear(true, true)
     this.bullets.clear(true, true)
+    this.arcBombs?.clear(true, true)
     this.enemyBullets.clear(true, true)
     this.movers.clear(true, true)
     this.hazards.clear(true, true)
@@ -3407,6 +3427,7 @@ export class MainScene extends Phaser.Scene {
       else if (this.weapon === 'laser') rate = 70
       else if (this.weapon === 'spread') rate = 90
       else if (this.weapon === 'fire') rate = 85
+      else if (this.weapon === 'arc') rate = 560   // heavy launcher — slow, deliberate lobs
       rate = Math.max(20, rate - this.fireBonus - (this.weaponLvl[this.weapon] || 0) * 10)   // Armory FIREPOWER + weapon mastery speed up fire
       this.lastFired = time + rate
     }
@@ -3454,10 +3475,10 @@ export class MainScene extends Phaser.Scene {
     // Weapon recoil — a per-shot camera kick opposite the muzzle, so heavy guns FEEL heavy. Gated under
     // reduced motion; heavy guns also shove the body slightly (never while dashing, so the burst is clean).
     if (!this.reduceMotion) {
-      const K = this.weapon === 'laser' || this.weapon === 'fire' ? 7 : this.weapon === 'spread' ? 5 : this.weapon === 'rapid' ? 2 : 4
+      const K = this.weapon === 'laser' || this.weapon === 'fire' || this.weapon === 'arc' ? 7 : this.weapon === 'spread' ? 5 : this.weapon === 'rapid' ? 2 : 4
       this.recoilX -= dir * Math.cos(aimRad) * K
       this.recoilY -= Math.sin(aimRad) * K
-      if ((this.weapon === 'laser' || this.weapon === 'fire') && this.time.now >= this.dashUntil) {
+      if ((this.weapon === 'laser' || this.weapon === 'fire' || this.weapon === 'arc') && this.time.now >= this.dashUntil) {
         (this.player.body as Phaser.Physics.Arcade.Body).velocity.x -= dir * 40
       }
     }
@@ -3473,9 +3494,90 @@ export class MainScene extends Phaser.Scene {
       spawn(angle, 'fireball', 640, 0.78); spawn(angle - 14, 'fireball', 600, 0.62); spawn(angle + 14, 'fireball', 600, 0.62)
     } else if (this.weapon === 'rapid') {
       spawn(angle, 'bullet', 840, 0.5)
+    } else if (this.weapon === 'arc') {
+      this.fireArc(angle, dir, baseX, baseY)
     } else {
       spawn(angle, 'bullet', 800, 0.62)
     }
+  }
+
+  // ARC LAUNCHER — a gravity-lobbed bomb that bursts in an area. Falls from above to reach behind
+  // a Shielder's frontal block and onto wall-perched turrets; aim shapes the throw. Mastery grows
+  // the blast (L1) and adds cluster bomblets (L2). Detonates on an enemy, on the ground, or on fuse.
+  private fireArc(angle: number, dir: number, baseX: number, baseY: number) {
+    const b = this.arcBombs.get(baseX, baseY, 'arcbomb') as Phaser.Physics.Arcade.Image
+    if (!b) return
+    b.setActive(true).setVisible(true).setScale(0.8).setDepth(20)
+    b.body?.reset(baseX, baseY)
+    const body = b.body as Phaser.Physics.Arcade.Body
+    body.setEnable(true)
+    body.setAllowGravity(true); body.setGravityY(1100)   // self-contained arc regardless of world gravity
+    const lvl = this.weaponLvl['arc'] || 0
+    const radius = 66 + lvl * 26
+    const dmg = 4 + lvl * 2
+    // Launch keyed to aim: neutral is a forward lob; up throws higher/longer, down is a short toss.
+    let vx = dir * 360, vy = -430
+    if (angle === -90) { vx = dir * 110; vy = -600 }
+    else if (angle === -45) { vx = dir * 340; vy = -520 }
+    else if (angle === 45) { vx = dir * 300; vy = -240 }
+    else if (angle === 90) { vx = dir * 70; vy = -170 }
+    b.setVelocity(vx, vy)
+    b.setData('arc', radius); b.setData('arcDmg', dmg); b.setData('arcLvl', lvl); b.setData('spent', false)
+    b.setAngularVelocity(dir * 420)   // tumble in flight
+    // Fuse: burst even on a clean miss that never touches ground (e.g. off a ledge).
+    this.time.delayedCall(1700, () => { if (b.active && !b.getData('spent')) this.burstArc(b) })
+  }
+
+  // Detonate a specific bomb sprite once, then retire it (idempotent via the 'spent' flag).
+  private burstArc(b: Phaser.Physics.Arcade.Image) {
+    if (!b.active || b.getData('spent')) return
+    b.setData('spent', true)
+    const r = (b.getData('arc') as number) || 70
+    const dmg = (b.getData('arcDmg') as number) || 4
+    const lvl = (b.getData('arcLvl') as number) || 0
+    const x = b.x, y = b.y
+    b.setAngularVelocity(0); b.setActive(false).setVisible(false)
+    const bd = b.body as Phaser.Physics.Arcade.Body | null
+    if (bd) { bd.setVelocity(0, 0); bd.setEnable(false) }   // retire the pooled body so it can't ghost-collide while parked
+    this.detonateArc(x, y, r, dmg)
+    // L2 mastery — two smaller cluster bomblets burst just after, on either side.
+    if (lvl >= 2) {
+      ;[-1, 1].forEach((s) => this.time.delayedCall(110, () => this.detonateArc(x + s * r * 0.6, y - 6, r * 0.62, Math.max(2, dmg - 2))))
+    }
+  }
+
+  // Area blast: damage every enemy inside the radius (bosses chip), with a punchy one-shot burst.
+  private detonateArc(x: number, y: number, radius: number, dmg: number) {
+    this.shockwave(x, y, 0x84cc16, radius)
+    this.particles.emitParticleAt(x, y, 22)
+    this.deathParticles.setParticleTint(0xa3e635); this.deathParticles.emitParticleAt(x, y, 12)
+    if (!this.reduceMotion) this.fxShake(120, 0.016)
+    this.hitstop(40)
+    this.sfx?.explode(this.panAt(x))
+    const r2 = radius * radius
+    // Snapshot: killEnemy() destroys enemies, which mutates the group's live array mid-loop.
+    this.enemies.getChildren().slice().forEach((o) => {
+      const e = o as Phaser.Physics.Arcade.Sprite
+      if (!e.active) return
+      const dx = e.x - x, dy = e.y - y
+      if (dx * dx + dy * dy > r2) return
+      const hp = (e.getData('hp') as number) - dmg
+      e.setData('hp', hp)
+      if (hp <= 0) { this.killEnemy(e); return }
+      e.setTintFill(0xffffff); this.time.delayedCall(60, () => this.restoreTint(e))
+      const bsx = e.getData('bsx') as number, bsy = e.getData('bsy') as number
+      this.tweens.killTweensOf(e)
+      this.tweens.add({ targets: e, scaleX: bsx * 1.12, scaleY: bsy * 0.9, duration: 55, yoyo: true, onComplete: () => { if (e.active) e.setScale(bsx, bsy) } })
+      if ((e.getData('type') as string) === 'boss') this.bossBarChip()
+    })
+  }
+
+  private hitArcEnemy(bombObj: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile) {
+    this.burstArc(bombObj as Phaser.Physics.Arcade.Image)
+  }
+
+  private arcHitGround(bombObj: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile) {
+    this.burstArc(bombObj as Phaser.Physics.Arcade.Image)
   }
 
   // Soft elliptical drop shadows, redrawn each frame — grounds the player and
@@ -3894,7 +3996,12 @@ export class MainScene extends Phaser.Scene {
       return
     }
 
-    // ---- Kill ----
+    this.killEnemy(enemy)
+  }
+
+  // Award points, detonate, drop, and remove a killed enemy. Extracted from hitEnemy so the
+  // ARC LAUNCHER's area blast kills through the exact same path (score, combo, drops, boss).
+  private killEnemy(enemy: Phaser.Physics.Arcade.Sprite) {
     const type = enemy.getData('type') as string
     const isElite = enemy.getData('elite') === true
     const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : type === 'charger' ? 0xff7a3c : type === 'diver' ? 0xff4d6d : type === 'sniper' ? 0x93c5fd : type === 'shielder' ? 0x94a3b8 : 0xf43f5e
@@ -3919,7 +4026,7 @@ export class MainScene extends Phaser.Scene {
     else if (type === 'tank' || type === 'turret') this.fxFlash(90, 200, 120, 255, false)
     // Elites always drop; grunts drop 30% of the time.
     if (isElite || Math.random() < 0.3) {
-      const kinds = ['health', 'spread', 'rapid', 'laser', 'fire']
+      const kinds = ['health', 'spread', 'rapid', 'laser', 'fire', 'arc']
       this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
     }
     enemy.destroy()
@@ -4005,7 +4112,7 @@ export class MainScene extends Phaser.Scene {
     this.fxShake(isElite ? 140 : 60, isElite ? 0.018 : 0.012)
     this.sfx?.stomp(this.panAt(enemy.x))
     if (isElite || Math.random() < 0.3) {
-      const kinds = ['health', 'spread', 'rapid', 'laser', 'fire']
+      const kinds = ['health', 'spread', 'rapid', 'laser', 'fire', 'arc']
       this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
     }
     enemy.destroy()
@@ -4111,7 +4218,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private wlabel(w: string) {
-    return ({ spread: 'SPREAD', rapid: 'RAPID', laser: 'LASER', fire: 'FIRE' } as Record<string, string>)[w] || 'NORMAL'
+    return ({ spread: 'SPREAD', rapid: 'RAPID', laser: 'LASER', fire: 'FIRE', arc: 'ARC' } as Record<string, string>)[w] || 'NORMAL'
   }
 
   private updateWeaponHUD() {
