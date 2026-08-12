@@ -65,6 +65,7 @@ const MUSIC_THEMES: Record<string, { bpm: number; bass: number[]; lead: number[]
 class Sfx {
   private ctx: AudioContext | null = null
   private master: DynamicsCompressorNode | null = null   // limiter bus so layered SFX + music never clip
+  private duckGain: GainNode | null = null               // music-only bus; dips under big SFX (sidechain)
   muted = false
   constructor() {
     try {
@@ -78,10 +79,19 @@ class Sfx {
         comp.ratio.setValueAtTime(12, t); comp.attack.setValueAtTime(0.003, t); comp.release.setValueAtTime(0.25, t)
         comp.connect(this.ctx.destination)
         this.master = comp
+        const dg = this.ctx.createGain(); dg.gain.value = 1; dg.connect(comp); this.duckGain = dg
       }
     } catch { this.ctx = null }
   }
   private dest(): AudioNode { return this.master ?? this.ctx!.destination }
+  // Sidechain duck: dip the music bed briefly so SFX (which bypass duckGain into the master) punch through.
+  duck(depth = 0.45, dur = 0.28) {
+    const c = this.ctx, dg = this.duckGain; if (!c || !dg || this.muted) return
+    const g = dg.gain, t = c.currentTime
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t)
+    g.linearRampToValueAtTime(Math.max(0.05, 1 - depth), t + 0.02)
+    g.setTargetAtTime(1, t + 0.05, dur)
+  }
   resume() { this.ctx?.resume?.() }
   setMuted(v: boolean) {
     this.muted = v
@@ -115,7 +125,7 @@ class Sfx {
   shoot() { this.tone(820 + Math.random() * 180, 300, 0.05, 'square', 0.045) }
   jump() { this.tone(420, 780, 0.12, 'square', 0.05) }
   hit() { this.tone(240, 140, 0.05, 'square', 0.035) }
-  explode() { this.noise(0.28, 0.09) }
+  explode() { this.noise(0.28, 0.09); this.duck() }
   pickup() { this.tone(620, 1240, 0.16, 'sine', 0.06) }
   // Distinct pickup motif per powerup so you hear WHICH pod you grabbed, eyes on the action.
   pickupMotif(kind: string) {
@@ -128,7 +138,7 @@ class Sfx {
       default:       this.pickup()
     }
   }
-  hurt() { this.tone(300, 70, 0.28, 'sawtooth', 0.08) }
+  hurt() { this.tone(300, 70, 0.28, 'sawtooth', 0.08); this.duck() }
   stomp() { this.tone(520, 150, 0.1, 'square', 0.06) }
   clear() { this.tone(520, 940, 0.14, 'square', 0.05) }
   dash() { this.tone(200, 520, 0.14, 'sawtooth', 0.05) }
@@ -194,6 +204,7 @@ class Sfx {
     this.note(41.2, 0.9, 'sawtooth', 0.085, 0, 62)
     this.note(110, 0.5, 'square', 0.035, 0.12, 72)
     this.noise(0.6, 0.045)
+    this.duck(0.7, 0.5)
   }
   // Phase-2 enrage stinger — a rising alarm.
   enrage() {
@@ -201,6 +212,7 @@ class Sfx {
     this.note(233, 0.5, 'sawtooth', 0.06, 0.05, 700)
     this.note(880, 0.16, 'square', 0.045, 0)
     this.noise(0.3, 0.05)
+    this.duck(0.7, 0.5)
   }
   // Sector clear — bright ascending triad + capstone.
   fanfare() {
@@ -215,6 +227,13 @@ class Sfx {
     const notes = [261.63, 392, 523.25, 659.25, 783.99]
     notes.forEach((f, i) => this.note(f, 0.24, 'square', 0.06, 0.14 + i * 0.1))
     this.note(1046.5, 0.6, 'sine', 0.05, 0.14 + notes.length * 0.1)
+    this.duck(0.7, 0.5)
+  }
+  // Per-boss signature phrase (semitone offsets from a root) — melodic identity on top of the roar.
+  bossLeitmotif(phrase: number[], enraged: boolean) {
+    if (!phrase || !phrase.length) return
+    const root = enraged ? 110 : 82.4, step = enraged ? 0.11 : 0.16
+    phrase.forEach((semi, i) => this.note(root * Math.pow(2, semi / 12), enraged ? 0.14 : 0.2, enraged ? 'square' : 'triangle', 0.06, i * step))
   }
   // Boss wind-up telegraph — a distinct pre-attack cue per move class (dodge-by-ear).
   bossTele(cls: 'charge' | 'lunge' | 'summon') {
@@ -225,7 +244,7 @@ class Sfx {
   // Turret wind-up — a short high tick so on-screen turret volleys read by ear too.
   turretTele() { this.tone(760, 1240, 0.07, 'square', 0.03) }
   // Landing a hit on a boss — a beefier thunk than the grunt tick, so chipping the boss has weight.
-  bossHit() { this.tone(200, 96, 0.07, 'square', 0.05); this.noise(0.045, 0.028) }
+  bossHit() { this.tone(200, 96, 0.07, 'square', 0.05); this.noise(0.045, 0.028); this.duck(0.3, 0.16) }
 
   // ---- Procedural background music: a per-sector driving synth loop with a boss-intensity layer ----
   private musicGain: GainNode | null = null
@@ -250,7 +269,7 @@ class Sfx {
     if (!c || this.musicTimer !== null) return
     this.musicGain = c.createGain()
     this.musicGain.gain.value = this.muted ? 0 : this.targetMusicVol()
-    this.musicGain.connect(this.dest())
+    this.musicGain.connect(this.duckGain ?? this.dest())   // music goes through the duck bus; SFX bypass it
     this.musicStep = 0
     this.applyMusicTheme(theme)
     this.startMusicTimer()
@@ -722,6 +741,11 @@ const BOSS_CADENCE: Record<string, number> = { reaper: 1100, brute: 1750, tyrant
 const BOSS_HOME_Y: Record<string, number> = { reaper: 430, brute: 500, tyrant: 350, warden: 420, sentinel: 400, wraith: 380, revenant: 400 }
 const BOSS_ACCENT: Record<string, number> = { reaper: 0xf43f5e, brute: 0xfb923c, tyrant: 0x67e8f9, warden: 0xc084fc, sentinel: 0xfbbf24, wraith: 0x818cf8, revenant: 0x7dd3fc }
 const bossAccent = (kind: string): number => BOSS_ACCENT[kind] ?? 0xfbbf24
+// Signature 4-note phrase (semitone offsets) per boss — a melodic leitmotif to pair with the roar.
+const BOSS_LEITMOTIF: Record<string, number[]> = {
+  reaper:   [0, 7, 6, 0], brute:    [0, 0, 5, 3], tyrant:  [0, 12, 7, 12], warden:   [0, 5, 8, 5],
+  sentinel: [0, 4, 7, 11], wraith:  [0, 8, 6, 3], revenant: [0, 3, 10, 7],
+}
 
 // Apex Contracts — between every sector (campaign only) you pick 1 of 3 boons that persist for the
 // rest of the run, turning the fixed campaign into a lightweight roguelite with real decisions.
@@ -1949,6 +1973,7 @@ export class MainScene extends Phaser.Scene {
     if (t === 'boss') {
       this.bossRef = enemy; this.createBossBar(hp)
       this.sfx?.bossRoar()                     // every boss roars on entrance — guardians AND the inline throne boss
+      this.sfx?.bossLeitmotif(BOSS_LEITMOTIF[this.nextBossKind] || [], false)
       this.fxShake(220, 0.015)
       if (this.isBossLevel()) this.screenToast('⚠ ' + this.nextBossLabel, '#f43f5e', 110)   // final boss announces itself (guardians toast at their spawn site)
     }
@@ -3481,6 +3506,7 @@ export class MainScene extends Phaser.Scene {
       this.fxShake(320, 0.03)
       this.zoomPunch(1.10, 380)
       this.sfx?.enrage()
+      this.sfx?.bossLeitmotif(BOSS_LEITMOTIF[kind] || [], true)
       enemy.setData('atkT', 340)
     }
     const p2 = this.bossPhase === 2
