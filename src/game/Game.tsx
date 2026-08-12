@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback, type CSSProperties } from 'react'
 import Phaser from 'phaser'
 import { MainScene } from './MainScene'
+import { loadMeta } from './meta'
 
 // Subscribe to a media query (re-renders on change).
 function useMedia(query: string): boolean {
@@ -90,6 +91,14 @@ export function Game() {
   const isPortrait = useMedia('(orientation: portrait)')
   const [isFs, setIsFs] = useState(false)
   const [gutterW, setGutterW] = useState(0)
+  // Phase Dash is an Armory unlock; hide the on-screen DASH button until it's owned so a fresh
+  // player never taps a prominent button that does nothing (reads as 'broken' on first touch).
+  const [dashUnlocked, setDashUnlocked] = useState(() => { try { return loadMeta().up.dash > 0 } catch { return false } })
+  useEffect(() => {
+    const refresh = () => { try { setDashUnlocked(loadMeta().up.dash > 0) } catch { /* storage blocked */ } }
+    window.addEventListener('apex-armory-changed', refresh)
+    return () => window.removeEventListener('apex-armory-changed', refresh)
+  }, [])
 
   useEffect(() => {
     if (!containerRef.current || gameRef.current) return
@@ -245,8 +254,15 @@ export function Game() {
       {/* RIGHT gutter — dash+swap / jump / fire, anchored to the RIGHT edge */}
       <div style={{ position: 'absolute', right: 14, bottom: '7%', display: 'flex', flexDirection: 'column', gap: 10, width: aw, zIndex: 30 }}>
         <div style={{ display: 'flex', gap: 8 }}>
-          {hold('dash', '» DASH', { flex: 1, height: 38, fontSize: 12, background: 'rgba(8,51,68,0.55)', border: '2px solid rgba(34,211,238,0.85)' })}
-          {tap('swap', '⇄', { width: 44, height: 38, fontSize: 16, background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)' })}
+          {dashUnlocked ? (
+            <>
+              {hold('dash', '» DASH', { flex: 1, height: 38, fontSize: 12, background: 'rgba(8,51,68,0.55)', border: '2px solid rgba(34,211,238,0.85)' })}
+              {tap('swap', '⇄', { width: 44, height: 38, fontSize: 16, background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)' })}
+            </>
+          ) : (
+            /* Phase Dash not yet unlocked — SWAP takes the whole row instead of a dead DASH button */
+            tap('swap', '⇄ SWAP', { flex: 1, height: 38, fontSize: 13, background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)' })
+          )}
         </div>
         {hold('jump', 'JUMP', { background: 'rgba(20,83,45,0.5)', border: '2px solid rgba(74,222,128,0.85)', height: Math.round(bs * 1.05), fontSize: 16 })}
         {hold('shoot', 'FIRE', { background: 'rgba(76,5,25,0.55)', border: '2px solid rgba(244,63,94,0.9)', height: Math.round(bs * 1.35), fontSize: 18 })}
@@ -281,7 +297,7 @@ export function Game() {
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
           <div className="flex items-center gap-3">
-            <span className="text-violet-400/70 text-xs">v1.74 — Money Shots</span>
+            <span className="text-violet-400/70 text-xs">v1.75 — Daily Streaks</span>
             <button
               onClick={toggleFullscreen}
               className="text-xs text-violet-200 px-2 py-1 rounded-md border border-violet-700/60 hover:border-fuchsia-500/70 hover:text-fuchsia-200 transition-colors"
