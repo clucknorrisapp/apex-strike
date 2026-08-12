@@ -958,6 +958,8 @@ export class MainScene extends Phaser.Scene {
   // accessibility toggle can suppress the motion-heavy effects without touching gameplay.
   private fxShake(dur: number, intensity: number) { const cam = this.cameras.main; if (!this.reduceMotion) cam.shake(dur, intensity) }
   private fxFlash(dur: number, r?: number, g?: number, b?: number, force?: boolean) { const cam = this.cameras.main; if (!this.reduceMotion) cam.flash(dur, r, g, b, force) }
+  // Mobile haptics — a silent no-op off Android/where unsupported; shares the reduced-motion opt-out.
+  private buzz(pattern: number | number[]) { if (this.reduceMotion) return; try { (navigator as Navigator).vibrate?.(pattern) } catch { /* unsupported */ } }
   // Snap-zoom the world camera in then ease back — a cinematic accent for the biggest beats.
   // The HUD lives on uiCam so its crispness is untouched; zoomTo(base) self-heals after a resize.
   private zoomPunch(mult = 1.12, dur = 200) {
@@ -1036,6 +1038,7 @@ export class MainScene extends Phaser.Scene {
     this.screenToast(label + '  x' + c, '#' + col.toString(16).padStart(6, '0'), 100)
     if (this.player?.active) this.shockwave(this.player.x, this.player.y, col, 46)
     this.fxShake(90, 0.008)
+    this.buzz(c >= 15 ? [20, 40, 20] : 25)   // milestone buzz — a triple pulse at the big streaks
     this.sfx?.explode()
   }
 
@@ -3873,6 +3876,7 @@ export class MainScene extends Phaser.Scene {
 
   private damagePlayer(cause: DeathCause = 'enemy', killer?: string) {
     if (this.time.now < this.invulnUntil || this.gameOver || this.levelTransition || this.time.now < this.dashIframeUntil) return
+    this.buzz(60)   // firm hit buzz on mobile
     this.health -= 1
     this.combo = 0; this.comboText.setText('')
     this.updateHealth()
