@@ -734,6 +734,9 @@ export class MainScene extends Phaser.Scene {
   private weapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' = 'normal'
   // Two-weapon carry: a backup slot you can swap into (Q / touch / gamepad Y).
   private altWeapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' = 'normal'
+  // Weapon mastery (per kind, 0..2): picking up a pod for the gun you already hold levels it —
+  // faster fire + more damage, plus a signature perk (laser pierces, spread gains pellets).
+  private weaponLvl: Record<string, number> = { normal: 0, spread: 0, rapid: 0, laser: 0, fire: 0 }
   private padSwapPrev = false
   // Gamepad remap (press-to-bind, saved to localStorage) + robustness state.
   private padBinds: Record<PadBindAction, number> = { ...PAD_BIND_DEFAULTS }
@@ -982,6 +985,7 @@ export class MainScene extends Phaser.Scene {
     this.facingRight = true
     this.weapon = 'normal'
     this.altWeapon = 'normal'
+    this.weaponLvl = { normal: 0, spread: 0, rapid: 0, laser: 0, fire: 0 }   // mastery is per-run, earned in-run
     this.padSwapPrev = false
     this.fireRate = 100
     this.jumpsLeft = this.maxJumps
@@ -3032,7 +3036,7 @@ export class MainScene extends Phaser.Scene {
       else if (this.weapon === 'laser') rate = 70
       else if (this.weapon === 'spread') rate = 90
       else if (this.weapon === 'fire') rate = 85
-      rate = Math.max(24, rate - this.fireBonus)     // Armory FIREPOWER speeds up every gun
+      rate = Math.max(20, rate - this.fireBonus - (this.weaponLvl[this.weapon] || 0) * 10)   // Armory FIREPOWER + weapon mastery speed up fire
       this.lastFired = time + rate
     }
   }
@@ -3052,12 +3056,18 @@ export class MainScene extends Phaser.Scene {
     const baseX = pivotX + Math.cos(aimRad) * dir * barrel
     const baseY = pivotY + Math.sin(aimRad) * barrel
 
+    const laserLvl = this.weaponLvl['laser'] || 0
     const spawn = (ang: number, tex = 'bullet', spd = 800, scale = 0.6) => {
       const b = this.bullets.get(baseX, baseY, tex) as Phaser.Physics.Arcade.Image
       if (!b) return
       b.setActive(true).setVisible(true); b.setScale(scale); b.setDepth(20)
       b.body?.reset(baseX, baseY)
       ;(b.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)   // pooled bodies: keep them flat
+      // Laser is a PIERCING beam: it passes through up to (2 + mastery) enemies instead of dying on
+      // first contact. 'hit' tracks who it already struck so it can't double-tap one enemy in passing.
+      const pierce = tex === 'laser' ? 2 + laserLvl : 0
+      b.setData('pierce', pierce)
+      b.setData('hit', pierce > 0 ? [] : null)
       const rad = Phaser.Math.DegToRad(ang)
       const isVert = ang === -90 || ang === 90
       const vx = isVert ? 0 : Math.cos(rad) * dir * spd
@@ -3072,7 +3082,10 @@ export class MainScene extends Phaser.Scene {
     this.muzzleFlash(baseX, baseY, dir, angle)
 
     if (this.weapon === 'spread') {
-      spawn(angle - 20, 'bullet', 780, 0.55); spawn(angle, 'bullet', 820, 0.64); spawn(angle + 20, 'bullet', 780, 0.55)
+      // Base 3-pellet fan; mastery adds a pair of wider outer pellets per level (L1 = 5, L2 = 7).
+      spawn(angle, 'bullet', 820, 0.64)
+      const pairs = 1 + (this.weaponLvl['spread'] || 0)
+      for (let i = 1; i <= pairs; i++) { const off = i * 18; spawn(angle - off, 'bullet', 780, 0.55); spawn(angle + off, 'bullet', 780, 0.55) }
     } else if (this.weapon === 'laser') {
       spawn(angle, 'laser', 1120, 0.9); spawn(angle, 'laser', 1060, 0.7)
     } else if (this.weapon === 'fire') {
@@ -3409,9 +3422,19 @@ export class MainScene extends Phaser.Scene {
     const bullet = bulletObj as Phaser.Physics.Arcade.Image
     const enemy = enemyObj as Phaser.Physics.Arcade.Sprite
     const bx = bullet.x, by = bullet.y                 // impact point, for contact sparks
-    bullet.setActive(false).setVisible(false)
+    // Piercing bullets (laser) pass through up to `pierce` enemies; `hit` stops a single beam from
+    // double-tapping one enemy as it overlaps across frames. Non-piercing bullets die on first contact.
+    const pierce = (bullet.getData('pierce') as number) || 0
+    if (pierce > 0) {
+      const hitList = (bullet.getData('hit') as Phaser.GameObjects.GameObject[]) || []
+      if (hitList.includes(enemy)) return
+      hitList.push(enemy); bullet.setData('hit', hitList)
+      if (hitList.length >= pierce) bullet.setActive(false).setVisible(false)   // reached its pierce cap
+    } else {
+      bullet.setActive(false).setVisible(false)
+    }
 
-    const dmg = this.weapon === 'laser' ? 3 : this.weapon === 'fire' ? 2 : 1
+    const dmg = (this.weapon === 'laser' ? 3 : this.weapon === 'fire' ? 2 : 1) + (this.weaponLvl[this.weapon] || 0)
     const hp = (enemy.getData('hp') as number) - dmg
     enemy.setData('hp', hp)
     enemy.setTintFill(0xffffff)
@@ -3605,8 +3628,18 @@ export class MainScene extends Phaser.Scene {
     this.sfx?.pickup()
     if (kind === 'health') { this.health = Math.min(this.maxHealth, this.health + 1); this.updateHealth(); this.pulseHud(this.healthText) }
     else {
-      // Two-weapon carry: the new gun becomes active; the previous one drops to the backup slot.
-      if (kind !== this.weapon) { this.altWeapon = this.weapon; this.weapon = kind as typeof this.weapon }
+      if (kind !== this.weapon) {
+        // Two-weapon carry: the new gun becomes active; the previous one drops to the backup slot.
+        this.altWeapon = this.weapon; this.weapon = kind as typeof this.weapon
+      } else {
+        // Same gun again — bank mastery instead of wasting the pod.
+        const lv = Math.min(2, (this.weaponLvl[kind] || 0) + 1)
+        if (lv !== (this.weaponLvl[kind] || 0)) {
+          this.weaponLvl[kind] = lv
+          this.popup(px, py - 42, 'MASTERY ' + '★'.repeat(lv), info.hex)
+          this.cameras.main.shake(80, 0.006)
+        }
+      }
       this.updateWeaponHUD(); this.pulseHud(this.weaponText)
     }
   }
@@ -3641,9 +3674,10 @@ export class MainScene extends Phaser.Scene {
   }
 
   private updateWeaponHUD() {
-    // One backup weapon shown dim after the active one; a ▶ marks what's firing.
-    if (this.altWeapon === this.weapon) this.weaponText.setText('GUN  ' + this.wlabel(this.weapon))
-    else this.weaponText.setText('GUN ▶' + this.wlabel(this.weapon) + '  ·' + this.wlabel(this.altWeapon))
+    // One backup weapon shown dim after the active one; a ▶ marks what's firing. Mastery ★s trail each gun.
+    const stars = (w: string) => '★'.repeat(this.weaponLvl[w] || 0)
+    if (this.altWeapon === this.weapon) this.weaponText.setText('GUN  ' + this.wlabel(this.weapon) + stars(this.weapon))
+    else this.weaponText.setText('GUN ▶' + this.wlabel(this.weapon) + stars(this.weapon) + '  ·' + this.wlabel(this.altWeapon) + stars(this.altWeapon))
   }
 
   private swapWeapon() {
