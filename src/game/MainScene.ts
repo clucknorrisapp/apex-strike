@@ -687,6 +687,9 @@ export class MainScene extends Phaser.Scene {
   private runFrame = 0      // which run frame (0/1)
   private landRecoverUntil = 0  // brief crouch-on-landing window
   private airborneT = 0     // ms spent airborne (for landing detection)
+  private camLookX = -140   // current (lerped) camera lead offset; leads the direction you run
+  private camLookTarget = -140
+  private camDip = 0        // transient downward camera nudge on a hard landing (decays)
   private sfx?: Sfx
   private lastSfxShot = 0
   private lastFired = 0
@@ -981,6 +984,7 @@ export class MainScene extends Phaser.Scene {
     this.maxCombo = 0
     this.prevOnGround = false
     this.fallSpeed = 0
+    this.camLookX = -140; this.camLookTarget = -140; this.camDip = 0
     this.invulnUntil = 0
     this.facingRight = true
     this.weapon = 'normal'
@@ -2699,6 +2703,15 @@ export class MainScene extends Phaser.Scene {
     this.prevOnGround = this.onGround
     if (!this.onGround) { this.fallSpeed = body.velocity.y; this.airborneT += delta } else this.airborneT = 0
     this.drawShadows()
+
+    // Dynamic camera: lead the direction you're running (so threats ahead are on-screen, not just to
+    // the right) and dip briefly on a hard landing for weight. Lerped so a turn glides, never snaps.
+    if (body.velocity.x > 40) this.camLookTarget = -140
+    else if (body.velocity.x < -40) this.camLookTarget = 140
+    this.camLookX += (this.camLookTarget - this.camLookX) * 0.05
+    if (landed && this.fallSpeed > 380) this.camDip = Math.min(22, this.fallSpeed * 0.03)
+    this.camDip *= 0.86
+    this.cameras.main.setFollowOffset(this.camLookX, 24 + this.camDip)
 
     // Fell into a pit (below the content floor)
     if (this.player.y > this.levelH + 150) { this.pitFall(); return }
