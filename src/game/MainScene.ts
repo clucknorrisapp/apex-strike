@@ -64,14 +64,24 @@ const MUSIC_THEMES: Record<string, { bpm: number; bass: number[]; lead: number[]
 // Asset-free procedural sound — short Web-Audio blips, no files needed.
 class Sfx {
   private ctx: AudioContext | null = null
+  private master: DynamicsCompressorNode | null = null   // limiter bus so layered SFX + music never clip
   muted = false
   constructor() {
     try {
       const AC = (window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext })
       const Ctor = AC.AudioContext || AC.webkitAudioContext
       this.ctx = Ctor ? new Ctor() : null
+      if (this.ctx) {
+        const comp = this.ctx.createDynamicsCompressor()
+        const t = this.ctx.currentTime
+        comp.threshold.setValueAtTime(-10, t); comp.knee.setValueAtTime(24, t)
+        comp.ratio.setValueAtTime(12, t); comp.attack.setValueAtTime(0.003, t); comp.release.setValueAtTime(0.25, t)
+        comp.connect(this.ctx.destination)
+        this.master = comp
+      }
     } catch { this.ctx = null }
   }
+  private dest(): AudioNode { return this.master ?? this.ctx!.destination }
   resume() { this.ctx?.resume?.() }
   setMuted(v: boolean) {
     this.muted = v
@@ -86,7 +96,7 @@ class Sfx {
     o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur)
     g.gain.setValueAtTime(gain, t)
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
-    o.connect(g); g.connect(c.destination)
+    o.connect(g); g.connect(this.dest())
     o.start(t); o.stop(t + dur + 0.02)
   }
   private noise(dur: number, gain: number) {
@@ -100,7 +110,7 @@ class Sfx {
     const g = c.createGain()
     g.gain.setValueAtTime(gain, t)
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
-    src.connect(g); g.connect(c.destination); src.start(t)
+    src.connect(g); g.connect(this.dest()); src.start(t)
   }
   shoot() { this.tone(820 + Math.random() * 180, 300, 0.05, 'square', 0.045) }
   jump() { this.tone(420, 780, 0.12, 'square', 0.05) }
@@ -126,7 +136,7 @@ class Sfx {
     g.gain.setValueAtTime(0.0001, t)
     g.gain.exponentialRampToValueAtTime(gain, t + 0.008)
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
-    o.connect(g); g.connect(c.destination)
+    o.connect(g); g.connect(this.dest())
     o.start(t); o.stop(t + dur + 0.02)
   }
   // Distinct fire sound per weapon so the arsenal reads by ear, not just by colour.
@@ -229,7 +239,7 @@ class Sfx {
     if (!c || this.musicTimer !== null) return
     this.musicGain = c.createGain()
     this.musicGain.gain.value = this.muted ? 0 : this.targetMusicVol()
-    this.musicGain.connect(c.destination)
+    this.musicGain.connect(this.dest())
     this.musicStep = 0
     this.applyMusicTheme(theme)
     this.startMusicTimer()
