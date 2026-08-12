@@ -865,6 +865,10 @@ export class MainScene extends Phaser.Scene {
   private contractOnDone?: () => void
   private contractKey?: (e: KeyboardEvent) => void
   private contractPadPrev = false
+  private contractFocus = 0                        // which boon the gamepad/keyboard cursor is on
+  private contractNavPrev = 0                      // edge-detect vertical nav so one flick moves one card
+  private contractFocusRing?: Phaser.GameObjects.Rectangle
+  private contractCards: Phaser.GameObjects.Rectangle[] = []
   private closeArmoryKey = () => this.closeArmory()
   private leaderboardOpen = false
   private leaderboardUI: Phaser.GameObjects.GameObject[] = []
@@ -2893,11 +2897,19 @@ export class MainScene extends Phaser.Scene {
     this.routeCameras()  // route any newly-spawned objects to the right camera
     this.pollGamepadInput()                                          // arm-on-input READY toast + gpdebug overlay
     if (this.controlsOpen) { this.updateControlsRebind(); return }   // controls / rebind screen owns input
-    if (this.contractOpen) {   // Apex Contract screen — gamepad picks the first boon (edge-detected) so pad-only players aren't stuck
+    if (this.contractOpen) {   // Apex Contract screen — pad ▲▼ moves the focus ring, a face button confirms THAT boon
       const gp = this.readPad()
-      const down = !!(gp && this.anyPadButtonDown(gp.buttons))
-      if (down && !this.contractPadPrev && this.contractPicks[0]) this.pickContract(this.contractPicks[0].id)
-      this.contractPadPrev = down
+      if (gp) {
+        const ax1 = gp.axes[1] || 0
+        const nav = (ax1 < -0.4 || gp.buttons[12]) ? -1 : (ax1 > 0.4 || gp.buttons[13]) ? 1 : 0
+        if (nav !== 0 && this.contractNavPrev === 0) { this.contractFocus += nav; this.updateContractFocus() }  // edge-detected: one flick = one card
+        this.contractNavPrev = nav
+        // Confirm on a FACE button only (0-3), so the d-pad can navigate without also confirming.
+        // contractPadPrev starts true (set in offerContract) to swallow the press still held from the boss kill.
+        const confirm = !!(gp.buttons[0] || gp.buttons[1] || gp.buttons[2] || gp.buttons[3])
+        if (confirm && !this.contractPadPrev && this.contractPicks[this.contractFocus]) this.pickContract(this.contractPicks[this.contractFocus].id)
+        this.contractPadPrev = confirm
+      }
       return
     }
     if (this.armoryOpen || this.leaderboardOpen || this.dailyOpen) return   // a menu screen owns input (pointer-driven)
@@ -4057,6 +4069,8 @@ export class MainScene extends Phaser.Scene {
     this.contractOpen = true
     this.contractOnDone = onDone
     this.contractPadPrev = true                    // ignore the button still held from clearing the sector
+    this.contractFocus = 0
+    this.contractNavPrev = 0
     this.physics.pause()
     const pool = [...CONTRACTS]
     this.contractPicks = []
@@ -4065,20 +4079,39 @@ export class MainScene extends Phaser.Scene {
     keep(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.94).setScrollFactor(0).setDepth(230).setInteractive())
     keep(this.add.text(256, 66, 'APEX CONTRACT', { fontFamily: 'monospace', fontSize: '18px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(231))
     keep(this.add.text(256, 90, 'choose one boon — it lasts the rest of the run', { fontFamily: 'monospace', fontSize: '9px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(231))
+    this.contractCards = []
     this.contractPicks.forEach((b, i) => {
       const y = 138 + i * 56
       const col = Phaser.Display.Color.HexStringToColor(b.hex).color
       const card = keep(this.add.rectangle(256, y, 306, 48, 0x1e1b4b, 0.6).setScrollFactor(0).setDepth(231).setStrokeStyle(2, col, 0.85).setInteractive({ useHandCursor: true }))
+      this.contractCards.push(card)
       keep(this.add.text(256, y - 9, (i + 1) + '.  ' + b.name, { fontFamily: 'monospace', fontSize: '12px', color: b.hex, fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(232))
       keep(this.add.text(256, y + 10, b.desc, { fontFamily: 'monospace', fontSize: '9px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(232))
-      card.on('pointerover', () => card.setFillStyle(0x2e2a5c, 0.8))
-      card.on('pointerout', () => card.setFillStyle(0x1e1b4b, 0.6))
+      card.on('pointerover', () => { this.contractFocus = i; this.updateContractFocus() })
       card.on('pointerdown', () => this.pickContract(b.id))
     })
-    keep(this.add.text(256, 322, '① ② ③ or tap · gamepad picks the first', { fontFamily: 'monospace', fontSize: '8px', color: '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(231))
-    const kh = (e: KeyboardEvent) => { const n = parseInt(e.key, 10); if (n >= 1 && n <= this.contractPicks.length) this.pickContract(this.contractPicks[n - 1].id) }
+    // Focus ring — the keyboard/gamepad cursor. Sits just above the cards; moved by ▲▼.
+    this.contractFocusRing = keep(this.add.rectangle(256, 138, 314, 52, 0x000000, 0).setScrollFactor(0).setDepth(233).setStrokeStyle(2.5, 0xfde68a, 1))
+    this.updateContractFocus()
+    keep(this.add.text(256, 322, '① ② ③ or tap  ·  pad ▲▼ to choose, button confirms', { fontFamily: 'monospace', fontSize: '8px', color: '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(231))
+    const kh = (e: KeyboardEvent) => {
+      const n = parseInt(e.key, 10)
+      if (n >= 1 && n <= this.contractPicks.length) { this.pickContract(this.contractPicks[n - 1].id); return }
+      if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') { this.contractFocus--; this.updateContractFocus() }
+      else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') { this.contractFocus++; this.updateContractFocus() }
+      else if (e.key === 'Enter' || e.key === ' ') { const b = this.contractPicks[this.contractFocus]; if (b) this.pickContract(b.id) }
+    }
     this.contractKey = kh
     this.input.keyboard!.on('keydown', kh)
+  }
+
+  // Move the focus ring to the cursored card and brighten it (dim the rest) so keyboard/pad
+  // players can see — and therefore choose — boon 2 or 3, not just the mouse-hover highlight.
+  private updateContractFocus() {
+    const n = this.contractPicks.length
+    if (n) this.contractFocus = ((this.contractFocus % n) + n) % n
+    this.contractCards.forEach((c, i) => c.setFillStyle(i === this.contractFocus ? 0x2e2a5c : 0x1e1b4b, i === this.contractFocus ? 0.85 : 0.6))
+    if (this.contractFocusRing) this.contractFocusRing.setPosition(256, 138 + this.contractFocus * 56)
   }
 
   private pickContract(id: string) {
