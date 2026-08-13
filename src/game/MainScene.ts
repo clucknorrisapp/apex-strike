@@ -1554,8 +1554,8 @@ export class MainScene extends Phaser.Scene {
     mk('enemy', 0xe11d48, 32, 36); mk('flyer', 0xa855f7, 32, 32)
     mk('tank', 0xea580c, 44, 40); mk('boss', 0xdc2626, 64, 58)
 
-    ;['pow_health', 'pow_spread', 'pow_rapid', 'pow_laser', 'pow_fire'].forEach((k, i) => {
-      const colors = [0x4ade80, 0x22d3ee, 0xfbbf24, 0xe879f9, 0xfb923c]
+    ;['pow_health', 'pow_spread', 'pow_rapid', 'pow_laser', 'pow_fire', 'pow_arc'].forEach((k, i) => {
+      const colors = [0x4ade80, 0x22d3ee, 0xfbbf24, 0xe879f9, 0xfb923c, 0x84cc16]
       if (!this.textures.exists(k)) {
         const g = this.make.graphics({ x: 0, y: 0 })
         g.fillStyle(colors[i], 1); g.fillCircle(14, 14, 14)
@@ -2108,7 +2108,7 @@ export class MainScene extends Phaser.Scene {
     // Per-kind color so a heal never reads like a weapon. Health owns green; guns own their bullet colors.
     const info = powerupInfo(kind)
     const tex = usePod ? 'pickup_pod' : ({
-      health: 'pow_health', spread: 'pow_spread', rapid: 'pow_rapid', laser: 'pow_laser', fire: 'pow_fire',
+      health: 'pow_health', spread: 'pow_spread', rapid: 'pow_rapid', laser: 'pow_laser', fire: 'pow_fire', arc: 'pow_arc',
     } as Record<string, string>)[kind]
     const p = this.powerups.create(x, y, tex) as Phaser.Physics.Arcade.Sprite
     p.setData('kind', kind)
@@ -2745,11 +2745,13 @@ export class MainScene extends Phaser.Scene {
     this.bossPhase = 1
     this.spawnEnemy('boss', 1400, 330, info.hp + this.rushIndex * 6, info.speed)   // HP ramps each boss
     this.screenToast('⚠ ' + (this.rushIndex + 1) + '/' + this.rushOrder.length + '  ·  ' + info.label, '#f43f5e', 110)
+    this.levelTransition = false   // next boss is live — the between-boss transition is over
   }
 
   // A rush boss fell: heal to full, breather, drop the next — or clear the trials on the last.
   private advanceTrials() {
-    if (this.levelTransition) return
+    if (this.levelTransition) return   // now LIVE: set below so a double clear in one frame can't double-advance rushIndex
+    this.levelTransition = true
     this.rushIndex++
     if (this.rushIndex >= this.rushOrder.length) { this.trialsComplete(); return }
     this.health = this.maxHealth; this.updateHealth()
@@ -3617,14 +3619,18 @@ export class MainScene extends Phaser.Scene {
     b.setVelocity(vx, vy)
     b.setData('arc', radius); b.setData('arcDmg', dmg); b.setData('arcLvl', lvl); b.setData('spent', false)
     b.setAngularVelocity(dir * 420)   // tumble in flight
-    // Fuse: burst even on a clean miss that never touches ground (e.g. off a ledge).
-    this.time.delayedCall(1700, () => { if (b.active && !b.getData('spent')) this.burstArc(b) })
+    // Fuse: burst even on a clean miss that never touches ground (e.g. off a ledge). Stored so
+    // burstArc can cancel it — else a pooled bomb reused before 1700ms inherits the stale timer.
+    const fuse = this.time.delayedCall(1700, () => { if (b.active && !b.getData('spent')) this.burstArc(b) })
+    b.setData('fuse', fuse)
   }
 
   // Detonate a specific bomb sprite once, then retire it (idempotent via the 'spent' flag).
   private burstArc(b: Phaser.Physics.Arcade.Image) {
     if (!b.active || b.getData('spent')) return
     b.setData('spent', true)
+    const fuse = b.getData('fuse') as Phaser.Time.TimerEvent | undefined   // cancel the fuse so a reused pooled bomb can't inherit it
+    if (fuse) { fuse.remove(false); b.setData('fuse', null) }
     const r = (b.getData('arc') as number) || 70
     const dmg = (b.getData('arcDmg') as number) || 4
     const lvl = (b.getData('arcLvl') as number) || 0
@@ -3651,7 +3657,10 @@ export class MainScene extends Phaser.Scene {
     // Snapshot: killEnemy() destroys enemies, which mutates the group's live array mid-loop.
     this.enemies.getChildren().slice().forEach((o) => {
       const e = o as Phaser.Physics.Arcade.Sprite
-      if (!e.active) return
+      // Skip a dead/DYING enemy: a boss defers destroy() through its ~1s explosion (only its body
+      // is disabled, which this manual scan ignores), so without this the blast re-kills it →
+      // double bossDeath → Trials skips bosses + global score/kill inflation.
+      if (!e.active || ((e.getData('hp') as number) ?? 1) <= 0) return
       const dx = e.x - x, dy = e.y - y
       if (dx * dx + dy * dy > r2) return
       const hp = (e.getData('hp') as number) - dmg
@@ -4128,6 +4137,8 @@ export class MainScene extends Phaser.Scene {
 
   // Multi-stage boss detonation — a run of blasts across the body, then a screen-filling finisher.
   private bossDeath(boss: Phaser.Physics.Arcade.Sprite) {
+    if (boss.getData('dying')) return   // idempotent: the death sequence + onLevelClear must run exactly once per boss
+    boss.setData('dying', true)
     boss.setData('hp', 0)
     boss.setVelocity(0, 0)
     ;(boss.body as Phaser.Physics.Arcade.Body).enable = false
@@ -4567,6 +4578,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private triggerGameOver() {
+    if (this.gameOver) return   // idempotent — a second death/clear in the same frame must not double-submit or double-eval
     this.gameOver = true
     this.recordRun('gameover')
     this.setBridge('over')
@@ -4598,6 +4610,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private showVictory() {
+    if (this.gameOver) return   // idempotent — guards against a double clear (e.g. AoE finishing two things at once)
     this.gameOver = true
     this.recordRun('win')
     this.setBridge('over')
