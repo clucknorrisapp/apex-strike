@@ -572,7 +572,9 @@ app.post('/api/rank', async (req, res) => {
          ON CONFLICT (wallet) DO UPDATE SET
            handle = COALESCE(EXCLUDED.handle, players.handle),
            rank   = GREATEST(players.rank, EXCLUDED.rank),
-           updated_at = now()
+           -- only stamp the time on an actual promotion, so the board's "reached this rank first" tie
+           -- order (rank DESC, updated_at ASC) isn't churned by run-end re-syncs at an unchanged rank.
+           updated_at = CASE WHEN EXCLUDED.rank > players.rank THEN now() ELSE players.updated_at END
        RETURNING rank`, [wallet, handle || null, rank])
     const best = rows[0] ? Number(rows[0].rank) : rank
     const pos = await rankPosition(best)

@@ -1061,7 +1061,7 @@ export class MainScene extends Phaser.Scene {
   private loadoutConfirmPrev = false           // gamepad face-button rising-edge guard on the doctrine picker (no select re-fire / rebuild-flicker while held)
   private closeLoadoutKey = () => this.closeLoadout()
   private loadoutKeyHandler = (e: KeyboardEvent) => {
-    if (!this.loadoutOpen) return
+    if (!this.loadoutOpen || this.time.now < this.startGraceUntil) return   // ignore the keypress that just opened the screen (matches rankKeyHandler)
     if (e.key === 'ArrowLeft') this.setLoadoutSel(this.loadoutSel - 1)
     else if (e.key === 'ArrowRight') this.setLoadoutSel(this.loadoutSel + 1)
     else if (e.key === 'Enter' || e.key === ' ') this.selectFocusedDoctrine()
@@ -1103,6 +1103,7 @@ export class MainScene extends Phaser.Scene {
   private dashLevel = 0
   private dashHitList: Phaser.GameObjects.GameObject[] = []   // enemies already struck by the current dash (PHASE STRIKE)
   private dashDeflects = 0   // bolts deflected during the current dash (capped so one dash can't wipe a full curtain)
+  private lastRefundAt = 0   // VANGUARD refund dedupe: one dash refund per volley, not per pellet/pierce-contact
   private dashCd = 820   // baseline dash cooldown (Armory PHASE DASH tiers shorten it)
   private dashUntil = 0
   private dashCdUntil = 0
@@ -3370,11 +3371,13 @@ export class MainScene extends Phaser.Scene {
     back()
   }
 
-  // ---- APEX LOADOUTS — Strike Doctrine picker (choose a pre-run identity; Campaign & Heat only — Daily/Trials stay equal-kit) ----
+  // ---- APEX LOADOUTS — Strike Doctrine picker (a pre-run identity applied wherever the Armory kit is; Campaign, Heat & Trials. Daily is the sole equal-kit board.) ----
   private openLoadout() {
     if (this.loadoutOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.badgesOpen) return
     this.loadoutOpen = true
     this.loadoutPadPrev = 0
+    this.loadoutConfirmPrev = true   // the still-held confirm that opened this screen must release first
+    this.startGraceUntil = this.time.now + 300   // swallow the confirm press still held from the title (matches openHeat/openRank)
     this.loadoutSel = Math.max(0, DOCTRINES.findIndex((d) => d.id === loadSelected()))
     this.buildLoadoutScreen()
     this.input.keyboard!.on('keydown-ESC', this.closeLoadoutKey)
@@ -3459,7 +3462,7 @@ export class MainScene extends Phaser.Scene {
       push(this.add.text(x, 254, dd.name.slice(0, 7), { fontFamily: 'monospace', fontSize: '7px', color: on ? '#e9d5ff' : '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
     })
 
-    T(256, 290, 'applies to Campaign & Heat — Daily & Trials stay equal-kit', 8, '#52525b', 0.5)
+    T(256, 290, 'applies to Campaign, Heat & Trials — Daily stays equal-kit', 8, '#52525b', 0.5)
     T(256, 306, '◄ ► browse   ·   Enter select   ·   Esc back', 8, '#3f3f46', 0.5)
     const back = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
     back.on('pointerdown', () => this.closeLoadout())
@@ -3615,7 +3618,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private togglePause() {
-    if (this.controlsOpen) return
+    if (this.controlsOpen || this.coachGate) return   // the DROP IN card says "press any key" — ESC/P mustn't also pause behind it
     if (!this.started || this.gameOver || this.levelTransition || !this.player?.active) return
     this.userPaused = !this.userPaused
     this.setBridge(this.userPaused ? 'paused' : 'playing')
@@ -3647,6 +3650,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private toggleMute() {
+    if (this.coachGate) return   // 'M' as the DROP IN "any key" mustn't also flip mute
     this.muted = !this.muted
     try { localStorage.setItem('apex_muted', this.muted ? '1' : '0') } catch { /* ignore */ }
     this.sfx?.setMuted(this.muted)
@@ -3950,14 +3954,16 @@ export class MainScene extends Phaser.Scene {
     if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     if (!this.dailyRun && !this.rushRun) { this.applyArmory(); this.updateHealth(); this.livesText?.setText('LIVES  ' + this.lives); this.updateWeaponHUD() }   // pick up any upgrade / doctrine kit (Daily sets its own)
-    else this.doctrinePassive = 'none'   // Daily & Trials ignore the Armory/Doctrine kit — force the passive off so those equal-kit boards can't be swayed by the selected Doctrine
+    else if (this.dailyRun) this.doctrinePassive = 'none'   // Daily is the sole equal-kit board — force the passive off. (Trials is Armory-on: startTrials applies the full kit, doctrine included.)
     this.started = true
     this.sfx?.resume()
     this.sfx?.startMusic(this.levels()[this.level - 1]?.theme ?? 'streets')
     this.titleUI.forEach((o) => o.destroy())
     this.titleUI = []
     this.titleNav = []; this.titleRing = undefined; this.titleNavActive = false
-    const firstRun = (() => { try { return localStorage.getItem('apex_coached') !== '1' } catch { return true } })()
+    // The gate has its OWN flag: a first-ever Daily (which burns apex_coached via the legacy card) must
+    // not suppress the campaign DROP IN gate.
+    const firstRun = (() => { try { return localStorage.getItem('apex_dropin') !== '1' } catch { return true } })()
     if (firstRun && this.isBaseCampaign()) {
       this.startCoachGate()   // FIRST RUN: hold the sim paused behind a readable controls card until the player DROPS IN — no teaching mid-combat
     } else {
@@ -3974,7 +3980,8 @@ export class MainScene extends Phaser.Scene {
   // once the player acknowledges. Once-ever, gated on apex_coached.
   private startCoachGate() {
     this.coachGate = true
-    try { localStorage.setItem('apex_coached', '1') } catch { /* storage blocked — still gate, just show again next run */ }
+    // flags are burned in endCoachGate (on actual drop-in), not here — closing the tab behind the modal
+    // must not silently spend the tutorial.
     const touch = this.sys.game.device.input.touch
     const lines = touch
       ? ['LEFT side — drag to move & aim', 'RIGHT side — FIRE · JUMP · DASH', 'grab ◆ pods · reach the sector boss']
@@ -3999,6 +4006,8 @@ export class MainScene extends Phaser.Scene {
   private endCoachGate() {
     if (!this.coachGate) return
     this.coachGate = false
+    this.prevStart = true   // a still-held gamepad Start that dropped us in must not read as a fresh pause edge next frame
+    try { localStorage.setItem('apex_dropin', '1'); localStorage.setItem('apex_coached', '1') } catch { /* storage blocked — gate shows again next run */ }
     if (this.coachGateKey) { this.input.keyboard!.off('keydown', this.coachGateKey); this.coachGateKey = undefined }
     this.coachGateUI.forEach((o) => o.destroy())
     this.coachGateUI = []
@@ -4623,7 +4632,7 @@ export class MainScene extends Phaser.Scene {
         this.dashHitList = []                 // fresh dedupe list per dash (PHASE STRIKE)
         this.dashDeflects = 0                 // fresh deflect budget per dash (COUNTER-DASH)
         this.dashCdUntil = time + this.dashCd
-        this.dashIframeUntil = Math.max(this.dashUntil, time + (this.dashLevel >= 2 ? 220 : this.dashLevel >= 1 ? 170 : 130))   // i-frames scale with tier but ALWAYS cover the full dash — bodies phase for dashUntil, so bullets must too
+        this.dashIframeUntil = Math.max(this.dashUntil, time + (this.dashLevel >= 2 ? 220 : this.dashLevel >= 1 ? 195 : 175))   // i-frames always cover the full dash (dashUntil=175) AND still progress per PHASE DASH tier (175/195/220), so tier 1 isn't a no-op
         this.facingRight = dir > 0; this.player.setFlipX(dir < 0)
         this.dashFx()
         this.sfx?.jump()
@@ -4904,11 +4913,11 @@ export class MainScene extends Phaser.Scene {
         if (st === 'mark') {
           enemy.setVelocityX(0)
           if (stimer <= 0) {
-            this.restoreTint(enemy)
+            enemy.setData('sstate', 'creep'); enemy.setData('stimer', Phaser.Math.Between(1500, 2500))
+            this.restoreTint(enemy)   // clear the mark flash — state is out of 'mark' now, so restoreTint clears instead of re-asserting gold
             const ret = enemy.getData('reticle') as Phaser.GameObjects.Arc | undefined
             if (ret) { ret.destroy(); enemy.setData('reticle', undefined) }
             this.mortarImpact(enemy.getData('markX') as number, enemy.getData('markY') as number, 78)
-            enemy.setData('sstate', 'creep'); enemy.setData('stimer', Phaser.Math.Between(1500, 2500))
           } else enemy.setData('stimer', stimer)
         } else {
           enemy.setVelocityX(Math.sign(dx) * speed * 0.7); enemy.setFlipX(dx < 0)
@@ -5010,6 +5019,7 @@ export class MainScene extends Phaser.Scene {
         }
         if (timer <= 0 && near && alive) {
           enemy.setData('tele', false)
+          this.restoreTint(enemy)   // wind over — snap the gold flash off (the tele flag is false now, so restoreTint clears it)
           if (type === 'sniper') {
             this.enemyFire(enemy, 1, 560, 0.85)   // one fast, cold, aimed bolt — dodge on the telegraph
           } else {
@@ -5023,7 +5033,7 @@ export class MainScene extends Phaser.Scene {
           else if (type === 'turret') base = Math.max(650, 1250 - this.level * 90)
           else if (type === 'sniper') base = Math.max(1500, 2100 - this.level * 80)
           enemy.setData('shootTimer', base)
-        } else { enemy.setData('shootTimer', timer <= 0 ? 140 : timer); if (!near) enemy.setData('tele', false) }   // re-arm the wind-up if the target left range
+        } else { enemy.setData('shootTimer', timer <= 0 ? 140 : timer); if (!near) { enemy.setData('tele', false); this.restoreTint(enemy) } }   // re-arm the wind-up if the target left range (clear the flash too)
       }
     })
   }
@@ -5092,6 +5102,7 @@ export class MainScene extends Phaser.Scene {
     }
     if (atkT <= 0) {
       enemy.setData('tele2', false)
+      this.restoreTint(enemy)   // telegraph over — snap the gold off (tele2 is false now, so restoreTint clears it)
       const idx = (enemy.getData('atkIdx') as number) || 0
       enemy.setData('atkIdx', idx + 1)
       const pool = (p2 && BOSS_MOVES_P2[kind]) ? BOSS_MOVES_P2[kind] : (BOSS_MOVES[kind] || BOSS_MOVES.sentinel)
@@ -5349,7 +5360,14 @@ export class MainScene extends Phaser.Scene {
       this.popup(enemy.x, enemy.y - 30, 'PUNISH', '#fbbf24')
       this.hitstop(14)
       this.sfx?.crit(this.panAt(enemy.x))
-      if (this.doctrinePassive === 'refund') this.dashCdUntil = Math.max(this.time.now, this.dashCdUntil - 260)   // VANGUARD: a read refunds dash
+      // VANGUARD: a read refunds dash — but ONE read is one refund. hitEnemy runs per bullet→enemy
+      // contact, so a multi-pellet spread or a piercing laser would otherwise refund N×260ms in a single
+      // volley; the 150ms window collapses a volley (same-frame pellets + a bolt piercing over a few
+      // frames) to a single refund while still letting a sustained stream refund periodically.
+      if (this.doctrinePassive === 'refund' && this.time.now > this.lastRefundAt + 150) {
+        this.dashCdUntil = Math.max(this.time.now, this.dashCdUntil - 260)
+        this.lastRefundAt = this.time.now
+      }
     }
 
     // Per-weapon impact signature at the point of contact — each gun should FEEL different, not
