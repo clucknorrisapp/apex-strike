@@ -4099,12 +4099,22 @@ export class MainScene extends Phaser.Scene {
     const prev = prevMonthKey()
     fetchSeason(prev).then((d) => {
       if (!d.online) return                       // board unreachable — don't burn the one-shot; retry next launch
+      if (!d.you || !d.you.rank) { markSeasonSeen(now); return }   // competed nothing last month → consume the one-shot, no card
+      // Only present the ceremony — and consume the one-shot — when we're genuinely idle on the title. If the
+      // player has already started a run, a card's up, the title's torn down, or a submenu owns the screen,
+      // DON'T mark it seen (retry next launch) and never pop the modal over gameplay/another overlay. (round-12 bug#2/#3)
+      if (this.started || this.seasonCardOpen || !this.titleUI.length || this.anyTitleOverlayOpen()) return
       markSeasonSeen(now)
-      if (!d.you || !d.you.rank) return           // didn't compete last month → nothing to close out
       recordSeasonFinish(prev, d.you.rank)
-      if (this.started || this.seasonCardOpen || !this.titleUI.length) return   // player already moved on / a card's up
       this.showSeasonRollover(prev, now, d.you.rank)
     }).catch(() => { /* offline — ignore, retry next launch */ })
+  }
+
+  // Any of the title's own submenu overlays currently up? Used to hold the async season ceremony back so
+  // it can't render over an open menu (its depth-260 backdrop would otherwise steal that menu's input).
+  private anyTitleOverlayOpen(): boolean {
+    return this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen
+      || this.rankOpen || this.badgesOpen || this.armoryOpen || this.leaderboardOpen || this.controlsOpen
   }
 
   private showSeasonRollover(prevKey: string, nowKey: string, rank: number) {
@@ -4191,7 +4201,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private beginPlay() {
-    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen || this.rankOpen || this.badgesOpen) return
+    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen || this.rankOpen || this.badgesOpen || this.seasonCardOpen) return   // seasonCardOpen: the rollover ceremony must never be started through (round-12 bug#1)
     if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     if (!this.dailyRun && !this.rushRun) { this.applyArmory(); this.updateHealth(); this.livesText?.setText('LIVES  ' + this.lives); this.updateWeaponHUD() }   // pick up any upgrade / doctrine kit (Daily sets its own)
@@ -4380,6 +4390,11 @@ export class MainScene extends Phaser.Scene {
       return
     }
     if (!this.started) {
+      if (this.seasonCardOpen) {   // the season rollover ceremony owns pad input on the title: a button DISMISSES it, never starts a run (round-12 bug#1)
+        const gpc = this.readPad()
+        if (gpc && time > this.startGraceUntil && this.anyPadButtonDown(gpc.buttons)) this.closeSeasonRollover()
+        return
+      }
       const gp = this.readPad()
       if (gp && time > this.startGraceUntil) {
         // D-pad / stick drives the focus ring (bug#5). Before you navigate, any button starts (classic).
