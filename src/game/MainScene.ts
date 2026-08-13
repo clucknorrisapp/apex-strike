@@ -6414,9 +6414,17 @@ export class MainScene extends Phaser.Scene {
       bankShards(heatBonus)
       this.time.delayedCall(1100, () => { if (this.gameOver) this.screenToast('◆ HEAT ' + this.heatTier + ' FIRST-CLEAR BOUNTY  +' + heatBonus, '#fbbf24', 186) })
     }
+    if (this.isBaseCampaign() && unlock && unlock.raised) {
+      // First-EVER campaign clear (the unlock ceiling just rose 0→1) — the funnel's key activation
+      // milestone. Beating the game finally banks a one-time bounty of its own, not just the run's pod
+      // shards. 'raised' can only fire on the first base clear, so it can't be farmed.
+      const campBonus = 40
+      bankShards(campBonus)
+      this.time.delayedCall(1300, () => { if (this.gameOver) this.screenToast('★ CAMPAIGN CLEARED — FIRST-CLEAR BOUNTY +' + campBonus, '#4ade80', 210) })
+    }
     const btn = this.add.text(256, 268, (this.rushRun || this.heatRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ PLAY AGAIN — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
-    if (this.isBaseCampaign()) { this.titleLink(); this.rankRunEnd(false) }
+    if (this.isBaseCampaign()) { this.titleLink(); this.rankRunEnd(true) }   // un-silence the win payout — a clear banks shards + the daily deploy bonus, now acknowledged like a death does
   }
 }
