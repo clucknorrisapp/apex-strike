@@ -877,6 +877,10 @@ export class MainScene extends Phaser.Scene {
   private gameOverAt = 0   // time the game-over screen appeared, for a brief restart grace
   private deathToken = 0   // bumped each game-over so a late async rank paint can't bleed onto the next run
   private shareRank: number | null = null   // authoritative rank for the current death screen, for the flex card
+  // KILL-TIME slow-motion (distinct from the hard-freeze hitstop): eases the SIM to a fraction of
+  // speed on a big beat then ramps back. Driven from update() off the real clock so timers stay honest.
+  private slowFrom = 1; private slowStart = 0; private slowDur = 0
+  private slowPending: { scale: number; ms: number } | null = null
   private quickRetry = false   // set by init() when a death/victory RETRY restarts straight into a run (skips the title)
   private levelTransition = false
   private controllerSeen = false
@@ -1017,6 +1021,38 @@ export class MainScene extends Phaser.Scene {
     if (this.physics.world.isPaused) return
     this.physics.world.pause()
     this.time.delayedCall(ms, () => { if (!this.userPaused) this.physics.world.resume() })
+  }
+  // KILL-TIME: request slow motion at `scale` speed (0.4 = 40%) easing back to 1.0 over `ms`. Only
+  // ARMS here — the driver activates it the first frame physics ISN'T paused, so a preceding
+  // hitstop plays out first (freeze → drip). Latest strong request wins; gated by reduced-motion.
+  private slowmo(scale: number, ms: number) {
+    if (this.reduceMotion) return
+    if (this.slowDur > 0 && scale >= this.slowFrom && !this.slowPending) return   // don't weaken an active slow-mo
+    this.slowPending = { scale: Math.max(0.15, Math.min(1, scale)), ms }
+  }
+  // Per-frame: activate a pending request once the sim is live, then ease the sim time-scales back to
+  // normal. time.timeScale stays 1.0 so delayedCall (spawns/attacks/fuses) are unaffected — only
+  // physics motion, tweens and anims slow. Arcade's world.timeScale is INVERTED (2 = half speed).
+  private updateSlowmo() {
+    if (this.slowPending && !this.physics.world.isPaused) {
+      this.slowFrom = this.slowPending.scale; this.slowStart = this.time.now; this.slowDur = this.slowPending.ms
+      this.slowPending = null
+    }
+    if (this.slowDur <= 0) return
+    const t = (this.time.now - this.slowStart) / this.slowDur
+    if (t >= 1 || this.reduceMotion) {
+      this.slowDur = 0
+      this.physics.world.timeScale = 1; this.tweens.timeScale = 1; this.anims.globalTimeScale = 1
+      return
+    }
+    const s = this.slowFrom + (1 - this.slowFrom) * (t * t)   // hold the slow, then snap back
+    this.physics.world.timeScale = 1 / s
+    this.tweens.timeScale = s
+    this.anims.globalTimeScale = s
+  }
+  private resetTimeScales() {
+    this.slowDur = 0; this.slowPending = null
+    this.physics.world.timeScale = 1; this.tweens.timeScale = 1; this.anims.globalTimeScale = 1
   }
   // Reduced-motion gates: all screen-shake, screen-flash and zoom-punch route through these, so the
   // accessibility toggle can suppress the motion-heavy effects without touching gameplay.
@@ -1169,6 +1205,7 @@ export class MainScene extends Phaser.Scene {
     this.levelTransition = false
     this.dailyRun = false                  // reset here — instance fields survive scene.restart()
     this.rushRun = false; this.rushIndex = 0
+    this.resetTimeScales()                 // clear any slow-mo left mid-ramp by the previous run
     // Apex Armory — apply persistent upgrades to this run's starting stats.
     this.applyArmory()
     this.dashUntil = 0; this.dashCdUntil = 0; this.dashIframeUntil = 0; this.prevDash = false
@@ -3116,6 +3153,7 @@ export class MainScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     this.routeCameras()  // route any newly-spawned objects to the right camera
+    this.updateSlowmo()  // KILL-TIME: ease sim time-scales back to normal after a big beat
     this.pollGamepadInput()                                          // arm-on-input READY toast + gpdebug overlay
     if (this.controlsOpen) { this.updateControlsRebind(); return }   // controls / rebind screen owns input
     if (this.contractOpen) {   // Apex Contract screen — pad ▲▼ moves the focus ring, a face button confirms THAT boon
@@ -3869,6 +3907,7 @@ export class MainScene extends Phaser.Scene {
       this.popup(enemy.x, enemy.y - 70, 'PHASE 2', '#f43f5e')
       this.fxShake(320, 0.03)
       this.zoomPunch(1.10, 380)
+      this.slowmo(0.5, 260)
       this.sfx?.enrage()
       this.sfx?.bossLeitmotif(BOSS_LEITMOTIF[kind] || [], true)
       enemy.setData('atkT', 340)
@@ -3879,6 +3918,7 @@ export class MainScene extends Phaser.Scene {
       this.popup(enemy.x, enemy.y - 70, 'PHASE 3', '#fca5a5')
       this.fxShake(380, 0.036)
       this.zoomPunch(1.14, 440)
+      this.slowmo(0.42, 300)
       this.sfx?.enrage()
       this.sfx?.bossLeitmotif(BOSS_LEITMOTIF[kind] || [], true)
       enemy.setData('atkT', 300)
@@ -4132,7 +4172,7 @@ export class MainScene extends Phaser.Scene {
     this.hitstop(isElite ? 90 : (type === 'tank' || type === 'turret' ? 70 : 45))
     this.fxShake(isElite ? 180 : (type === 'tank' || type === 'turret' ? 120 : 70), isElite ? 0.02 : 0.014)
     this.sfx?.explode(this.panAt(enemy.x))
-    if (isElite) { this.fxFlash(120, 253, 224, 71, false); this.popup(enemy.x, enemy.y - 40, 'ELITE DOWN', '#fde047'); this.zoomPunch(1.08, 300) }
+    if (isElite) { this.fxFlash(120, 253, 224, 71, false); this.popup(enemy.x, enemy.y - 40, 'ELITE DOWN', '#fde047'); this.zoomPunch(1.08, 300); this.slowmo(0.55, 200) }
     else if (type === 'tank' || type === 'turret') this.fxFlash(90, 200, 120, 255, false)
     // Elites always drop; grunts drop 30% of the time.
     if (isElite || Math.random() < 0.3) {
@@ -4152,6 +4192,7 @@ export class MainScene extends Phaser.Scene {
     ;(boss.body as Phaser.Physics.Arcade.Body).enable = false
     recordBossKill((boss.getData('bossKind') as string) || this.nextBossKind)   // durable badge bit for this boss kind
     this.hitstop(150)
+    this.slowmo(0.38, 360)   // freeze → drip: the sim eases back up as the boss detonates
     // Guardian stages: killing the guardian opens the extraction (then walk to the goal).
     if (this.extractionLocked) {
       this.extractionLocked = false
