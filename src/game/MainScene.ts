@@ -3790,6 +3790,10 @@ export class MainScene extends Phaser.Scene {
     this.setBridge('title')
     let best = 0
     try { best = parseInt(localStorage.getItem('apex_best') || '0', 10) || 0 } catch { best = 0 }
+    // PROGRESSIVE HUB: a brand-new player sees only START / CONTROLS / MOTION — the mode row and meta
+    // entries (all empty or locked for them) bloom in once they've actually played a run. Cuts the
+    // "which of 11 buttons?" first-run overwhelm.
+    const veteran = best > 0 || loadMeta().shards > 0 || achievementCount().unlocked > 0 || getDailyStreak().streak > 0 || currentRank() > 0
     const els: Phaser.GameObjects.GameObject[] = []
     // Reset the focus-nav layer for this fresh title build.
     this.titleNav = []; this.titleFocus = 0; this.titleNavActive = false
@@ -3809,6 +3813,7 @@ export class MainScene extends Phaser.Scene {
     this.tweens.add({ targets: prompt, alpha: 0.32, duration: 620, yoyo: true, repeat: -1 })
     els.push(prompt)
     this.titleNav.push({ obj: prompt, act: () => this.beginPlay() })   // focus #0 — START (default)
+    if (veteran) {   // ---- mode row + meta entries: only once the player has actually played ----
     // DAILY CHALLENGE — headline entry. ABOVE the start catcher so a tap opens it, never starts play.
     // Show today's modifier name so the title visibly changes each day and hints at the run.
     const daily = this.add.text(150, 294, '◆ DAILY · ' + todayMod().name, { fontFamily: 'monospace', fontSize: '11px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
@@ -3869,6 +3874,7 @@ export class MainScene extends Phaser.Scene {
     intel.on('pointerdown', () => this.openIntel())
     els.push(intel)
     this.titleNav.push({ obj: intel, act: () => this.openIntel() })
+    }   // ---- end veteran-only entries ----
     // ARMORY · LEADERBOARD · CONTROLS — also ABOVE the start catcher.
     const mkBtn = (x: number, label: string, color: string, hover: string, act: () => void) => {
       const b = this.add.text(x, 342, label, { fontFamily: 'monospace', fontSize: '10px', color }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
@@ -3878,9 +3884,11 @@ export class MainScene extends Phaser.Scene {
       els.push(b)
       this.titleNav.push({ obj: b, act })
     }
-    mkBtn(108, '[ ARMORY ]', '#fbbf24', '#fde68a', () => this.openArmory())
-    mkBtn(256, '[ LEADERBOARD ]', '#67e8f9', '#a5f3fc', () => this.openLeaderboard())
-    mkBtn(404, '[ CONTROLS ]', '#c4b5fd', '#f0abfc', () => this.openControls())
+    if (veteran) {
+      mkBtn(108, '[ ARMORY ]', '#fbbf24', '#fde68a', () => this.openArmory())
+      mkBtn(256, '[ LEADERBOARD ]', '#67e8f9', '#a5f3fc', () => this.openLeaderboard())
+    }
+    mkBtn(veteran ? 404 : 256, '[ CONTROLS ]', '#c4b5fd', '#f0abfc', () => this.openControls())   // centered when it's the only entry (first-run)
     // Accessibility: reduce-motion toggle (persisted) — suppresses shake / flash / zoom-punch / vignette pulse.
     const motionLabel = () => 'MOTION:  ' + (this.reduceMotion ? 'REDUCED' : 'FULL')
     const motion = this.add.text(256, 364, motionLabel(), { fontFamily: 'monospace', fontSize: '9px', color: '#94a3b8' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
