@@ -1072,7 +1072,7 @@ export class MainScene extends Phaser.Scene {
   private dashKey!: Phaser.Input.Keyboard.Key
   private dashLevel = 0
   private dashHitList: Phaser.GameObjects.GameObject[] = []   // enemies already struck by the current dash (PHASE STRIKE)
-  private dashCd = 700
+  private dashCd = 820   // baseline dash cooldown (Armory PHASE DASH tiers shorten it)
   private dashUntil = 0
   private dashCdUntil = 0
   private dashIframeUntil = 0
@@ -2533,7 +2533,7 @@ export class MainScene extends Phaser.Scene {
       const w = window as unknown as { __APEX?: ApexBridge }
       w.__APEX = w.__APEX || { pad: {}, gutter: false, act: null }
       w.__APEX.state = state
-      w.__APEX.dashActive = this.dashLevel > 0
+      w.__APEX.dashActive = true   // dash is baseline now — the touch DASH button shows for everyone
       window.dispatchEvent(new CustomEvent('apex-state'))
     } catch { /* SSR / no window — ignore */ }
   }
@@ -2915,7 +2915,7 @@ export class MainScene extends Phaser.Scene {
     this.lives = mod.lives ?? 3
     this.fireBonus = mod.fireBonus ?? 0
     this.maxJumps = MAX_JUMPS + (mod.bonusJumps ?? 0)
-    this.dashLevel = 0        // daily = base kit, Armory off (no dash)
+    this.dashLevel = 0; this.dashCd = 820   // daily = base kit (Armory off), but baseline dash for everyone
     this.weapon = (mod.weapon ?? 'normal') as typeof this.weapon
     this.altWeapon = this.weapon
     this.health = this.maxHealth
@@ -3668,7 +3668,7 @@ export class MainScene extends Phaser.Scene {
     this.maxJumps = MAX_JUMPS + meta.up.boots
     this.fireBonus = meta.up.firepower * 12
     this.dashLevel = meta.up.dash
-    this.dashCd = this.dashLevel >= 2 ? 480 : 700
+    this.dashCd = this.dashLevel >= 2 ? 480 : this.dashLevel >= 1 ? 660 : 820   // baseline cooldown shortens per tier
     this.lives = 3 + meta.up.reserves
     this.health = this.maxHealth
     this.jumpsLeft = this.maxJumps
@@ -4213,8 +4213,9 @@ export class MainScene extends Phaser.Scene {
       this.player.setDragX(DRAG)
     }
 
-    // --- Phase Dash (Armory-unlocked dodge burst; overrides horizontal for its window) ---
-    if (this.dashLevel > 0) {
+    // --- Phase Dash — a dodge burst EVERYONE has from run one; the Armory PHASE DASH tiers only
+    // sharpen it (longer i-frames, shorter cooldown, harder Phase Strike). Overrides horizontal.
+    {
       const dashHeld = this.dashKey.isDown || !!(dpad && dpad.dash) || !!(pad && pad.buttons[this.padBinds.dash])
       if (dashHeld && !this.prevDash && time > this.dashCdUntil && !this.prone) {
         const dir = left ? -1 : right ? 1 : (this.facingRight ? 1 : -1)
@@ -4222,7 +4223,7 @@ export class MainScene extends Phaser.Scene {
         this.dashUntil = time + 175
         this.dashHitList = []                 // fresh dedupe list per dash (PHASE STRIKE)
         this.dashCdUntil = time + this.dashCd
-        this.dashIframeUntil = time + (this.dashLevel >= 2 ? 220 : 150)
+        this.dashIframeUntil = time + (this.dashLevel >= 2 ? 220 : this.dashLevel >= 1 ? 170 : 130)   // baseline i-frames scale with the tier
         this.facingRight = dir > 0; this.player.setFlipX(dir < 0)
         this.dashFx()
         this.sfx?.jump()

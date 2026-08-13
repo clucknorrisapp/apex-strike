@@ -27,7 +27,7 @@ export const UPGRADES: UpgradeDef[] = [
   { key: 'reserves',  name: 'RESERVES',      blurb: '+1 starting life',    max: 2, costs: [30, 75],      hex: '#67e8f9', glyph: '⛊' },
   { key: 'firepower', name: 'FIREPOWER',     blurb: 'faster fire (all guns)', max: 3, costs: [25, 55, 105], hex: '#fbbf24', glyph: '⚡' },
   { key: 'boots',     name: 'KINETIC BOOTS', blurb: '+1 air-jump',         max: 2, costs: [35, 85],      hex: '#c084fc', glyph: '➶' },
-  { key: 'dash',      name: 'PHASE DASH',    blurb: 'unlock a dodge-dash (i-frames)', max: 2, costs: [45, 95], hex: '#22d3ee', glyph: '»' },
+  { key: 'dash',      name: 'PHASE DASH',    blurb: 'sharpen your dodge-dash (i-frames + Phase Strike)', max: 2, costs: [45, 95], hex: '#22d3ee', glyph: '»' },
 ]
 
 const KEY = 'apex_meta'
