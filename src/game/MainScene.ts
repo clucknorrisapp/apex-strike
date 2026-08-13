@@ -32,7 +32,7 @@ const WORLD_BG: Record<string, string> = {
 }
 
 // ---- Feel kit (Contra run-and-gun + Mario-grade jump) ----
-const GROUND_ENEMIES = new Set(['walker', 'tank', 'charger', 'turret', 'sniper', 'shielder'])  // get drop shadows (keyed by getData('type'): soldiers are 'walker')
+const GROUND_ENEMIES = new Set(['walker', 'tank', 'charger', 'turret', 'sniper', 'shielder', 'sapper'])  // get drop shadows (keyed by getData('type'): soldiers are 'walker')
 const RUN = 275          // horizontal top speed
 const DASH_SPEED = 640   // Phase Dash burst speed
 const ACCEL = 1500       // ground acceleration (doubled when reversing = snappy turns)
@@ -2061,6 +2061,12 @@ export class MainScene extends Phaser.Scene {
     } else if (kind === 'diver') {
       tex = this.textures.exists('enemy_flyer') ? 'enemy_flyer' : 'flyer'
       t = 'diver'; displayW = 58; displayH = 58
+    } else if (kind === 'sapper') {
+      tex = this.textures.exists('enemy_soldier') ? 'enemy_soldier' : 'enemy'
+      t = 'sapper'; displayW = 50; displayH = 66
+    } else if (kind === 'splitter') {
+      tex = this.textures.exists('enemy_flyer') ? 'enemy_flyer' : 'flyer'
+      t = 'splitter'; displayW = 58; displayH = 58
     } else if (kind === 'boss') {
       tex = this.textures.exists('boss_art') ? 'boss_art' : 'boss'
       // Size scales with HP so mini-guardians read smaller than the final boss.
@@ -2072,6 +2078,11 @@ export class MainScene extends Phaser.Scene {
     if (t === 'charger') { enemy.setData('baseTint', 0xff7a3c); enemy.setTint(0xff7a3c) }
     if (t === 'diver') { enemy.setData('baseTint', 0xff4d6d); enemy.setTint(0xff4d6d) }
     if (t === 'sniper') { enemy.setData('baseTint', 0x93c5fd); enemy.setTint(0x93c5fd) }   // cold steel-blue long-range shooter
+    if (t === 'sapper') {   // orange mortar unit — marks the ground then detonates it; clean up its reticle if killed mid-wind-up
+      enemy.setData('baseTint', 0xf97316); enemy.setTint(0xf97316)
+      ;(enemy as Phaser.GameObjects.Sprite).on('destroy', () => { const r = enemy.getData('reticle') as Phaser.GameObjects.Arc | undefined; if (r) r.destroy() })
+    }
+    if (t === 'splitter') { enemy.setData('baseTint', 0xc084fc); enemy.setTint(0xc084fc) }   // violet fission pod — bursts into two ground minis
     if (t === 'shielder') {   // slate bruiser with a frontal energy shield — hit it from above (aim down) or behind
       enemy.setData('baseTint', 0x94a3b8); enemy.setTint(0x94a3b8)
       const shield = this.add.rectangle(enemy.x, enemy.y, 9, 48, 0x67e8f9, 0.42).setStrokeStyle(2, 0xa5f3fc, 0.9).setDepth(19)
@@ -2128,7 +2139,7 @@ export class MainScene extends Phaser.Scene {
       if (this.isBossLevel()) this.screenToast('⚠ ' + this.nextBossLabel, '#f43f5e', 110)   // final boss announces itself (guardians toast at their spawn site)
     }
 
-    if (t === 'flyer' || t === 'boss' || t === 'diver') {
+    if (t === 'flyer' || t === 'boss' || t === 'diver' || t === 'splitter') {
       enemy.setVelocity(speed * (Math.random() > 0.5 ? 1 : -1), t === 'boss' ? 15 : speed * 0.3)
       ;(enemy.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
     } else if (t === 'turret') {
@@ -3450,7 +3461,13 @@ export class MainScene extends Phaser.Scene {
       // flyers only ever come from the front — no more "shot at from all over".
       const fromAhead = Math.random() < 0.82
       const side = Phaser.Math.Clamp(fromAhead ? camX + 540 : camX - 20, 40, this.levelW - 40)
-      if (fromAhead && this.level >= 3 && Math.random() < 0.22) {
+      if (fromAhead && this.level >= 4 && Math.random() < 0.2) {
+        // Splitter pod: floats in, bursts into two ground minis on death — sudden crowd pressure.
+        this.spawnEnemy('splitter', side, Phaser.Math.Clamp(camTop + Phaser.Math.Between(70, 210), 40, this.levelH), 4 + Math.floor(this.level / 2), 42 + this.level * 4)
+      } else if (fromAhead && this.level >= 3 && Math.random() < 0.2) {
+        // Sapper: a ground mortar unit that marks the floor under you then detonates it — keep moving.
+        this.spawnEnemy('sapper', this.groundedSpawnX(side), 540, 5 + this.level, 42)
+      } else if (fromAhead && this.level >= 3 && Math.random() < 0.22) {
         // Shielder reinforcement: a slow frontal-shield bruiser you must out-position.
         this.spawnEnemy('soldier', this.groundedSpawnX(side), 540, 7 + this.level, 34, 'shielder')
       } else if (fromAhead && this.level >= 2 && Math.random() < 0.28) {
@@ -3765,6 +3782,18 @@ export class MainScene extends Phaser.Scene {
     })
   }
 
+  // SAPPER mortar strike — a delayed AoE at the marked ground spot that hurts the PLAYER (not
+  // enemies, unlike detonateArc). Miss it by moving off the reticle before it lands.
+  private mortarImpact(x: number, y: number, r: number) {
+    this.shockwave(x, y, 0xf97316, r); this.shockwave(x, y, 0xffedd5, r * 0.55)
+    this.particles.emitParticleAt(x, y, 18)
+    this.deathParticles.setParticleTint(0xf97316); this.deathParticles.emitParticleAt(x, y, 8)
+    if (!this.reduceMotion) this.fxShake(90, 0.014)
+    this.sfx?.explode(this.panAt(x))
+    const dx = this.player.x - x, dy = this.player.y - y
+    if (dx * dx + dy * dy < r * r) this.damagePlayer('enemy', 'sapper')
+  }
+
   private updateEnemies(delta: number) {
     this.enemies.getChildren().forEach((child) => {
       const enemy = child as Phaser.Physics.Arcade.Sprite
@@ -3801,6 +3830,38 @@ export class MainScene extends Phaser.Scene {
         enemy.setVelocityX(Phaser.Math.Clamp(dx * 0.55, -speed, speed))
         enemy.setVelocityY(Phaser.Math.Clamp(dy * 0.35, -speed * 0.6, speed * 0.6))
         enemy.setFlipX(dx < 0)
+      }
+      if (type === 'splitter') {   // a soft floating pod — drifts toward the player, bursts into two ground minis on death
+        const dx = this.player.x - enemy.x, dy = this.player.y - enemy.y - 30
+        enemy.setVelocityX(Phaser.Math.Clamp(dx * 0.4, -speed, speed))
+        enemy.setVelocityY(Phaser.Math.Clamp(dy * 0.28, -speed * 0.5, speed * 0.5))
+        enemy.setFlipX(dx < 0)
+      }
+      if (type === 'sapper') {   // creeps in, marks the ground under you, then mortars it — forces constant movement
+        const st = (enemy.getData('sstate') as string) || 'creep'
+        const stimer = ((enemy.getData('stimer') as number) ?? Phaser.Math.Between(500, 1300)) - delta
+        const dx = this.player.x - enemy.x
+        if (st === 'mark') {
+          enemy.setVelocityX(0)
+          if (stimer <= 0) {
+            this.restoreTint(enemy)
+            const ret = enemy.getData('reticle') as Phaser.GameObjects.Arc | undefined
+            if (ret) { ret.destroy(); enemy.setData('reticle', undefined) }
+            this.mortarImpact(enemy.getData('markX') as number, enemy.getData('markY') as number, 78)
+            enemy.setData('sstate', 'creep'); enemy.setData('stimer', Phaser.Math.Between(1500, 2500))
+          } else enemy.setData('stimer', stimer)
+        } else {
+          enemy.setVelocityX(Math.sign(dx) * speed * 0.7); enemy.setFlipX(dx < 0)
+          if (Math.abs(dx) < 540 && stimer <= 0) {
+            enemy.setData('sstate', 'mark'); enemy.setData('stimer', 880)
+            enemy.setVelocityX(0); enemy.setTintFill(0xffe08a)
+            const mx = this.player.x, my = Math.min(this.player.y + 28, this.lastGroundY + 18)
+            enemy.setData('markX', mx); enemy.setData('markY', my)
+            const ret = this.add.circle(mx, my, 12, 0xf97316, 0.14).setStrokeStyle(3, 0xf97316, 0.9).setDepth(15)
+            this.tweens.add({ targets: ret, scale: { from: 2.6, to: 1 }, duration: 860, ease: 'Quad.easeIn' })
+            enemy.setData('reticle', ret)
+          } else enemy.setData('stimer', stimer)
+        }
       }
       if (type === 'turret') enemy.setFlipX(this.player.x < enemy.x)
       if (type === 'boss') this.updateBoss(enemy, delta)
@@ -4240,8 +4301,8 @@ export class MainScene extends Phaser.Scene {
   private killEnemy(enemy: Phaser.Physics.Arcade.Sprite) {
     const type = enemy.getData('type') as string
     const isElite = enemy.getData('elite') === true
-    const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : type === 'charger' ? 0xff7a3c : type === 'diver' ? 0xff4d6d : type === 'sniper' ? 0x93c5fd : type === 'shielder' ? 0x94a3b8 : 0xf43f5e
-    let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'shielder' ? 400 : type === 'turret' ? 350 : type === 'sniper' ? 320 : type === 'flyer' ? 250 : type === 'charger' ? 200 : type === 'diver' ? 260 : 120
+    const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : type === 'charger' ? 0xff7a3c : type === 'diver' ? 0xff4d6d : type === 'sniper' ? 0x93c5fd : type === 'shielder' ? 0x94a3b8 : type === 'sapper' ? 0xf97316 : type === 'splitter' ? 0xc084fc : 0xf43f5e
+    let pts = type === 'boss' ? 4000 : type === 'tank' ? 500 : type === 'shielder' ? 400 : type === 'turret' ? 350 : type === 'sapper' ? 340 : type === 'sniper' ? 320 : type === 'flyer' ? 250 : type === 'splitter' ? 240 : type === 'charger' ? 200 : type === 'diver' ? 260 : 120
     if (isElite) pts = Math.round(pts * 2.2)
     pts = this.applyCombo(pts)
     this.kills++
@@ -4264,6 +4325,12 @@ export class MainScene extends Phaser.Scene {
     if (isElite || Math.random() < 0.3) {
       const kinds = ['health', 'spread', 'rapid', 'laser', 'fire', 'arc']
       this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
+    }
+    // SPLITTER fission: burst into two ground minis (plain walkers, so they can't re-split). Capped
+    // so a crowd of splitters can't runaway-spawn.
+    if (type === 'splitter' && this.enemies.countActive(true) < 12) {
+      const sx = enemy.x, sy = enemy.y, mhp = Math.max(2, Math.ceil((enemy.getData('maxHp') as number) / 2))
+      ;[-1, 1].forEach((s) => this.spawnEnemy('soldier', sx + s * 30, sy, mhp, 100, 'walker'))
     }
     enemy.destroy()
     if (this.isBossLevel() && this.enemies.countActive(true) === 0) this.onLevelClear()
