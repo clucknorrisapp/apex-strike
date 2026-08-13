@@ -1145,6 +1145,10 @@ export class MainScene extends Phaser.Scene {
   private shardText!: Phaser.GameObjects.Text
   // Title / start gate (skipped in the Level Lab)
   private started = false
+  private coachGate = false     // FIRST-RUN "DROP IN" gate: the sim stays paused behind a readable controls card until the player acknowledges it (no teaching mid-combat)
+  private coachGateUI: Phaser.GameObjects.GameObject[] = []
+  private coachGraceUntil = 0   // swallow the very keypress/tap that launched the run so it can't instantly drop in
+  private coachGateKey?: (e: KeyboardEvent) => void
   private titleUI: Phaser.GameObjects.GameObject[] = []
   // Extraction compass — edge arrow pointing to the goal when it's off-screen
   private compass?: Phaser.GameObjects.Triangle
@@ -1363,6 +1367,7 @@ export class MainScene extends Phaser.Scene {
     this.deathsThisRun = 0
     this.runNoHit = true
     this.runShards = 0
+    this.coachGate = false
     newRun()
     this.score = 0
     this.level = 1
@@ -3950,11 +3955,54 @@ export class MainScene extends Phaser.Scene {
     this.titleUI.forEach((o) => o.destroy())
     this.titleUI = []
     this.titleNav = []; this.titleRing = undefined; this.titleNavActive = false
+    const firstRun = (() => { try { return localStorage.getItem('apex_coached') !== '1' } catch { return true } })()
+    if (firstRun && this.isBaseCampaign()) {
+      this.startCoachGate()   // FIRST RUN: hold the sim paused behind a readable controls card until the player DROPS IN — no teaching mid-combat
+    } else {
+      this.physics.resume()
+      const d = this.levels()[this.level - 1]
+      this.showBanner('SECTOR 1', d?.name || '')
+      this.showFirstRunCoach()   // no-op once coached; the older inline card still covers a first-run non-campaign start
+    }
+    this.setBridge('playing')
+  }
+
+  // FIRST-RUN DROP IN gate — the game's one controls teach used to fire 1.5s into live combat and
+  // collide with pickup/tip pop-ups; this shows it in calm air (sim paused) and only starts the fight
+  // once the player acknowledges. Once-ever, gated on apex_coached.
+  private startCoachGate() {
+    this.coachGate = true
+    try { localStorage.setItem('apex_coached', '1') } catch { /* storage blocked — still gate, just show again next run */ }
+    const touch = this.sys.game.device.input.touch
+    const lines = touch
+      ? ['LEFT side — drag to move & aim', 'RIGHT side — FIRE · JUMP · DASH', 'grab ◆ pods · reach the sector boss']
+      : ['MOVE  A / D   ( or ◄ ► )', 'JUMP  W / ▲   — tap again to double-jump', 'AIM   hold ▲ / ▼ while you FIRE', 'FIRE  SPACE (hold)       SWAP  Q', 'DASH  SHIFT — i-frames, and DEFLECT bolts back']
+    const els: Phaser.GameObjects.GameObject[] = []
+    els.push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.86).setScrollFactor(0).setDepth(240).setInteractive())
+    els.push(this.add.text(256, 92, '▸ CONTROLS ◂', { fontFamily: 'monospace', fontSize: '15px', color: '#22d3ee', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    lines.forEach((ln, i) => els.push(this.add.text(256, 128 + i * 20, ln, { fontFamily: 'monospace', fontSize: touch ? '11px' : '10px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)))
+    const prompt = this.add.text(256, 262, '▶  DROP IN', { fontFamily: 'monospace', fontSize: '15px', color: '#0a0612', fontStyle: 'bold', backgroundColor: '#22d3ee', padding: { x: 18, y: 7 } }).setOrigin(0.5).setScrollFactor(0).setDepth(241).setInteractive({ useHandCursor: true })
+    els.push(prompt)
+    els.push(this.add.text(256, 298, 'press any key · tap · or a gamepad button to begin', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    this.coachGateUI = els
+    this.tweens.add({ targets: prompt, alpha: 0.55, duration: 620, yoyo: true, repeat: -1 })
+    this.coachGraceUntil = this.time.now + 350
+    const drop = () => { if (this.coachGate && this.time.now >= this.coachGraceUntil) this.endCoachGate() }
+    ;(els[0] as Phaser.GameObjects.Rectangle).on('pointerdown', drop)   // tap anywhere on the backdrop
+    prompt.on('pointerdown', drop)
+    this.coachGateKey = () => drop()
+    this.input.keyboard!.on('keydown', this.coachGateKey)
+  }
+
+  private endCoachGate() {
+    if (!this.coachGate) return
+    this.coachGate = false
+    if (this.coachGateKey) { this.input.keyboard!.off('keydown', this.coachGateKey); this.coachGateKey = undefined }
+    this.coachGateUI.forEach((o) => o.destroy())
+    this.coachGateUI = []
     this.physics.resume()
     const d = this.levels()[this.level - 1]
     this.showBanner('SECTOR 1', d?.name || '')
-    this.showFirstRunCoach()
-    this.setBridge('playing')
   }
 
   // One-time control coach on a player's first run — a control card that appears after the SECTOR
@@ -3988,6 +4036,11 @@ export class MainScene extends Phaser.Scene {
     this.updateSlowmo()  // KILL-TIME: ease sim time-scales back to normal after a big beat
     this.updateHomingBullets()   // SEEKER boss bolts steer toward the player while their window is open
     this.pollGamepadInput()                                          // arm-on-input READY toast + gpdebug overlay
+    if (this.coachGate) {   // FIRST-RUN DROP IN gate — sim frozen behind the controls card; any gamepad button drops in
+      const gp = this.readPad()
+      if (gp && this.time.now >= this.coachGraceUntil && this.anyPadButtonDown(gp.buttons)) this.endCoachGate()
+      return
+    }
     if (this.controlsOpen) { this.updateControlsRebind(); return }   // controls / rebind screen owns input
     if (this.contractOpen) {   // Apex Contract screen — pad ▲▼ moves the focus ring, a face button confirms THAT boon
       const gp = this.readPad()
