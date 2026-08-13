@@ -5140,8 +5140,10 @@ export class MainScene extends Phaser.Scene {
             enemy.setVelocityX(0); enemy.setTintFill(0xffe08a)
             const mx = this.player.x, my = Math.min(this.player.y + 28, this.lastGroundY + 18)
             enemy.setData('markX', mx); enemy.setData('markY', my)
-            const ret = this.add.circle(mx, my, 12, 0xf97316, 0.14).setStrokeStyle(3, 0xf97316, 0.9).setDepth(15)
-            this.tweens.add({ targets: ret, scale: { from: 2.6, to: 1 }, duration: 860, ease: 'Quad.easeIn' })
+            // Reticle drawn at the TRUE 78px blast radius (was 12px — 6.5x smaller than the kill zone, so
+            // players stepped visibly "off" the dot and still got hit); it converges onto the real edge. (round-11 combat#2)
+            const ret = this.add.circle(mx, my, 78, 0xf97316, 0.16).setStrokeStyle(3, 0xf97316, 0.95).setDepth(15)
+            this.tweens.add({ targets: ret, scale: { from: 1.5, to: 1 }, duration: 860, ease: 'Quad.easeIn' })
             enemy.setData('reticle', ret)
           } else enemy.setData('stimer', stimer)
         }
@@ -5317,7 +5319,10 @@ export class MainScene extends Phaser.Scene {
       const upcoming = pool[((enemy.getData('atkIdx') as number) || 0) % pool.length]
       const teleCol = BOSS_TELE_COLOR[upcoming] || 0xffe08a
       enemy.setData('teleCol', teleCol)   // restoreTint repaints this if a hit lands mid-wind-up
-      enemy.setTintFill(teleCol)
+      // Flash a WHITE-lifted version of the class colour on the sprite: on same-accent bosses (red reaper,
+      // gold sentinel) a flat class tint barely differs from the silhouette, so its scariest tells washed
+      // out. The shockwave ring below stays full-saturation teleCol, so hue still says WHICH move. (round-11 combat#4)
+      enemy.setTintFill(this.teleFlash(teleCol))
       this.time.delayedCall(190, () => this.restoreTint(enemy))
       this.shockwave(enemy.x, enemy.y, teleCol, 42)
       this.sfx?.bossTele(BOSS_MOVE_CLASS[upcoming] || 'charge')
@@ -5518,6 +5523,16 @@ export class MainScene extends Phaser.Scene {
   }
 
   // Clear a hit/telegraph flash but keep any persistent base tint (e.g. the charger's).
+  // Lift a telegraph class colour toward white so the wind-up flash carries an unmissable brightness
+  // delta regardless of the boss's own accent (a flat red tint on the red reaper barely read). Hue is
+  // preserved enough to still hint the class; the colour-coded shockwave ring carries the true semantic.
+  private teleFlash(col: number): number {
+    const f = 0.55
+    const r = (col >> 16) & 0xff, g = (col >> 8) & 0xff, b = col & 0xff
+    const lift = (c: number) => Math.round(c + (255 - c) * f)
+    return (lift(r) << 16) | (lift(g) << 8) | lift(b)
+  }
+
   private restoreTint(e: Phaser.Physics.Arcade.Sprite) {
     if (!e.active) return
     // A STAGGER freeze owns the tint: hold cyan for the whole window so a hit's +60ms restore, a burn
@@ -5527,7 +5542,7 @@ export class MainScene extends Phaser.Scene {
     // A non-lethal hit must NOT strip an enemy's "about to strike" telegraph flash while the wind-up is
     // still live — the tell is set once on entering the state, so re-assert the gold flash instead of
     // clearing to base whenever the enemy is still winding/marking/telegraphing.
-    if (e.getData('tele2') === true) { e.setTintFill((e.getData('teleCol') as number) || 0xffe08a); return }   // boss wind-up keeps its per-move class colour
+    if (e.getData('tele2') === true) { e.setTintFill(this.teleFlash((e.getData('teleCol') as number) || 0xffe08a)); return }   // boss wind-up keeps its per-move class colour (white-lifted so it never washes out on same-accent bosses)
     if (e.getData('cstate') === 'wind' || e.getData('dstate') === 'wind' || e.getData('sstate') === 'mark'
         || e.getData('tele') === true) { e.setTintFill(0xffe08a); return }
     e.clearTint()
