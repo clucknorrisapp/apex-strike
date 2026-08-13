@@ -6452,7 +6452,7 @@ export class MainScene extends Phaser.Scene {
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
     const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score)
-      : this.heatRun ? { best: this.score, record: false, prevBest: this.score }
+      : !this.isBaseCampaign() ? { best: this.score, record: false, prevBest: this.score }   // daily/heat have their own boards; a daily WIN must never clobber the campaign best (apex_best) or paint a false NEW RECORD — matches triggerGameOver (round-11 bug#1)
       : this.saveBest()
     this.evalBadges(!this.rushRun)   // a Trials clear isn't a campaign win (no CHAMPION), but kills/combos/boss-mask still fold in
     this.settleBounties()
