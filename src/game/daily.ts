@@ -93,6 +93,20 @@ export function pendingDividend(): number {
   } catch { return 0 }
 }
 
+// ---- DAILY DEPLOYMENT — the first CAMPAIGN run you finish each UTC day banks a flat shard bonus,
+// anchoring a daily habit in the main mode (the Daily Challenge has its own RESUPPLY dividend). Feeds
+// the Armory / Apex Rank sink. Idempotent per UTC day. ----
+const CD_KEY = 'apex_campaign_daily'
+export const DEPLOY_BONUS = 8
+
+export function claimCampaignDaily(): number {
+  try {
+    if (localStorage.getItem(CD_KEY) === todayKey()) return 0
+    localStorage.setItem(CD_KEY, todayKey())
+    return DEPLOY_BONUS
+  } catch { return 0 }
+}
+
 // Read the current streak without mutating. A streak is only "alive" if the last play was
 // today (playedToday) or yesterday (still continuable today); older = broken, shown as 0.
 export function getDailyStreak(): { streak: number; playedToday: boolean } {
