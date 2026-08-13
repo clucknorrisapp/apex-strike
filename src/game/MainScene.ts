@@ -151,6 +151,8 @@ class Sfx {
   hit() { this.tone(240, 140, 0.05, 'square', 0.035) }
   // TELEGRAPH PUNISH: a bright rising two-note ping so a crit reads by ear over the normal thunk.
   crit(pan?: number) { this.tone(1000, 1950, 0.07, 'square', 0.05, pan); this.note(2100, 0.05, 'triangle', 0.04, 0.04, undefined, pan) }
+  // RAZOR GRAZE: a tiny high tick as a bolt shaves past.
+  graze(pan?: number) { this.tone(2600, 3100, 0.03, 'triangle', 0.03, pan) }
   explode(pan?: number) { this.noise(0.28, 0.09, pan); this.duck() }
   pickup() { this.tone(620, 1240, 0.16, 'sine', 0.06) }
   // Distinct pickup motif per powerup so you hear WHICH pod you grabbed, eyes on the action.
@@ -933,6 +935,7 @@ export class MainScene extends Phaser.Scene {
   private kills = 0
   private maxCombo = 0
   private bossesThisRun = 0     // bosses downed this run — feeds daily bounties
+  private grazeCount = 0        // RAZOR GRAZE near-misses this run
   private heartT = 0                 // countdown to the next low-health heartbeat thump
   private prevOnGround = false
   private fallSpeed = 0
@@ -1336,6 +1339,7 @@ export class MainScene extends Phaser.Scene {
     this.kills = 0
     this.maxCombo = 0
     this.bossesThisRun = 0
+    this.grazeCount = 0
     this.prevOnGround = false
     this.fallSpeed = 0
     this.camLookX = -140; this.camLookTarget = -140; this.camDip = 0; this.recoilX = 0; this.recoilY = 0
@@ -3906,7 +3910,35 @@ export class MainScene extends Phaser.Scene {
     this.updateMovers(delta)
     this.updateEnemies(delta)
     this.updateBurns()   // FIRE damage-over-time: drain burn stacks laid down by fire rounds
+    this.updateGraze()   // RAZOR GRAZE: reward enemy bolts that shave past without hitting
     this.maybeSpawnReinforcements(delta)
+  }
+
+  // RAZOR GRAZE — dodging by inches is now the high-value play. An enemy bolt that shaves just past
+  // your hitbox (a thin band outside it) scores + tops up the combo timer, so tight threading sustains
+  // a kill-chain through a bullet curtain. Each bolt grazes once; the flag clears when it's retired so
+  // a pooled bolt is fresh on reuse.
+  private updateGraze() {
+    const pb = this.player?.body as Phaser.Physics.Arcade.Body | undefined
+    if (!pb || this.time.now < this.invulnUntil) return   // no "graze" while already i-framed
+    const pcx = pb.center.x, pcy = pb.center.y
+    const hitR = Math.max(pb.halfWidth, pb.halfHeight)
+    const inner = hitR + 6, outer = hitR + 24               // the graze band, just outside the hitbox
+    this.enemyBullets.getChildren().forEach((obj) => {
+      const b = obj as Phaser.Physics.Arcade.Image
+      if (!b.active) { if (b.getData('grazed')) b.setData('grazed', false); return }   // fresh on reuse
+      if (b.getData('grazed')) return
+      const dx = b.x - pcx, dy = b.y - pcy
+      const d = Math.sqrt(dx * dx + dy * dy)
+      if (d <= inner || d >= outer) return
+      b.setData('grazed', true)
+      this.grazeCount++
+      this.score += 5; this.scoreText.setText('SCORE  ' + this.score)
+      if (this.combo > 0) this.comboTimer = Math.min(2400, this.comboTimer + 420)   // tight dodging sustains a chain
+      this.particles.emitParticleAt(b.x, b.y, 2)
+      this.sfx?.graze(this.panAt(b.x))
+      if (this.grazeCount % 8 === 0) { this.popup(pcx, pcy - 34, 'GRAZE ×' + this.grazeCount, '#a5f3fc'); this.slowmo(0.85, 60) }
+    })
   }
 
   // FIRE ignites what it hits: embers keep ticking damage for a beat after the round lands, so
