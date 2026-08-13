@@ -4089,7 +4089,10 @@ export class MainScene extends Phaser.Scene {
     const els: Phaser.GameObjects.GameObject[] = []
     els.push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.86).setScrollFactor(0).setDepth(240).setInteractive())
     els.push(this.add.text(256, 92, '▸ CONTROLS ◂', { fontFamily: 'monospace', fontSize: '15px', color: '#22d3ee', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    lines.forEach((ln, i) => els.push(this.add.text(256, 128 + i * 20, ln, { fontFamily: 'monospace', fontSize: touch ? '11px' : '10px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)))
+    // Premise line — the desktop card was controls-only, so a new player learned keys but never what the
+    // game IS or wants. State the fantasy/goal up front for touch AND keyboard.
+    els.push(this.add.text(256, 110, 'Fight to the extraction — drop the guardian, get out.', { fontFamily: 'monospace', fontSize: '9px', color: '#fbbf24' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    lines.forEach((ln, i) => els.push(this.add.text(256, 130 + i * 20, ln, { fontFamily: 'monospace', fontSize: touch ? '11px' : '10px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)))
     const prompt = this.add.text(256, 262, '▶  DROP IN', { fontFamily: 'monospace', fontSize: '15px', color: '#0a0612', fontStyle: 'bold', backgroundColor: '#22d3ee', padding: { x: 18, y: 7 } }).setOrigin(0.5).setScrollFactor(0).setDepth(241).setInteractive({ useHandCursor: true })
     els.push(prompt)
     els.push(this.add.text(256, 298, 'press any key · tap · or a gamepad button to begin', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
@@ -4358,7 +4361,7 @@ export class MainScene extends Phaser.Scene {
       this.nextBossKind = eb.kind
       this.spawnEnemy('boss', eb.x, eb.y, eb.hp, eb.speed)   // roar + shake fire inside spawnEnemy now
       this.screenToast('⚠ GUARDIAN  ·  ' + eb.label, '#f43f5e', 110)
-      this.tipOnce('dash', 'DASH through danger — i-frames dodge shots,\nand dashing THROUGH a foe guts it (Phase Strike)', '#22d3ee')
+      this.tipOnce('dash', 'PHASE STRIKE — DASH clean THROUGH a foe\nto gut it. Your dodge is also your finisher.', '#22d3ee')
     }
 
     // Reached the extraction point? Boss stages clear by kill-all; guardian stages stay
@@ -6296,9 +6299,13 @@ export class MainScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.restartRun() })
     this.add.text(256, 96, 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '21px', color: '#f43f5e' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.resultsCard(record)
+    // On an extraction stage, frame how far the run got — "63% to extraction" reads as near-miss progress
+    // (which pulls a new player into run 2) instead of a flat "Reached Sector 1" that reads as total failure.
+    const reachPct = (this.goalX > 0 && !this.isBossLevel() && !this.rushRun)
+      ? '  ·  ' + Math.round(Phaser.Math.Clamp((this.player.x - 120) / Math.max(1, this.goalX - 120), 0, 1) * 100) + '% to extraction' : ''
     const midline = this.rushRun ? 'APEX TRIALS  ·  ' + this.rushIndex + '/' + this.rushOrder.length + ' bosses'
-      : this.heatRun ? 'APEX HEAT ' + this.heatTier + '  ·  Reached Sector ' + this.level
-      : 'Reached Sector ' + this.level
+      : this.heatRun ? 'APEX HEAT ' + this.heatTier + '  ·  Reached Sector ' + this.level + reachPct
+      : 'Reached Sector ' + this.level + reachPct
     this.add.text(256, 212, midline, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     if (this.rushRun) this.trialsExtras(trialsSubmit, token)
