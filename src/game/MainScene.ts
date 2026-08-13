@@ -155,6 +155,8 @@ class Sfx {
   crit(pan?: number) { this.tone(1000, 1950, 0.07, 'square', 0.05, pan); this.note(2100, 0.05, 'triangle', 0.04, 0.04, undefined, pan) }
   // RAZOR GRAZE: a tiny high tick as a bolt shaves past.
   graze(pan?: number) { this.tone(2600, 3100, 0.03, 'triangle', 0.03, pan) }
+  // COUNTER-DASH DEFLECT: a bright metallic snap as a caught bolt whips back at its owner.
+  deflect(pan?: number) { this.tone(1800, 2700, 0.05, 'triangle', 0.05, pan); this.note(2500, 0.05, 'square', 0.03, 0.04, undefined, pan) }
   explode(pan?: number) { this.noise(0.28, 0.09, pan); this.duck() }
   pickup() { this.tone(620, 1240, 0.16, 'sine', 0.06) }
   // Distinct pickup motif per powerup so you hear WHICH pod you grabbed, eyes on the action.
@@ -939,6 +941,7 @@ export class MainScene extends Phaser.Scene {
   private maxCombo = 0
   private bossesThisRun = 0     // bosses downed this run — feeds daily bounties
   private grazeCount = 0        // RAZOR GRAZE near-misses this run
+  private deflectCount = 0      // COUNTER-DASH deflects this run
   private tipsShown = new Set<string>()   // session cache so a just-in-time tip is evaluated once
   private heartT = 0                 // countdown to the next low-health heartbeat thump
   private prevOnGround = false
@@ -1089,6 +1092,7 @@ export class MainScene extends Phaser.Scene {
   private dashKey!: Phaser.Input.Keyboard.Key
   private dashLevel = 0
   private dashHitList: Phaser.GameObjects.GameObject[] = []   // enemies already struck by the current dash (PHASE STRIKE)
+  private dashDeflects = 0   // bolts deflected during the current dash (capped so one dash can't wipe a full curtain)
   private dashCd = 820   // baseline dash cooldown (Armory PHASE DASH tiers shorten it)
   private dashUntil = 0
   private dashCdUntil = 0
@@ -1358,6 +1362,7 @@ export class MainScene extends Phaser.Scene {
     this.maxCombo = 0
     this.bossesThisRun = 0
     this.grazeCount = 0
+    this.deflectCount = 0
     this.prevOnGround = false
     this.fallSpeed = 0
     this.camLookX = -140; this.camLookTarget = -140; this.camDip = 0; this.recoilX = 0; this.recoilY = 0
@@ -4080,6 +4085,7 @@ export class MainScene extends Phaser.Scene {
     this.updateMovers(delta)
     this.updateEnemies(delta)
     this.updateBurns()   // FIRE damage-over-time: drain burn stacks laid down by fire rounds
+    this.updateDeflect() // COUNTER-DASH: dash i-frames catch incoming bolts and whip them back
     this.updateGraze()   // RAZOR GRAZE: reward enemy bolts that shave past without hitting
     this.maybeSpawnReinforcements(delta)
   }
@@ -4096,7 +4102,7 @@ export class MainScene extends Phaser.Scene {
     const inner = hitR + 6, outer = hitR + 24               // the graze band, just outside the hitbox
     this.enemyBullets.getChildren().forEach((obj) => {
       const b = obj as Phaser.Physics.Arcade.Image
-      if (!b.active) { if (b.getData('grazed')) b.setData('grazed', false); return }   // fresh on reuse
+      if (!b.active) { if (b.getData('grazed')) b.setData('grazed', false); if (b.getData('deflected')) b.setData('deflected', false); return }   // fresh on reuse (graze + deflect flags)
       if (b.getData('grazed')) return
       const dx = b.x - pcx, dy = b.y - pcy
       const d = Math.sqrt(dx * dx + dy * dy)
@@ -4109,6 +4115,56 @@ export class MainScene extends Phaser.Scene {
       this.particles.emitParticleAt(b.x, b.y, 2)
       this.sfx?.graze(this.panAt(b.x))
       if (this.grazeCount % 8 === 0) { this.popup(pcx, pcy - 34, 'GRAZE ×' + this.grazeCount, '#a5f3fc'); this.slowmo(0.85, 60) }
+    })
+  }
+
+  // COUNTER-DASH DEFLECT — the dash is already an i-frame dodge; timing it INTO fire now turns that
+  // fire back on the shooter. Any enemy bolt caught in the immediate threat zone during dash i-frames is
+  // retired and re-fired as a player bolt at the nearest foe — so it flows through the normal
+  // bullet→enemy path and inherits damage, PUNISH, combo and drops for free. Capped per dash so one dash
+  // can't erase a whole curtain; a clean deflect tops up the combo timer like a graze.
+  private updateDeflect() {
+    if (this.time.now >= this.dashIframeUntil || this.dashDeflects >= 3) return   // only mid-dash, and only up to the per-dash budget
+    const pb = this.player?.body as Phaser.Physics.Arcade.Body | undefined
+    if (!pb) return
+    const pcx = pb.center.x, pcy = pb.center.y
+    const catchR = Math.max(pb.halfWidth, pb.halfHeight) + 16   // the imminent-impact zone the dash is phasing through
+    this.enemyBullets.getChildren().forEach((obj) => {
+      if (this.dashDeflects >= 3) return
+      const bolt = obj as Phaser.Physics.Arcade.Image
+      if (!bolt.active || bolt.getData('deflected')) return
+      const dx = bolt.x - pcx, dy = bolt.y - pcy
+      if (dx * dx + dy * dy > catchR * catchR) return
+      // CATCH: retire the incoming bolt, then whip a counter-shot at the nearest live enemy (or, if the
+      // room is empty, straight along the dash line).
+      bolt.setData('deflected', true)
+      bolt.setActive(false).setVisible(false)
+      this.dashDeflects++
+      this.deflectCount++
+      let tx = pcx + this.dashDir * 400, ty = pcy, best = Infinity
+      this.enemies.getChildren().forEach((o) => {
+        const en = o as Phaser.Physics.Arcade.Sprite
+        if (!en.active || en.getData('dying') === true) return
+        const dd = (en.x - pcx) * (en.x - pcx) + (en.y - pcy) * (en.y - pcy)
+        if (dd < best) { best = dd; tx = en.x; ty = en.y }
+      })
+      const cb = this.bullets.get(pcx, pcy, 'bullet') as Phaser.Physics.Arcade.Image
+      if (cb) {
+        cb.setActive(true).setVisible(true); cb.setScale(0.7); cb.setDepth(20)
+        cb.body?.reset(pcx, pcy)
+        ;(cb.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
+        cb.setData('pierce', 0); cb.setData('hit', null)   // a normal single-contact bolt on the bullet×enemy overlap
+        const ang = Math.atan2(ty - pcy, tx - pcx)
+        cb.setVelocity(Math.cos(ang) * 900, Math.sin(ang) * 900)
+        cb.setRotation(ang)
+        this.time.delayedCall(1400, () => { if (cb.active) cb.setActive(false).setVisible(false) })
+      }
+      this.shockwave(bolt.x, bolt.y, 0x93c5fd, 16)
+      this.popup(bolt.x, bolt.y - 20, 'DEFLECT', '#93c5fd')
+      this.sfx?.deflect(this.panAt(bolt.x))
+      if (this.combo > 0) this.comboTimer = Math.min(2400, this.comboTimer + 300)   // a clean deflect sustains the chain
+      this.tipOnce('deflect', 'DASH into fire to DEFLECT it —\nthe bolt snaps back at your attacker', '#93c5fd')
+      if (this.deflectCount % 5 === 0) { this.popup(pcx, pcy - 34, 'DEFLECT ×' + this.deflectCount, '#93c5fd'); this.slowmo(0.8, 70) }
     })
   }
 
@@ -4384,6 +4440,7 @@ export class MainScene extends Phaser.Scene {
         this.dashDir = dir
         this.dashUntil = time + 175
         this.dashHitList = []                 // fresh dedupe list per dash (PHASE STRIKE)
+        this.dashDeflects = 0                 // fresh deflect budget per dash (COUNTER-DASH)
         this.dashCdUntil = time + this.dashCd
         this.dashIframeUntil = Math.max(this.dashUntil, time + (this.dashLevel >= 2 ? 220 : this.dashLevel >= 1 ? 170 : 130))   // i-frames scale with tier but ALWAYS cover the full dash — bodies phase for dashUntil, so bullets must too
         this.facingRight = dir > 0; this.player.setFlipX(dir < 0)
