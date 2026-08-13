@@ -9,6 +9,7 @@ import { heatMods, loadHeatUnlocked, noteCampaignClear, MAX_HEAT } from './heat'
 import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, type DailyMod } from './daily'
 import { evalBounties, todayBounties, loadBountyState, bountyDoneCount } from './bounties'
+import { foldRun as foldContracts, contractProgress } from './contracts'
 
 const ASSETS = {
   huntress: '/assets/huntress.png',
@@ -3067,11 +3068,10 @@ export class MainScene extends Phaser.Scene {
     const best = loadTrialsBest()
 
     push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.985).setScrollFactor(0).setDepth(250).setInteractive())
-    push(this.add.text(256, 20, 'APEX TRIALS', { fontFamily: 'monospace', fontSize: '18px', color: '#fca5a5', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
-    T(256, 40, wk + '  ·  resets Monday 00:00 UTC  ·  Armory ON', 8, '#71717a', 0.5)
-    push(this.add.text(256, 62, '⚔  7-BOSS GAUNTLET', { fontFamily: 'monospace', fontSize: '13px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
-    T(256, 82, 'All 7 bosses back-to-back — same order for everyone this week.', 8, '#c4b5fd', 0.5)
-    const play = push(this.add.text(256, 110, '▶  PLAY TRIALS', { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold', backgroundColor: '#fca5a5', padding: { x: 14, y: 7 } }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    push(this.add.text(256, 18, 'APEX TRIALS', { fontFamily: 'monospace', fontSize: '18px', color: '#fca5a5', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    T(256, 36, wk + '  ·  resets Monday 00:00 UTC  ·  Armory ON', 8, '#71717a', 0.5)
+    push(this.add.text(256, 54, '⚔  7-BOSS GAUNTLET', { fontFamily: 'monospace', fontSize: '13px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    const play = push(this.add.text(256, 80, '▶  PLAY TRIALS', { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold', backgroundColor: '#fca5a5', padding: { x: 14, y: 6 } }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
     play.on('pointerover', () => play.setAlpha(0.85)); play.on('pointerout', () => play.setAlpha(1))
     play.on('pointerdown', () => {
       this.input.keyboard!.off('keydown-ESC', this.closeTrialsKey)
@@ -3079,21 +3079,30 @@ export class MainScene extends Phaser.Scene {
       this.trialsOpen = false
       this.startTrials()
     })
-    if (best > 0) T(256, 136, 'your local best  ' + best.toLocaleString(), 8, '#67e8f9', 0.5)
+    if (best > 0) T(256, 102, 'local best  ' + best.toLocaleString(), 8, '#67e8f9', 0.5)
 
     const back = () => {
       const b = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
       b.on('pointerdown', () => this.closeTrials())
     }
 
-    T(256, 154, "— THIS WEEK'S BOARD —", 9, '#52525b', 0.5)
-    if (!data) { T(256, 182, 'loading…', 11, '#a5b4fc', 0.5); back(); return }
-    if (!data.online) { T(256, 186, 'board offline', 10, '#71717a', 0.5); back(); return }
+    // Weekly contracts — cumulative goals that fill across the week and pay shards (+ a capstone).
+    const cp = contractProgress(wk)
+    T(256, 120, '— WEEKLY CONTRACTS  ' + cp.done + '/' + cp.total + ' —', 9, '#52525b', 0.5)
+    cp.list.forEach((it, i) => {
+      const y = 134 + i * 14
+      T(56, y, (it.done ? '✓ ' : '◦ ') + it.c.label, 8, it.done ? '#4ade80' : '#c4b5fd')
+      T(404, y, it.have + '/' + it.c.need + '  +' + it.c.reward + '◈', 8, it.done ? '#4ade80' : '#71717a', 1)
+    })
+
+    T(256, 196, "— THIS WEEK'S BOARD —", 9, '#52525b', 0.5)
+    if (!data) { T(256, 222, 'loading…', 11, '#a5b4fc', 0.5); back(); return }
+    if (!data.online) { T(256, 226, 'board offline', 10, '#71717a', 0.5); back(); return }
     const mine = myWallet()
     const short = (w: string) => w.slice(0, 6) + '…' + w.slice(-4)
-    if (data.top.length === 0) T(256, 190, 'No runs yet this week — set the pace.', 10, '#a5b4fc', 0.5)
-    data.top.slice(0, 8).forEach((r, i) => {
-      const y = 174 + i * 19
+    if (data.top.length === 0) T(256, 230, 'No runs yet this week — set the pace.', 10, '#a5b4fc', 0.5)
+    data.top.slice(0, 4).forEach((r, i) => {
+      const y = 214 + i * 18
       const you = !!mine && r.wallet.toLowerCase() === mine
       const c = you ? '#fde68a' : '#e9d5ff'
       T(120, y, '#' + (i + 1), 10, i < 3 ? '#67e8f9' : '#a1a1aa')
@@ -3102,7 +3111,7 @@ export class MainScene extends Phaser.Scene {
       T(392, y, String(r.score), 10, c, 1)
     })
     if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
-      T(256, 330, `YOU  ·  #${data.you.rank}  ·  ${data.you.sector}/7  ·  ${data.you.score}`, 10, '#fde68a', 0.5)
+      T(256, 300, `YOU  ·  #${data.you.rank}  ·  ${data.you.sector}/7  ·  ${data.you.score}`, 10, '#fde68a', 0.5)
     }
     back()
   }
@@ -5410,6 +5419,15 @@ export class MainScene extends Phaser.Scene {
     this.screenToast('◇ BOUNTY ✓  ' + label + '   +' + reward + '◈', '#fbbf24', 150)
   }
 
+  // Fold this run into the WEEKLY CONTRACTS (cumulative across the week); bank + toast any completed.
+  private settleContracts(win: boolean) {
+    const { completed, reward, capstone } = foldContracts(weekKey(), { kills: this.kills, bosses: this.bossesThisRun, win: win ? 1 : 0, grazes: this.grazeCount })
+    if (!reward) return
+    bankShards(reward)
+    const label = capstone ? 'WEEKLY CONTRACTS COMPLETE' : completed.length === 1 ? completed[0].label : completed.length + ' contracts'
+    this.time.delayedCall(600, () => { if (this.gameOver) this.screenToast('◈ CONTRACT ✓  ' + label + '   +' + reward + '◈', '#c084fc', 130) })
+  }
+
   // Weekly TRIALS results line: the post-commit rank + named rival for this run's weekly standing,
   // painted on the death/clear screen. Token-guarded so a slow response can't bleed onto a later run.
   private trialsExtras(submit: Promise<SubmitResult | null> | null, token: number) {
@@ -5603,6 +5621,7 @@ export class MainScene extends Phaser.Scene {
       : this.saveBest()
     this.evalBadges(false)
     this.settleBounties()
+    this.settleContracts(false)
     this.gameOverAt = this.time.now
     // Whole-screen tap-to-restart (the small text alone was too easy to miss on touch),
     // plus any key restarts; gamepad restart is handled in update(). 400ms grace so the
@@ -5648,6 +5667,7 @@ export class MainScene extends Phaser.Scene {
       : this.saveBest()
     this.evalBadges(!this.rushRun)   // a Trials clear isn't a campaign win (no CHAMPION), but kills/combos/boss-mask still fold in
     this.settleBounties()
+    this.settleContracts(!this.rushRun && !this.heatRun && !this.dailyRun)
     this.gameOverAt = this.time.now
     this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200).setInteractive()
       .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.restartRun() })
