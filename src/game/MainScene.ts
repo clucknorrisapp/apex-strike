@@ -6,7 +6,7 @@ import { renderFlexCard, shareCard, type FlexSummary } from './flexcard'
 import { weekKey, bossOrderForWeek, saveTrialsBest, loadTrialsBest } from './rush'
 import { recordSplit, fmtTime, fmtDelta } from './splits'
 import { heatMods, loadHeatUnlocked, noteCampaignClear, MAX_HEAT } from './heat'
-import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, type BoardData, type DailyData, type TrialsData, type AscensionData, type SubmitResult } from '../net/leaderboard'
+import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, type DailyMod } from './daily'
 import { evalBounties, todayBounties, loadBountyState, bountyDoneCount } from './bounties'
 
@@ -1005,6 +1005,15 @@ export class MainScene extends Phaser.Scene {
   private leaderboardOpen = false
   private leaderboardUI: Phaser.GameObjects.GameObject[] = []
   private closeLeaderboardKey = () => this.closeLeaderboard()
+  private lbTab = 0                            // leaderboard tab: 0 SCORE · 1 SPEED (fastest clears)
+  private lbScore: BoardData | null = null    // cached global score board
+  private lbSpeed: SpeedData | null = null    // cached fastest-clears board
+  private lbPadPrev = 0                        // gamepad d-pad edge-detect while the leaderboard is open
+  private lbKeyHandler = (e: KeyboardEvent) => {
+    if (!this.leaderboardOpen) return
+    if (e.key === 'ArrowLeft') this.setLbTab(this.lbTab - 1)
+    else if (e.key === 'ArrowRight') this.setLbTab(this.lbTab + 1)
+  }
   private dailyOpen = false
   private dailyUI: Phaser.GameObjects.GameObject[] = []
   private closeDailyKey = () => this.closeDaily()
@@ -2729,70 +2738,103 @@ export class MainScene extends Phaser.Scene {
   private openLeaderboard() {
     if (this.leaderboardOpen || this.controlsOpen || this.armoryOpen) return
     this.leaderboardOpen = true
-    this.buildLeaderboardScreen(null)                                   // loading state
+    this.lbTab = 0; this.lbScore = null; this.lbSpeed = null; this.lbPadPrev = 0
+    this.buildLeaderboardScreen()                                       // loading state
     this.input.keyboard!.on('keydown-ESC', this.closeLeaderboardKey)
-    fetchLeaderboard().then((d) => { if (this.leaderboardOpen) this.buildLeaderboardScreen(d) })
+    this.input.keyboard!.on('keydown', this.lbKeyHandler)
+    fetchLeaderboard().then((d) => { this.lbScore = d; if (this.leaderboardOpen && this.lbTab === 0) this.buildLeaderboardScreen() })
   }
 
   private closeLeaderboard() {
     if (!this.leaderboardOpen) return
     this.input.keyboard!.off('keydown-ESC', this.closeLeaderboardKey)
+    this.input.keyboard!.off('keydown', this.lbKeyHandler)
     this.leaderboardUI.forEach((o) => o.destroy())
     this.leaderboardUI = []
     this.leaderboardOpen = false
     this.startGraceUntil = this.time.now + 400
   }
 
-  private buildLeaderboardScreen(data: BoardData | null) {
+  private setLbTab(t: number) {
+    this.lbTab = ((t % 2) + 2) % 2
+    this.buildLeaderboardScreen()
+    this.sfx?.swap()
+    if (this.lbTab === 1 && !this.lbSpeed) fetchSpeedruns().then((d) => { this.lbSpeed = d; if (this.leaderboardOpen && this.lbTab === 1) this.buildLeaderboardScreen() })
+    if (this.lbTab === 0 && !this.lbScore) fetchLeaderboard().then((d) => { this.lbScore = d; if (this.leaderboardOpen && this.lbTab === 0) this.buildLeaderboardScreen() })
+  }
+
+  private buildLeaderboardScreen() {
     this.leaderboardUI.forEach((o) => o.destroy())
     this.leaderboardUI = []
     const push = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.leaderboardUI.push(o); return o }
     const T = (x: number, y: number, s: string, size: number, color: string, ox = 0) =>
       push(this.add.text(x, y, s, { fontFamily: 'monospace', fontSize: size + 'px', color }).setOrigin(ox, 0).setScrollFactor(0).setDepth(251))
+    const mine = myWallet()
+    const short = (w: string) => w.slice(0, 6) + '…' + w.slice(-4)
 
     push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.985).setScrollFactor(0).setDepth(250).setInteractive())
-    push(this.add.text(256, 22, 'LEADERBOARD', { fontFamily: 'monospace', fontSize: '18px', color: '#67e8f9', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    push(this.add.text(256, 20, 'LEADERBOARD', { fontFamily: 'monospace', fontSize: '18px', color: '#67e8f9', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
     const back = () => {
       const b = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
       b.on('pointerdown', () => this.closeLeaderboard())
     }
-
-    if (!data) { T(256, 180, 'loading…', 12, '#a5b4fc', 0.5); back(); return }
-    if (!data.online) {
-      T(256, 166, 'The global board is warming up.', 11, '#c4b5fd', 0.5)
-      T(256, 186, "Scores will post here once it's live.", 9, '#71717a', 0.5)
-      back(); return
-    }
-
-    T(30, 52, 'RANK', 9, '#52525b'); T(78, 52, 'PLAYER', 9, '#52525b'); T(372, 52, 'SCORE', 9, '#52525b', 1); T(474, 52, 'SECTOR', 9, '#52525b', 1)
-    const mine = myWallet()
-    const short = (w: string) => w.slice(0, 6) + '…' + w.slice(-4)
-    if (data.top.length === 0) T(256, 150, 'No runs yet — be the first.', 11, '#a5b4fc', 0.5)
-    data.top.forEach((r, i) => {
-      const y = 70 + i * 21
-      const you = !!mine && r.wallet.toLowerCase() === mine
-      const c = you ? '#fde68a' : '#e9d5ff'
-      T(34, y, '#' + (i + 1), 11, i < 3 ? '#67e8f9' : '#a1a1aa')
-      T(78, y, (r.handle || short(r.wallet)) + (you ? '  (you)' : ''), 11, c)
-      T(372, y, String(r.score), 11, c, 1)
-      T(474, y, 'S' + r.sector, 11, c, 1)
+    // Tabs (click / ◄ ► / d-pad): SCORE = global high scores · SPEED = fastest full-campaign clears.
+    const tabs = ['SCORE', 'SPEED']
+    const tx = [190, 322]
+    tabs.forEach((name, i) => {
+      const on = i === this.lbTab
+      const tab = push(this.add.text(tx[i], 42, name, { fontFamily: 'monospace', fontSize: '11px', color: on ? '#a5f3fc' : '#52525b', fontStyle: on ? 'bold' : 'normal' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+      tab.on('pointerdown', () => this.setLbTab(i))
+      if (on) push(this.add.rectangle(tx[i], 53, name.length * 8 + 8, 2, 0x67e8f9, 0.9).setScrollFactor(0).setDepth(251))
     })
-    if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
-      T(256, 292, `YOU  ·  #${data.you.rank}  ·  ${data.you.score}  ·  S${data.you.sector}`, 11, '#fde68a', 0.5)
-      if (data.next) {
-        const who = (data.next.handle || 'the rank above').slice(0, 14)
-        const gap = Math.max(1, data.next.score - data.you.score).toLocaleString()
-        T(256, 308, `▲  ${gap} to pass ${who}`, 9, '#fbbf24', 0.5)
-      }
-    }
-    if (hasWallet()) {
-      const set = push(this.add.text(256, 324, localHandle() ? '[ CHANGE NAME ]' : '[ SET NAME ]', { fontFamily: 'monospace', fontSize: '10px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
-      set.on('pointerdown', () => {
-        const input = typeof window !== 'undefined' ? window.prompt('Leaderboard name (max 16):', localHandle()) : null
-        if (input != null) setHandle(input).then(() => fetchLeaderboard().then((d) => { if (this.leaderboardOpen) this.buildLeaderboardScreen(d) }))
+
+    if (this.lbTab === 0) {
+      // ---- SCORE board ----
+      const data = this.lbScore
+      if (!data) { T(256, 188, 'loading…', 12, '#a5b4fc', 0.5); back(); return }
+      if (!data.online) { T(256, 176, 'The global board is warming up.', 11, '#c4b5fd', 0.5); T(256, 196, "Scores will post here once it's live.", 9, '#71717a', 0.5); back(); return }
+      T(30, 66, 'RANK', 8, '#52525b'); T(78, 66, 'PLAYER', 8, '#52525b'); T(372, 66, 'SCORE', 8, '#52525b', 1); T(474, 66, 'SECTOR', 8, '#52525b', 1)
+      if (data.top.length === 0) T(256, 160, 'No runs yet — be the first.', 11, '#a5b4fc', 0.5)
+      data.top.forEach((r, i) => {
+        const y = 82 + i * 20
+        const you = !!mine && r.wallet.toLowerCase() === mine
+        const c = you ? '#fde68a' : '#e9d5ff'
+        T(34, y, '#' + (i + 1), 11, i < 3 ? '#67e8f9' : '#a1a1aa')
+        T(78, y, (r.handle || short(r.wallet)) + (you ? '  (you)' : ''), 11, c)
+        T(372, y, String(r.score), 11, c, 1)
+        T(474, y, 'S' + r.sector, 11, c, 1)
       })
+      if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
+        T(256, 292, `YOU  ·  #${data.you.rank}  ·  ${data.you.score}  ·  S${data.you.sector}`, 11, '#fde68a', 0.5)
+        if (data.next) { const who = (data.next.handle || 'the rank above').slice(0, 14); T(256, 308, `▲  ${Math.max(1, data.next.score - data.you.score).toLocaleString()} to pass ${who}`, 9, '#fbbf24', 0.5) }
+      }
+      if (hasWallet()) {
+        const set = push(this.add.text(256, 326, localHandle() ? '[ CHANGE NAME ]' : '[ SET NAME ]', { fontFamily: 'monospace', fontSize: '10px', color: '#c4b5fd' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+        set.on('pointerdown', () => {
+          const input = typeof window !== 'undefined' ? window.prompt('Leaderboard name (max 16):', localHandle()) : null
+          if (input != null) setHandle(input).then(() => fetchLeaderboard().then((d) => { this.lbScore = d; if (this.leaderboardOpen && this.lbTab === 0) this.buildLeaderboardScreen() }))
+        })
+      } else { T(256, 326, 'connect your Apex wallet to post a score', 9, '#52525b', 0.5) }
     } else {
-      T(256, 324, 'connect your Apex wallet to post a score', 9, '#52525b', 0.5)
+      // ---- SPEED board: fastest full-campaign clears (ranked ascending by time) ----
+      const data = this.lbSpeed
+      T(256, 300, 'fastest full-campaign clears', 8, '#52525b', 0.5)
+      if (!data) { T(256, 188, 'loading…', 12, '#a5b4fc', 0.5); back(); return }
+      if (!data.online) { T(256, 186, 'The speed board is warming up.', 11, '#c4b5fd', 0.5); back(); return }
+      T(30, 66, 'RANK', 8, '#52525b'); T(78, 66, 'PLAYER', 8, '#52525b'); T(430, 66, 'TIME', 8, '#52525b', 1)
+      if (data.top.length === 0) T(256, 160, 'No clears yet — set the record.', 11, '#a5b4fc', 0.5)
+      data.top.forEach((r, i) => {
+        const y = 82 + i * 20
+        const you = !!mine && r.wallet.toLowerCase() === mine
+        const c = you ? '#fde68a' : '#e9d5ff'
+        T(34, y, '#' + (i + 1), 11, i < 3 ? '#67e8f9' : '#a1a1aa')
+        T(78, y, (r.handle || short(r.wallet)) + (you ? '  (you)' : ''), 11, c)
+        T(430, y, fmtTime(r.ms), 11, c, 1)
+      })
+      if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
+        T(256, 268, `YOU  ·  #${data.you.rank}  ·  ${fmtTime(data.you.ms)}`, 11, '#fde68a', 0.5)
+        if (data.next) T(256, 284, `▲  ${((data.you.ms - data.next.ms) / 1000).toFixed(1)}s faster to pass ${(data.next.handle || 'the ghost above').slice(0, 14)}`, 9, '#fbbf24', 0.5)
+      }
     }
     back()
   }
@@ -3707,7 +3749,18 @@ export class MainScene extends Phaser.Scene {
       }
       return
     }
-    if (this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.badgesOpen) return   // a menu screen owns input (pointer-driven)
+    if (this.leaderboardOpen) {   // LEADERBOARD: d-pad ◄► switches SCORE/SPEED tabs, B closes
+      const gp = this.readPad()
+      if (gp) {
+        const ax = gp.axes[0] || 0
+        const dir = (gp.buttons[15] || ax > 0.5) ? 1 : (gp.buttons[14] || ax < -0.5) ? -1 : 0
+        if (dir !== 0 && this.lbPadPrev === 0) this.setLbTab(this.lbTab + dir)
+        this.lbPadPrev = dir
+        if (gp.buttons[1]) this.closeLeaderboard()
+      }
+      return
+    }
+    if (this.armoryOpen || this.dailyOpen || this.trialsOpen || this.badgesOpen) return   // a menu screen owns input (pointer-driven)
     if (this.gameOver) {
       // Restart on any gamepad button (tap/click/key handled by listeners set at game over).
       const gp = this.readPad()
@@ -5369,6 +5422,25 @@ export class MainScene extends Phaser.Scene {
     }).catch(() => { /* offline — local best line stands in */ })
   }
 
+  // Campaign SPEEDRUN results line (base-campaign clears only): posts the clear time and shows the
+  // authoritative global speed rank + the next-faster ghost. Token-guarded; updates one text in place.
+  private speedExtras(runMs: number, token: number) {
+    if (!this.gameOver || this.deathToken !== token) return
+    const txt = this.add.text(256, 285, '⏱  CLEAR ' + fmtTime(runMs), { fontFamily: 'monospace', fontSize: '9px', color: '#67e8f9' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    submitSpeedrun(runMs, this.level).then((r) => {
+      if (!txt.active || !this.gameOver || this.deathToken !== token || !r || !r.rank) return
+      let s = '⏱  ' + fmtTime(runMs) + '  ·  SPEED #' + r.rank
+      if (r.next) {
+        const who = (r.next.handle || 'the ghost').slice(0, 12)
+        const mine = r.best?.ms ?? runMs
+        const gap = ((mine - r.next.ms) / 1000).toFixed(1)
+        s = '⏱  ' + fmtTime(runMs) + '  · #' + r.rank + '  ▲ ' + gap + 's to pass ' + who
+      }
+      txt.setText(s)
+    }).catch(() => { /* offline — the clear time already stands */ })
+  }
+
   private deathExtras(sector: number, prevBest: number, record: boolean, submit: Promise<SubmitResult | null> | null, token: number, win: boolean) {
     this.shareRank = null   // the flex card reads this once the POST resolves (below)
     const delta = this.score - prevBest
@@ -5558,6 +5630,7 @@ export class MainScene extends Phaser.Scene {
     if (this.rushRun) this.trialsExtras(trialsSubmit, token)
     else if (this.heatRun) this.heatExtras(heatSubmit, token)
     else if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token, true)
+    if (!this.dailyRun && !this.rushRun && !this.heatRun) this.speedExtras(Date.now() - this.runStartAt, token)   // post + show the campaign clear time
     if (unlock && unlock.raised) this.time.delayedCall(650, () => { if (this.gameOver) this.screenToast('🔥 APEX HEAT ' + unlock.unlocked + ' UNLOCKED', '#f97316', 150) })
     const btn = this.add.text(256, 268, (this.rushRun || this.heatRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ PLAY AGAIN — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })

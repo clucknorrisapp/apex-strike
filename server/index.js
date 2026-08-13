@@ -76,6 +76,13 @@ async function migrate() {
         PRIMARY KEY (heat, wallet)
       );
       CREATE INDEX IF NOT EXISTS ascension_rank_idx ON ascension_scores (heat, score DESC, updated_at ASC);
+      CREATE TABLE IF NOT EXISTS speedruns (
+        wallet     TEXT PRIMARY KEY,
+        ms         INTEGER NOT NULL,
+        sector     INTEGER NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS speedruns_rank_idx ON speedruns (ms ASC, updated_at ASC);
     `)
     dbReady = true
     console.log('[db] connected + migrated — leaderboard ONLINE')
@@ -166,6 +173,21 @@ async function ascensionRivalAbove(heat, score) {
 async function ascensionRank(heat, score) {
   try {
     const { rows } = await pool.query(`SELECT count(*) + 1 AS rank FROM ascension_scores WHERE heat = $1 AND score > $2`, [heat, score])
+    return rows[0] ? Number(rows[0].rank) : null
+  } catch { return null }
+}
+// Campaign SPEEDRUN ladder — ranked ASCENDING by clear time (fewer ms = better).
+async function speedRivalAbove(ms) {   // the next-FASTER ghost — a beatable target one rung up
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.ms, p.handle FROM speedruns s LEFT JOIN players p ON p.wallet = s.wallet
+        WHERE s.ms < $1 ORDER BY s.ms DESC, s.updated_at ASC LIMIT 1`, [ms])
+    return rows[0] || null
+  } catch { return null }
+}
+async function speedRank(ms) {
+  try {
+    const { rows } = await pool.query(`SELECT count(*) + 1 AS rank FROM speedruns WHERE ms < $1`, [ms])
     return rows[0] ? Number(rows[0].rank) : null
   } catch { return null }
 }
@@ -261,6 +283,7 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 const WEEK_RE = /^\d{4}-W\d{2}$/       // ISO week key, e.g. 2026-W33 (matches rush.ts weekKey)
 const MAX_BOSSES = 7                    // TRIALS is a 7-boss gauntlet; the "sector" column holds bosses cleared (0..7)
 const MAX_HEAT = 8                      // APEX HEAT ascension tiers 1..8 (matches heat.ts MAX_HEAT)
+const MAX_MS = 24 * 60 * 60 * 1000     // sanity cap on a clear time (24h); anything longer is rejected
 
 app.get('/api/daily', async (req, res) => {
   const day = String(req.query.day || '')
@@ -433,6 +456,59 @@ app.post('/api/ascension/scores', async (req, res) => {
     const next = best ? await ascensionRivalAbove(heat, best.score) : null
     res.json({ ok: true, best, rank, next })
   } catch (e) { console.error('[api] ascension/scores:', e.message); res.status(500).json({ ok: false, error: 'server' }) }
+})
+
+// ---- Campaign SPEEDRUN board (fastest full-campaign clear; ranked ascending by ms) ----
+app.get('/api/speedruns', async (req, res) => {
+  if (!dbReady) return res.json({ online: false, top: [], you: null })
+  try {
+    const { rows: top } = await pool.query(
+      `SELECT s.wallet, p.handle, s.ms, s.sector
+         FROM speedruns s LEFT JOIN players p ON p.wallet = s.wallet
+        ORDER BY s.ms ASC, s.updated_at ASC
+        LIMIT 10`)
+    let you = null, next = null
+    const wallet = String(req.query.wallet || '').toLowerCase()
+    if (WALLET_RE.test(wallet)) {
+      const { rows } = await pool.query(
+        `SELECT s.ms, s.sector, p.handle,
+                (SELECT count(*) + 1 FROM speedruns x WHERE x.ms < s.ms)::int AS rank
+           FROM speedruns s LEFT JOIN players p ON p.wallet = s.wallet
+          WHERE s.wallet = $1`, [wallet])
+      you = rows[0] || null
+      if (you) next = await speedRivalAbove(you.ms)   // the next-faster ghost
+    }
+    res.json({ online: true, top, you, next })
+  } catch (e) { console.error('[api] speedruns:', e.message); res.json({ online: false, top: [], you: null }) }
+})
+
+app.post('/api/speedruns/scores', async (req, res) => {
+  if (!dbReady) return res.status(503).json({ ok: false, offline: true })
+  const b = req.body || {}
+  const wallet = String(b.wallet || '').toLowerCase()
+  const ms = Number(b.ms)
+  const sector = Number(b.sector)
+  const handle = sanitizeHandle(b.handle)
+  if (!WALLET_RE.test(wallet)) return res.status(400).json({ ok: false, error: 'bad wallet' })
+  if (!Number.isInteger(ms) || ms <= 0 || ms > MAX_MS) return res.status(400).json({ ok: false, error: 'bad time' })
+  if (!Number.isInteger(sector) || sector < 1 || sector > MAX_SECTOR) return res.status(400).json({ ok: false, error: 'bad sector' })
+  if (throttled('r:' + wallet)) return res.status(429).json({ ok: false, error: 'slow down' })
+  try {
+    if (handle) {
+      await pool.query(`INSERT INTO players (wallet, handle) VALUES ($1,$2) ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle, updated_at = now()`, [wallet, handle])
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO speedruns (wallet, ms, sector) VALUES ($1,$2,$3)
+         ON CONFLICT (wallet) DO UPDATE SET
+           sector = CASE WHEN EXCLUDED.ms <= speedruns.ms THEN EXCLUDED.sector ELSE speedruns.sector END,
+           ms     = LEAST(speedruns.ms, EXCLUDED.ms),
+           updated_at = now()
+       RETURNING ms, sector`, [wallet, ms, sector])
+    const best = rows[0] || null
+    const rank = best ? await speedRank(best.ms) : null
+    const next = best ? await speedRivalAbove(best.ms) : null
+    res.json({ ok: true, best, rank, next })
+  } catch (e) { console.error('[api] speedruns/scores:', e.message); res.status(500).json({ ok: false, error: 'server' }) }
 })
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, db: dbReady }))
