@@ -9,7 +9,7 @@ import { heatMods, loadHeatUnlocked, noteCampaignClear, MAX_HEAT } from './heat'
 import { DOCTRINES, selectedDoctrine, loadSelected, saveSelected, doctrineById, type DoctrinePassive } from './loadouts'
 import { loadRank, currentRank, rankTitle, rankBadge, toNextRank, cumulativeCost, enlist as enlistShards } from './rank'
 import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, submitRank, fetchRanks, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type RankData, type SubmitResult } from '../net/leaderboard'
-import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, claimDailyDividend, pendingDividend, type DailyMod } from './daily'
+import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, claimDailyDividend, pendingDividend, claimCampaignDaily, type DailyMod } from './daily'
 import { evalBounties, todayBounties, loadBountyState, bountyDoneCount } from './bounties'
 import { foldRun as foldContracts, contractProgress } from './contracts'
 
@@ -6117,9 +6117,12 @@ export class MainScene extends Phaser.Scene {
   private rankRunEnd(toast: boolean) {
     const r = currentRank()
     if (hasWallet() && r > 0) submitRank(r)
-    if (toast && this.runShards > 0) {
+    const deploy = claimCampaignDaily()   // DAILY DEPLOYMENT: first campaign run finished today banks a flat bonus
+    if (deploy > 0) bankShards(deploy)
+    if (toast && (this.runShards > 0 || deploy > 0)) {
       const banked = loadMeta().shards
-      this.time.delayedCall(950, () => { if (this.gameOver) this.screenToast('◆ +' + this.runShards + ' shards  ·  ' + banked + ' banked' + (r > 0 ? '  ·  RANK ' + r : ''), '#67e8f9', 250) })
+      const bonus = deploy > 0 ? '   ·   ★ +' + deploy + ' daily' : ''
+      this.time.delayedCall(950, () => { if (this.gameOver) this.screenToast('◆ +' + this.runShards + ' shards  ·  ' + banked + ' banked' + (r > 0 ? '  ·  RANK ' + r : '') + bonus, '#67e8f9', 250) })
     }
   }
 
