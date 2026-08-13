@@ -3068,6 +3068,17 @@ export class MainScene extends Phaser.Scene {
 
   private trialsComplete() {
     this.screenToast('★  TRIALS CLEARED  ★', '#fbbf24', 150)
+    // Weekly shard payout for clearing the 7-boss gauntlet — once per ISO week (stamped like the daily
+    // deployment bonus), so the endgame feeds the shard economy (Armory / Rank) instead of paying
+    // nothing beyond incidental bounty/contract credit.
+    const wk = weekKey()
+    let paid = ''
+    try { paid = localStorage.getItem('apex_trials_paid') || '' } catch { /* storage blocked */ }
+    if (paid !== wk) {
+      try { localStorage.setItem('apex_trials_paid', wk) } catch { /* storage blocked */ }
+      bankShards(24)
+      this.time.delayedCall(900, () => { if (this.gameOver) this.screenToast('◆ TRIALS WEEKLY PAYOUT  +24', '#67e8f9', 186) })
+    }
     this.showVictory()
   }
 
@@ -6314,6 +6325,13 @@ export class MainScene extends Phaser.Scene {
     else if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, seasonSubmit, token, true)
     if (this.isBaseCampaign()) this.speedExtras(Date.now() - this.runStartAt, token)   // post + show the campaign clear time
     if (unlock && unlock.raised) this.time.delayedCall(650, () => { if (this.gameOver) this.screenToast('🔥 APEX HEAT ' + unlock.unlocked + ' UNLOCKED', '#f97316', 150) })
+    if (this.heatRun && unlock && unlock.raised) {
+      // First clear of a new Heat tier — a one-time shard bounty scaled by tier ('raised' only fires the
+      // first time this tier falls, so it can't be farmed). Ties the hardest content into the economy.
+      const heatBonus = 10 + this.heatTier * 6
+      bankShards(heatBonus)
+      this.time.delayedCall(1100, () => { if (this.gameOver) this.screenToast('◆ HEAT ' + this.heatTier + ' FIRST-CLEAR BOUNTY  +' + heatBonus, '#fbbf24', 186) })
+    }
     const btn = this.add.text(256, 268, (this.rushRun || this.heatRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ PLAY AGAIN — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
