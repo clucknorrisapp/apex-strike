@@ -2562,6 +2562,9 @@ export class MainScene extends Phaser.Scene {
     return !!(window as unknown as { __APEX?: ApexBridge }).__APEX?.gutter
   }
 
+  // Apex Rank insignia beside a handle on any board — 'Lv12' when that player has enlisted, '' otherwise.
+  private prestigeTag(p?: number): string { return p && p > 0 ? '  ·' + rankBadge(p) : '' }
+
   // Tell the React gutter which scene state we're in + whether DASH is live THIS run, so it can
   // render the action cluster only during play and the DASH slot only when the run actually has
   // dash (dashLevel>0 — a Daily zeroes it). Fixes: dead DASH in Daily, SWAP firing through
@@ -2849,7 +2852,7 @@ export class MainScene extends Phaser.Scene {
         const you = !!mine && r.wallet.toLowerCase() === mine
         const c = you ? '#fde68a' : '#e9d5ff'
         T(34, y, '#' + (i + 1), 11, i < 3 ? '#67e8f9' : '#a1a1aa')
-        T(78, y, (r.handle || short(r.wallet)) + (you ? '  (you)' : ''), 11, c)
+        T(78, y, (r.handle || short(r.wallet)) + this.prestigeTag(r.prestige) + (you ? '  (you)' : ''), 11, c)
         T(372, y, String(r.score), 11, c, 1)
         T(474, y, 'S' + r.sector, 11, c, 1)
       })
@@ -2877,7 +2880,7 @@ export class MainScene extends Phaser.Scene {
         const you = !!mine && r.wallet.toLowerCase() === mine
         const c = you ? '#fde68a' : '#e9d5ff'
         T(34, y, '#' + (i + 1), 11, i < 3 ? '#67e8f9' : '#a1a1aa')
-        T(78, y, (r.handle || short(r.wallet)) + (you ? '  (you)' : ''), 11, c)
+        T(78, y, (r.handle || short(r.wallet)) + this.prestigeTag(r.prestige) + (you ? '  (you)' : ''), 11, c)
         T(430, y, fmtTime(r.ms), 11, c, 1)
       })
       if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
@@ -3075,7 +3078,7 @@ export class MainScene extends Phaser.Scene {
       const you = !!mine && r.wallet.toLowerCase() === mine
       const c = you ? '#fde68a' : '#e9d5ff'
       T(122, y, '#' + (i + 1), 10, i < 3 ? '#67e8f9' : '#a1a1aa')
-      T(160, y, (r.handle || short(r.wallet)) + (you ? '  (you)' : ''), 10, c)
+      T(160, y, (r.handle || short(r.wallet)) + this.prestigeTag(r.prestige) + (you ? '  (you)' : ''), 10, c)
       T(392, y, String(r.score), 10, c, 1)
     })
     if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
@@ -3150,7 +3153,7 @@ export class MainScene extends Phaser.Scene {
       const you = !!mine && r.wallet.toLowerCase() === mine
       const c = you ? '#fde68a' : '#e9d5ff'
       T(120, y, '#' + (i + 1), 10, i < 3 ? '#67e8f9' : '#a1a1aa')
-      T(156, y, (r.handle || short(r.wallet)) + (you ? '  (you)' : ''), 10, c)
+      T(156, y, (r.handle || short(r.wallet)) + this.prestigeTag(r.prestige) + (you ? '  (you)' : ''), 10, c)
       T(338, y, r.sector + '/7', 9, you ? '#fde68a' : '#9ca3af', 1)   // bosses cleared that run
       T(392, y, String(r.score), 10, c, 1)
     })
@@ -3361,7 +3364,7 @@ export class MainScene extends Phaser.Scene {
       const you = !!mine && r.wallet.toLowerCase() === mine
       const c = you ? '#fde68a' : '#e9d5ff'
       T(120, y, '#' + (i + 1), 10, i < 3 ? '#fb923c' : '#a1a1aa')
-      T(156, y, (r.handle || short(r.wallet)) + (you ? '  (you)' : ''), 10, c)
+      T(156, y, (r.handle || short(r.wallet)) + this.prestigeTag(r.prestige) + (you ? '  (you)' : ''), 10, c)
       T(338, y, 'S' + r.sector, 9, you ? '#fde68a' : '#9ca3af', 1)
       T(392, y, String(r.score), 10, c, 1)
     })
