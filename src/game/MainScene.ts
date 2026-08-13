@@ -4,8 +4,10 @@ import { loadMeta, bankShards, buyUpgrade, nextCost, UPGRADES } from './meta'
 import { evalAchievements, recordBossKill, achievementCount, loadAch, ACHIEVEMENTS, type RunSummary } from './achievements'
 import { renderFlexCard, shareCard, type FlexSummary } from './flexcard'
 import { weekKey, bossOrderForWeek, saveTrialsBest, loadTrialsBest } from './rush'
+import { recordSplit, fmtTime, fmtDelta } from './splits'
 import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, type BoardData, type DailyData, type TrialsData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, type DailyMod } from './daily'
+import { evalBounties, todayBounties, loadBountyState, bountyDoneCount } from './bounties'
 
 const ASSETS = {
   huntress: '/assets/huntress.png',
@@ -927,6 +929,7 @@ export class MainScene extends Phaser.Scene {
   private comboTimer = 0
   private kills = 0
   private maxCombo = 0
+  private bossesThisRun = 0     // bosses downed this run — feeds daily bounties
   private heartT = 0                 // countdown to the next low-health heartbeat thump
   private prevOnGround = false
   private fallSpeed = 0
@@ -1292,6 +1295,7 @@ export class MainScene extends Phaser.Scene {
     this.comboTimer = 0
     this.kills = 0
     this.maxCombo = 0
+    this.bossesThisRun = 0
     this.prevOnGround = false
     this.fallSpeed = 0
     this.camLookX = -140; this.camLookTarget = -140; this.camDip = 0; this.recoilX = 0; this.recoilY = 0
@@ -2887,13 +2891,14 @@ export class MainScene extends Phaser.Scene {
       push(this.add.text(x, y, s, { fontFamily: 'monospace', fontSize: size + 'px', color }).setOrigin(ox, 0).setScrollFactor(0).setDepth(251))
     const mod = todayMod()
     const ds = getDailyStreak()
+    const dk = todayKey()
 
     push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.985).setScrollFactor(0).setDepth(250).setInteractive())
-    push(this.add.text(256, 20, 'DAILY CHALLENGE', { fontFamily: 'monospace', fontSize: '18px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
-    T(256, 40, "today's run · resets 00:00 UTC · Armory off" + (ds.streak > 0 ? '  ·  ★ ' + ds.streak + '-day streak' : ''), 8, '#71717a', 0.5)
-    push(this.add.text(256, 60, mod.name, { fontFamily: 'monospace', fontSize: '15px', color: mod.hex, fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
-    T(256, 80, mod.blurb, 9, '#c4b5fd', 0.5)
-    const play = push(this.add.text(256, 108, '▶  PLAY DAILY', { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold', backgroundColor: '#fbbf24', padding: { x: 14, y: 7 } }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    push(this.add.text(256, 18, 'DAILY CHALLENGE', { fontFamily: 'monospace', fontSize: '18px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    T(256, 37, "today's run · resets 00:00 UTC · Armory off" + (ds.streak > 0 ? '  ·  ★ ' + ds.streak + '-day streak' : ''), 8, '#71717a', 0.5)
+    push(this.add.text(256, 52, mod.name, { fontFamily: 'monospace', fontSize: '15px', color: mod.hex, fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    T(256, 71, mod.blurb, 9, '#c4b5fd', 0.5)
+    const play = push(this.add.text(256, 96, '▶  PLAY DAILY', { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold', backgroundColor: '#fbbf24', padding: { x: 14, y: 6 } }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
     play.on('pointerover', () => play.setAlpha(0.85)); play.on('pointerout', () => play.setAlpha(1))
     play.on('pointerdown', () => this.startDaily(mod))
 
@@ -2902,14 +2907,25 @@ export class MainScene extends Phaser.Scene {
       b.on('pointerdown', () => this.closeDaily())
     }
 
-    T(256, 140, "— TODAY'S BOARD —", 9, '#52525b', 0.5)
-    if (!data) { T(256, 170, 'loading…', 11, '#a5b4fc', 0.5); back(); return }
-    if (!data.online) { T(256, 174, 'board offline', 10, '#71717a', 0.5); back(); return }
+    // Daily bounties — three shard-paying objectives (any run counts), the same for everyone today.
+    const doneN = bountyDoneCount(dk)
+    T(256, 120, '— DAILY BOUNTIES  ' + doneN + '/3 —', 9, '#52525b', 0.5)
+    const doneSet = new Set(loadBountyState(dk).done)
+    todayBounties(dk).forEach((b, i) => {
+      const y = 134 + i * 15
+      const ok = doneSet.has(b.id)
+      T(150, y, (ok ? '✓ ' : '◦ ') + b.label, 9, ok ? '#4ade80' : '#c4b5fd')
+      T(384, y, '+' + b.reward + '◈', 9, ok ? '#4ade80' : '#71717a', 1)
+    })
+
+    T(256, 186, "— TODAY'S BOARD —", 9, '#52525b', 0.5)
+    if (!data) { T(256, 212, 'loading…', 11, '#a5b4fc', 0.5); back(); return }
+    if (!data.online) { T(256, 216, 'board offline', 10, '#71717a', 0.5); back(); return }
     const mine = myWallet()
     const short = (w: string) => w.slice(0, 6) + '…' + w.slice(-4)
-    if (data.top.length === 0) T(256, 178, 'No runs yet today — set the pace.', 10, '#a5b4fc', 0.5)
-    data.top.slice(0, 8).forEach((r, i) => {
-      const y = 162 + i * 19
+    if (data.top.length === 0) T(256, 220, 'No runs yet today — set the pace.', 10, '#a5b4fc', 0.5)
+    data.top.slice(0, 6).forEach((r, i) => {
+      const y = 204 + i * 17
       const you = !!mine && r.wallet.toLowerCase() === mine
       const c = you ? '#fde68a' : '#e9d5ff'
       T(122, y, '#' + (i + 1), 10, i < 3 ? '#67e8f9' : '#a1a1aa')
@@ -2917,7 +2933,7 @@ export class MainScene extends Phaser.Scene {
       T(392, y, String(r.score), 10, c, 1)
     })
     if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
-      T(256, 326, `YOU  ·  #${data.you.rank}  ·  ${data.you.score}`, 10, '#fde68a', 0.5)
+      T(256, 312, `YOU  ·  #${data.you.rank}  ·  ${data.you.score}`, 10, '#fde68a', 0.5)
     }
     back()
   }
@@ -4531,6 +4547,7 @@ export class MainScene extends Phaser.Scene {
   private bossDeath(boss: Phaser.Physics.Arcade.Sprite) {
     if (boss.getData('dying')) return   // idempotent: the death sequence + onLevelClear must run exactly once per boss
     boss.setData('dying', true)
+    this.bossesThisRun++                 // once per boss (guarded above) — feeds daily bounties
     boss.setData('hp', 0)
     boss.setVelocity(0, 0)
     ;(boss.body as Phaser.Physics.Arcade.Body).enable = false
@@ -4756,8 +4773,21 @@ export class MainScene extends Phaser.Scene {
     const msg = this.add.text(256, 150, `SECTOR ${next}\n${this.levels()[next - 1].name}`, {
       fontFamily: 'monospace', fontSize: '16px', color: '#22d3ee', align: 'center',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(200)
+    // Per-sector SPLIT (campaign only): time to clear THIS sector (the one we're leaving) vs your
+    // personal best — a speedrun-style improvement loop layered on the score chase. Daily/Trials
+    // run their own boards, so they don't record splits.
+    let splitObj: Phaser.GameObjects.Text | null = null
+    if (!this.dailyRun && !this.rushRun) {
+      const cur = Date.now() - this.runStartAt
+      const r = recordSplit(this.level, cur)
+      const txt = r.first ? '⏱ ' + fmtTime(cur) + '  ·  first clear'
+        : r.record ? '⏱ ' + fmtTime(cur) + '  ·  ' + fmtDelta(r.delta) + ' — PB!'
+          : '⏱ ' + fmtTime(cur) + '  ·  ' + fmtDelta(r.delta)
+      splitObj = this.add.text(256, 190, txt, { fontFamily: 'monospace', fontSize: '11px', color: (r.record || r.first) ? '#4ade80' : '#fbbf24' })
+        .setOrigin(0.5).setScrollFactor(0).setDepth(200)
+    }
     this.time.delayedCall(1300, () => {
-      msg.destroy()
+      msg.destroy(); splitObj?.destroy()
       this.level = next
       this.levelText.setText('SECTOR  ' + next)
       const d = this.levels()[next - 1]
@@ -4861,6 +4891,16 @@ export class MainScene extends Phaser.Scene {
   // Death-screen retention hooks (shared by MISSION FAILED / SECTOR DOMINATED): a personal-best
   // delta, the player's live GLOBAL RANK (fetched async, graceful when offline), and a one-tap
   // SHARE that copies a result line to the clipboard. All degrade silently with no wallet/board.
+  // Settle DAILY BOUNTIES for the just-finished run: bank the shard reward for any newly met and
+  // toast it. Runs on every death/clear (campaign, daily, or trials) — bounties track peak run stats.
+  private settleBounties() {
+    const { newly, reward } = evalBounties(todayKey(), { kills: this.kills, bosses: this.bossesThisRun, maxCombo: this.maxCombo, sector: this.level })
+    if (!newly.length) return
+    bankShards(reward)
+    const label = newly.length === 1 ? newly[0].label : newly.length + ' bounties done'
+    this.screenToast('◇ BOUNTY ✓  ' + label + '   +' + reward + '◈', '#fbbf24', 150)
+  }
+
   // Weekly TRIALS results line: the post-commit rank + named rival for this run's weekly standing,
   // painted on the death/clear screen. Token-guarded so a slow response can't bleed onto a later run.
   private trialsExtras(submit: Promise<SubmitResult | null> | null, token: number) {
@@ -5008,6 +5048,7 @@ export class MainScene extends Phaser.Scene {
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
     const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score) : this.saveBest()
     this.evalBadges(false)
+    this.settleBounties()
     this.gameOverAt = this.time.now
     // Whole-screen tap-to-restart (the small text alone was too easy to miss on touch),
     // plus any key restarts; gamepad restart is handled in update(). 400ms grace so the
@@ -5043,6 +5084,7 @@ export class MainScene extends Phaser.Scene {
     this.player.setVelocity(0, 0)
     const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score) : this.saveBest()
     this.evalBadges(!this.rushRun)   // a Trials clear isn't a campaign win (no CHAMPION), but kills/combos/boss-mask still fold in
+    this.settleBounties()
     this.gameOverAt = this.time.now
     this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200).setInteractive()
       .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.restartRun() })
