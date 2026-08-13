@@ -137,6 +137,39 @@ export async function submitAscension(heat: number, score: number, sector: numbe
   } catch { return null }
 }
 
+// ---- Campaign SPEEDRUN board (fastest full-campaign clear; ranked ascending by ms) ----
+export interface SpeedRow { wallet: string; handle: string | null; ms: number; sector: number }
+export interface SpeedYou { handle: string | null; ms: number; sector: number; rank: number }
+export interface SpeedRival { handle: string | null; ms: number }   // the next-faster ghost
+export interface SpeedData { online: boolean; top: SpeedRow[]; you: SpeedYou | null; next: SpeedRival | null }
+export interface SpeedResult { ok: boolean; best: { ms: number; sector: number } | null; rank: number | null; next: SpeedRival | null }
+
+export async function fetchSpeedruns(): Promise<SpeedData> {
+  try {
+    const w = myWallet()
+    const res = await fetch('/api/speedruns' + (w ? '?wallet=' + w : ''), { headers: { accept: 'application/json' } })
+    const d = await res.json()
+    return { online: !!d.online, top: Array.isArray(d.top) ? d.top : [], you: d.you || null, next: d.next || null }
+  } catch { return { online: false, top: [], you: null, next: null } }
+}
+
+// Post a full-campaign clear time and return the authoritative global speed rank + next-faster rival.
+export async function submitSpeedrun(ms: number, sector: number): Promise<SpeedResult | null> {
+  const wallet = myWallet()
+  if (!wallet) return null
+  try {
+    const res = await fetch('/api/speedruns/scores', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ wallet, handle: localHandle() || undefined, ms: Math.max(1, Math.round(ms)), sector }),
+      keepalive: true,
+    })
+    if (!res.ok) return null
+    const d = await res.json()
+    return { ok: !!d.ok, best: d.best || null, rank: typeof d.rank === 'number' ? d.rank : null, next: d.next || null }
+  } catch { return null }
+}
+
 export async function setHandle(handle: string): Promise<boolean> {
   const clean = cleanHandle(handle)
   if (!clean) return false
