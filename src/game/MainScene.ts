@@ -180,6 +180,9 @@ class Sfx {
   enemyShot(pan?: number) { this.tone(300, 150, 0.05, 'square', 0.03, pan) }
   clear() { this.tone(520, 940, 0.14, 'square', 0.05) }
   dash() { this.tone(200, 520, 0.14, 'sawtooth', 0.05) }
+  // DASH DENIED: a short muted low click when dash is mashed while still on cooldown — so the failed
+  // input is acknowledged by ear instead of reading as a dropped press.
+  dashDenied(pan?: number) { this.tone(170, 108, 0.05, 'square', 0.028, pan); this.noise(0.03, 0.01, pan) }
   swap() { this.tone(440, 720, 0.08, 'square', 0.05) }
   scrape() { this.noise(0.07, 0.018) }   // brief soft skid scrape
 
@@ -790,6 +793,7 @@ interface TouchState {
   shoot: boolean
   up: boolean
   down: boolean
+  dash: boolean
 }
 
 // Gamepad actions that can be remapped (press-to-bind, persisted to localStorage).
@@ -990,7 +994,7 @@ export class MainScene extends Phaser.Scene {
   private movingH = false
   private onGround = false
   private prone = false
-  private touch: TouchState = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
+  private touch: TouchState = { left: false, right: false, jump: false, shoot: false, up: false, down: false, dash: false }
   // On-screen touch controls: collected so they can be toggled off (e.g. when a
   // keyboard or controller is attached). Preference persists across sessions.
   private touchUI: Phaser.GameObjects.GameObject[] = []
@@ -1123,6 +1127,13 @@ export class MainScene extends Phaser.Scene {
   private dashCd = 820   // baseline dash cooldown (Armory PHASE DASH tiers shorten it)
   private dashUntil = 0
   private dashCdUntil = 0
+  // DASH readiness tell — the cooldown was invisible and a mashed dash on cooldown read as a dropped
+  // input; these drive an on-canvas gauge + touch-button rim + a "denied" flash so readiness is legible.
+  private dashGaugeFill?: Phaser.GameObjects.Rectangle
+  private dashGaugeLabel?: Phaser.GameObjects.Text
+  private dashTouchBtn?: Phaser.GameObjects.Rectangle
+  private dashWasReady = true
+  private dashDeniedAt = 0
   private dashIframeUntil = 0
   private dashDir = 1
   private prevDash = false
@@ -1421,7 +1432,7 @@ export class MainScene extends Phaser.Scene {
     this.bossRef = undefined
     this.shardsGot = 0
     this.shardsTotal = 0
-    this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
+    this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false, dash: false }
     this.controlsOpen = false
     this.controlsUI = []
     this.rebinding = null
@@ -2380,6 +2391,12 @@ export class MainScene extends Phaser.Scene {
     this.weaponText = this.add.text(10, 55, 'GUN  NORMAL', { fontFamily: 'monospace', fontSize: '9px', color: '#22d3ee' }).setScrollFactor(0).setDepth(100)
     this.comboText = this.add.text(10, 66, '', { fontFamily: 'monospace', fontSize: '9px', color: '#fbbf24' }).setScrollFactor(0).setDepth(100)
     this.shardText = this.add.text(10, 78, '◆ ' + this.shardsGot + '/' + this.shardsTotal, { fontFamily: 'monospace', fontSize: '9px', color: '#67e8f9' }).setScrollFactor(0).setDepth(100)
+    // DASH readiness gauge (right side of the HUD box) — dash is the core dodge / Phase-Strike verb, but
+    // its cooldown was invisible; this fills as it recharges, flashes cyan the frame it's ready, and flashes
+    // red when a press lands on cooldown, so a denied dash never reads as a dropped input. (round-11 combat#1)
+    this.dashGaugeLabel = this.add.text(122, 46, '» DASH', { fontFamily: 'monospace', fontSize: '7px', color: '#5eead4' }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(100)
+    this.add.rectangle(122, 60, 52, 4, 0x3f3f46, 0.55).setScrollFactor(0).setDepth(100)   // gauge track (static)
+    this.dashGaugeFill = this.add.rectangle(96, 60, 52, 4, 0x67e8f9, 0.95).setOrigin(0, 0.5).setScrollFactor(0).setDepth(100)
     this.muteIcon = this.add.text(502, 7, this.muted ? '♪ OFF' : '♪ ON', { fontFamily: 'monospace', fontSize: '9px', color: this.muted ? '#ef4444' : '#a5b4fc' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100)
     // Persistent controller-connected chip — high depth so it shows over the title too.
     this.padIcon = this.add.text(502, 32, this.gamepadActive ? '🎮 PAD' : '', { fontFamily: 'monospace', fontSize: '9px', color: '#67e8f9' }).setOrigin(1, 0).setScrollFactor(0).setDepth(245)
@@ -2461,6 +2478,28 @@ export class MainScene extends Phaser.Scene {
     this.compass.setPosition(256 + cos * d, 192 + sin * d).setRotation(ang).setVisible(true)
   }
 
+  // Repaint the DASH readiness gauge + touch-button rim each frame: fill tracks the cooldown, a white
+  // pop marks the frame it refills, and a recent denied mash flashes it red. (round-11 combat#1)
+  private updateDashGauge(time: number) {
+    const f = this.dashGaugeFill; if (!f) return
+    const cd = Math.max(1, this.dashCd)
+    const p = Phaser.Math.Clamp(1 - (this.dashCdUntil - time) / cd, 0, 1)
+    const ready = p >= 1
+    const denied = time - this.dashDeniedAt < 220
+    const justReady = ready && !this.dashWasReady
+    f.scaleX = p
+    if (justReady) {                                   // the frame it comes back — a brief white pop + label flash
+      f.setFillStyle(0xffffff, 1)
+      this.dashGaugeLabel?.setColor('#ffffff')
+      this.time.delayedCall(90, () => this.dashGaugeLabel?.setColor('#5eead4'))
+    } else {
+      f.setFillStyle(denied ? 0xf43f5e : ready ? 0x67e8f9 : 0xf59e0b, denied || ready ? 0.98 : 0.8)
+      this.dashGaugeLabel?.setColor(denied ? '#fda4af' : ready ? '#5eead4' : '#a8a29e')
+    }
+    this.dashWasReady = ready
+    this.dashTouchBtn?.setStrokeStyle(2, denied ? 0xf43f5e : ready ? 0x22d3ee : 0x475569, denied ? 1 : ready ? 0.9 : 0.5)
+  }
+
   private createTouchControls() {
     this.touchUI = []
     // Enough simultaneous touches for move + aim + jump + fire at once.
@@ -2482,6 +2521,7 @@ export class MainScene extends Phaser.Scene {
       // keeps the input held through the drift and releases on the real lift.
       bg.on('pointerupoutside', release)
       this.touchUI.push(bg, txt)
+      return bg
     }
     // Left thumb — move (violet) + 8-way aim (cyan). Cross layout, bottom-left.
     btn(78, 268, 56, 38, '▲', 'up', 0x134e4a, 0x22d3ee)
@@ -2502,6 +2542,9 @@ export class MainScene extends Phaser.Scene {
     tapBtn(228, 'II', () => this.togglePause())
     tapBtn(284, '♪', () => this.toggleMute())
     tapBtn(340, '⇄', () => this.swapWeapon())
+    // DASH — the in-canvas pad never had a dash control, so no-gutter touch players (e.g. iPad landscape)
+    // were taught "Tap DASH to DODGE" for a button that didn't exist. Give the pad a real dash. (round-11 onboarding#1)
+    this.dashTouchBtn = btn(356, 300, 82, 42, '» DASH', 'dash', 0x134e4a, 0x22d3ee, '12px')
 
     // Toggle to hide/show the on-screen controls. NOT persisted any more: a
     // remembered "off" used to strand players whose controller wasn't recognised.
@@ -2520,7 +2563,7 @@ export class MainScene extends Phaser.Scene {
     if (this.touchHidden === hidden) return
     this.touchHidden = hidden
     // Drop any held inputs so nothing sticks when the pads vanish.
-    if (hidden) this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false }
+    if (hidden) this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false, dash: false }
     this.applyTouchControls()
   }
 
@@ -4753,7 +4796,7 @@ export class MainScene extends Phaser.Scene {
     // --- Phase Dash — a dodge burst EVERYONE has from run one; the Armory PHASE DASH tiers only
     // sharpen it (longer i-frames, shorter cooldown, harder Phase Strike). Overrides horizontal.
     {
-      const dashHeld = this.dashKey.isDown || !!(dpad && dpad.dash) || !!(pad && pad.buttons[this.padBinds.dash])
+      const dashHeld = this.dashKey.isDown || !!this.touch.dash || !!(dpad && dpad.dash) || !!(pad && pad.buttons[this.padBinds.dash])
       if (dashHeld && !this.prevDash && time > this.dashCdUntil && !this.prone) {
         const dir = left ? -1 : right ? 1 : (this.facingRight ? 1 : -1)
         this.dashDir = dir
@@ -4765,8 +4808,14 @@ export class MainScene extends Phaser.Scene {
         this.facingRight = dir > 0; this.player.setFlipX(dir < 0)
         this.dashFx()
         this.sfx?.jump()
+      } else if (dashHeld && !this.prevDash && !this.prone) {
+        // Pressed while still on cooldown — acknowledge the denied input (a red gauge flash + a muted
+        // blip) so a dash that can't fire yet never reads as the game dropping the press. (round-11 combat#1)
+        this.dashDeniedAt = time
+        this.sfx?.dashDenied()
       }
       this.prevDash = dashHeld
+      this.updateDashGauge(time)
     }
     if (time < this.dashUntil) {
       this.player.setAccelerationX(0)
