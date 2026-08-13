@@ -5015,6 +5015,7 @@ export class MainScene extends Phaser.Scene {
   // Award points, detonate, drop, and remove a killed enemy. Extracted from hitEnemy so the
   // ARC LAUNCHER's area blast kills through the exact same path (score, combo, drops, boss).
   private killEnemy(enemy: Phaser.Physics.Arcade.Sprite) {
+    if (!enemy.active || enemy.getData('dying') === true) return   // never re-count a boss during its ~1s detonation (defense-in-depth vs any future AoE path)
     const type = enemy.getData('type') as string
     const isElite = enemy.getData('elite') === true
     const dcol = type === 'tank' ? 0xfb923c : type === 'flyer' ? 0xa855f7 : type === 'charger' ? 0xff7a3c : type === 'diver' ? 0xff4d6d : type === 'sniper' ? 0x93c5fd : type === 'shielder' ? 0x94a3b8 : type === 'sapper' ? 0xf97316 : type === 'splitter' ? 0xc084fc : 0xf43f5e
@@ -5314,10 +5315,10 @@ export class MainScene extends Phaser.Scene {
       fontFamily: 'monospace', fontSize: '16px', color: '#22d3ee', align: 'center',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(200)
     // Per-sector SPLIT (campaign only): time to clear THIS sector (the one we're leaving) vs your
-    // personal best — a speedrun-style improvement loop layered on the score chase. Daily/Trials
+    // personal best — a speedrun-style improvement loop layered on the score chase. Daily/Trials/Heat
     // run their own boards, so they don't record splits.
     let splitObj: Phaser.GameObjects.Text | null = null
-    if (!this.dailyRun && !this.rushRun) {
+    if (this.isBaseCampaign()) {
       const cur = Date.now() - this.runStartAt
       const r = recordSplit(this.level, cur)
       const txt = r.first ? '⏱ ' + fmtTime(cur) + '  ·  first clear'
@@ -5442,6 +5443,10 @@ export class MainScene extends Phaser.Scene {
   }
 
   // Fold this run into the WEEKLY CONTRACTS (cumulative across the week); bank + toast any completed.
+  // One predicate for "does this run touch CAMPAIGN records?" — routed through every carve-out so a
+  // new mode can't half-wire itself into the campaign best / splits / speedrun the way daily & heat did.
+  private isBaseCampaign(): boolean { return !this.dailyRun && !this.rushRun && !this.heatRun }
+
   private settleContracts(win: boolean) {
     const { completed, reward, capstone } = foldContracts(weekKey(), { kills: this.kills, bosses: this.bossesThisRun, win: win ? 1 : 0, grazes: this.grazeCount })
     if (!reward) return
@@ -5639,7 +5644,7 @@ export class MainScene extends Phaser.Scene {
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
     const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score)
-      : this.heatRun ? { best: this.score, record: false, prevBest: this.score }   // heat has its own boards; don't touch the campaign best
+      : !this.isBaseCampaign() ? { best: this.score, record: false, prevBest: this.score }   // daily/heat have their own boards; never touch the campaign best (apex_best)
       : this.saveBest()
     this.evalBadges(false)
     this.settleBounties()
@@ -5664,7 +5669,7 @@ export class MainScene extends Phaser.Scene {
     const btn = this.add.text(256, 268, (this.dailyRun || this.rushRun || this.heatRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ RETRY — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
-    if (!this.dailyRun && !this.rushRun && !this.heatRun) this.titleLink()
+    if (this.isBaseCampaign()) this.titleLink()
   }
 
   private showVictory() {
@@ -5689,7 +5694,7 @@ export class MainScene extends Phaser.Scene {
       : this.saveBest()
     this.evalBadges(!this.rushRun)   // a Trials clear isn't a campaign win (no CHAMPION), but kills/combos/boss-mask still fold in
     this.settleBounties()
-    this.settleContracts(!this.rushRun && !this.heatRun && !this.dailyRun)
+    this.settleContracts(true)   // any clear counts as a "win" — consistent with kills/bosses/grazes folding from every mode
     this.gameOverAt = this.time.now
     this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200).setInteractive()
       .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.restartRun() })
@@ -5704,11 +5709,11 @@ export class MainScene extends Phaser.Scene {
     if (this.rushRun) this.trialsExtras(trialsSubmit, token)
     else if (this.heatRun) this.heatExtras(heatSubmit, token)
     else if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token, true)
-    if (!this.dailyRun && !this.rushRun && !this.heatRun) this.speedExtras(Date.now() - this.runStartAt, token)   // post + show the campaign clear time
+    if (this.isBaseCampaign()) this.speedExtras(Date.now() - this.runStartAt, token)   // post + show the campaign clear time
     if (unlock && unlock.raised) this.time.delayedCall(650, () => { if (this.gameOver) this.screenToast('🔥 APEX HEAT ' + unlock.unlocked + ' UNLOCKED', '#f97316', 150) })
     const btn = this.add.text(256, 268, (this.rushRun || this.heatRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ PLAY AGAIN — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
-    if (!this.dailyRun && !this.rushRun && !this.heatRun) this.titleLink()
+    if (this.isBaseCampaign()) this.titleLink()
   }
 }
