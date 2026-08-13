@@ -6063,7 +6063,7 @@ export class MainScene extends Phaser.Scene {
     }).catch(() => { /* offline — the clear time already stands */ })
   }
 
-  private deathExtras(sector: number, prevBest: number, record: boolean, submit: Promise<SubmitResult | null> | null, token: number, win: boolean) {
+  private deathExtras(sector: number, prevBest: number, record: boolean, submit: Promise<SubmitResult | null> | null, seasonSubmit: Promise<SubmitResult | null> | null, token: number, win: boolean) {
     this.shareRank = null   // the flex card reads this once the POST resolves (below)
     const delta = this.score - prevBest
     const pb = record
@@ -6078,18 +6078,28 @@ export class MainScene extends Phaser.Scene {
       this.add.text(256, 257, s, { fontFamily: 'monospace', fontSize: '9px', color: '#67e8f9' })
         .setOrigin(0.5).setScrollFactor(0).setDepth(201)
     }
-    // Authoritative rank comes back from the score POST itself (no POST-then-GET race). A
-    // named rival one rung up turns the number into a concrete next-run target. Only when we
-    // have no wallet-tied rank (offline / no wallet) do we fall back to a read-only board read.
-    ;(submit || Promise.resolve(null)).then((r) => {
+    // Authoritative standings come back from the POSTs themselves (no POST-then-GET race). We LEAD with
+    // the monthly SEASON rank — the catchable target — because most players' all-time rank is out of reach;
+    // the all-time rank rides along and still feeds the flex card. A named rival turns it into a concrete
+    // next-run goal. Offline / no wallet falls back to a read-only board read.
+    Promise.all([submit || Promise.resolve(null), seasonSubmit || Promise.resolve(null)]).then(([r, se]) => {
+      if (r && r.rank && this.gameOver && this.deathToken === token) this.shareRank = r.rank   // flex card reads the all-time rank
+      if (se && se.rank) {
+        let line = '◆  SEASON #' + se.rank + (r && r.rank ? '  ·  ALL-TIME #' + r.rank : '')
+        if (se.next) {
+          const who = (se.next.handle || 'RIVAL').slice(0, 10)
+          const mine = se.best?.score ?? this.score          // season rank/rival computed vs your monthly BEST
+          line = '◆  SEASON #' + se.rank + '  ▲ ' + Math.max(1, se.next.score - mine).toLocaleString() + ' to pass ' + who
+        }
+        rankLine(line)
+        return
+      }
       if (r && r.rank) {
-        if (this.gameOver && this.deathToken === token) this.shareRank = r.rank   // feed the flex card
         let line = '◆  GLOBAL RANK  #' + r.rank
         if (r.next) {
           const who = (r.next.handle || 'RIVAL').slice(0, 12)
           const mine = r.best?.score ?? this.score          // rank/rival are computed vs your BEST, so gap must be too
-          const gap = Math.max(1, r.next.score - mine).toLocaleString()
-          line = '◆  RANK #' + r.rank + '    ▲ ' + gap + ' to pass ' + who
+          line = '◆  RANK #' + r.rank + '    ▲ ' + Math.max(1, r.next.score - mine).toLocaleString() + ' to pass ' + who
         }
         rankLine(line)
         return
@@ -6205,10 +6215,11 @@ export class MainScene extends Phaser.Scene {
     let submit: Promise<SubmitResult | null> | null = null
     let trialsSubmit: Promise<SubmitResult | null> | null = null
     let heatSubmit: Promise<SubmitResult | null> | null = null
+    let seasonSubmit: Promise<SubmitResult | null> | null = null
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed(); this.payDailyResupply() }
     else if (this.rushRun) trialsSubmit = submitTrials(weekKey(), this.score, this.rushIndex)   // post the run to the weekly Trials board
     else if (this.heatRun) heatSubmit = submitAscension(this.heatTier, this.score, this.level)  // post to the per-tier HEAT board
-    else { submit = submitScore(this.score, this.level); submitSeason(monthKey(), this.score, this.level) }   // campaign posts to the all-time board + the current month's Season board
+    else { submit = submitScore(this.score, this.level); seasonSubmit = submitSeason(monthKey(), this.score, this.level) }   // campaign posts to the all-time board + the current month's Season board
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
     const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score)
@@ -6233,7 +6244,7 @@ export class MainScene extends Phaser.Scene {
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     if (this.rushRun) this.trialsExtras(trialsSubmit, token)
     else if (this.heatRun) this.heatExtras(heatSubmit, token)
-    else if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token, false)
+    else if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, seasonSubmit, token, false)
     const btn = this.add.text(256, 268, (this.dailyRun || this.rushRun || this.heatRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ RETRY — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
@@ -6249,10 +6260,11 @@ export class MainScene extends Phaser.Scene {
     let submit: Promise<SubmitResult | null> | null = null
     let trialsSubmit: Promise<SubmitResult | null> | null = null
     let heatSubmit: Promise<SubmitResult | null> | null = null
+    let seasonSubmit: Promise<SubmitResult | null> | null = null
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed(); this.payDailyResupply() }
     else if (this.rushRun) trialsSubmit = submitTrials(weekKey(), this.score, this.rushIndex)   // post the clear to the weekly Trials board
     else if (this.heatRun) heatSubmit = submitAscension(this.heatTier, this.score, this.level)  // post the clear to the per-tier HEAT board
-    else { submit = submitScore(this.score, this.level); submitSeason(monthKey(), this.score, this.level) }   // campaign posts to the all-time board + the current month's Season board
+    else { submit = submitScore(this.score, this.level); seasonSubmit = submitSeason(monthKey(), this.score, this.level) }   // campaign posts to the all-time board + the current month's Season board
     // Clearing the campaign — the base run OR a heat tier — unlocks the next Heat tier.
     const unlock = (!this.dailyRun && !this.rushRun) ? noteCampaignClear(this.heatTier) : null
     this.sfx?.stopMusic()
@@ -6276,7 +6288,7 @@ export class MainScene extends Phaser.Scene {
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     if (this.rushRun) this.trialsExtras(trialsSubmit, token)
     else if (this.heatRun) this.heatExtras(heatSubmit, token)
-    else if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token, true)
+    else if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, seasonSubmit, token, true)
     if (this.isBaseCampaign()) this.speedExtras(Date.now() - this.runStartAt, token)   // post + show the campaign clear time
     if (unlock && unlock.raised) this.time.delayedCall(650, () => { if (this.gameOver) this.screenToast('🔥 APEX HEAT ' + unlock.unlocked + ' UNLOCKED', '#f97316', 150) })
     const btn = this.add.text(256, 268, (this.rushRun || this.heatRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ PLAY AGAIN — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
