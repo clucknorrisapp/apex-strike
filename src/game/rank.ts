@@ -58,6 +58,21 @@ export function rankTitle(rank: number): string {
 // Compact badge for rendering beside a handle on the boards, e.g. "Lv12".
 export function rankBadge(rank: number): string { return rank > 0 ? 'Lv' + rank : '' }
 
+// INSIGNIA — a per-title-band glyph + color so a high rank *reads* as earned at a glance instead of
+// every prestige badge looking identical. Band = the same 5-rank promotion step as rankTitle (0..8,
+// one per TITLE), so glyph/color/title always agree. Glyphs escalate humble→radiant; colors climb
+// slate→sky→cyan→emerald→indigo→violet→fuchsia→gold→rose. All glyphs are BMP symbols already proven
+// to render in the game's canvas monospace (· › » ▸ ◆ ✦ ★ elsewhere in the UI).
+function rankBand(rank: number): number { return Math.min(TITLES.length - 1, Math.floor((rank - 1) / 5)) }
+const BAND_GLYPHS = ['·', '›', '»', '▸', '◆', '✦', '★', '✷', '✹']
+const BAND_COLORS = ['#94a3b8', '#7dd3fc', '#67e8f9', '#6ee7b7', '#a5b4fc', '#c4b5fd', '#f0abfc', '#fbbf24', '#fb7185']
+
+// Escalating insignia glyph for a rank's title band (empty when unranked).
+export function prestigeGlyph(rank: number): string { return rank > 0 ? BAND_GLYPHS[rankBand(rank)] : '' }
+
+// Escalating insignia color for a rank's title band (muted gray when unranked).
+export function rankBandColor(rank: number): string { return rank > 0 ? BAND_COLORS[rankBand(rank)] : '#52525b' }
+
 // Move up to `n` banked shards (default: ALL banked) from meta into enlisted. Conserves total
 // currency (meta.shards + enlisted is invariant across the move) and returns the resulting rank.
 export function enlist(n?: number): number {

@@ -7,7 +7,7 @@ import { weekKey, bossOrderForWeek, saveTrialsBest, loadTrialsBest } from './rus
 import { recordSplit, fmtTime, fmtDelta } from './splits'
 import { heatMods, loadHeatUnlocked, noteCampaignClear, MAX_HEAT } from './heat'
 import { DOCTRINES, selectedDoctrine, loadSelected, saveSelected, doctrineById, type DoctrinePassive } from './loadouts'
-import { loadRank, currentRank, rankTitle, rankBadge, toNextRank, cumulativeCost, enlist as enlistShards } from './rank'
+import { loadRank, currentRank, rankTitle, rankBadge, prestigeGlyph, rankBandColor, toNextRank, cumulativeCost, enlist as enlistShards } from './rank'
 import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, submitRank, fetchRanks, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type RankData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, claimDailyDividend, pendingDividend, claimCampaignDaily, type DailyMod } from './daily'
 import { evalBounties, todayBounties, loadBountyState, bountyDoneCount } from './bounties'
@@ -2576,7 +2576,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   // Apex Rank insignia beside a handle on any board — 'Lv12' when that player has enlisted, '' otherwise.
-  private prestigeTag(p?: number): string { return p && p > 0 ? '  ·' + rankBadge(p) : '' }
+  private prestigeTag(p?: number): string { return p && p > 0 ? '  ' + prestigeGlyph(p) + rankBadge(p) : '' }
 
   // Tell the React gutter which scene state we're in + whether DASH is live THIS run, so it can
   // render the action cluster only during play and the DASH slot only when the run actually has
@@ -2870,7 +2870,7 @@ export class MainScene extends Phaser.Scene {
         T(474, y, 'S' + r.sector, 11, c, 1)
       })
       if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
-        T(256, 292, `YOU  ·  #${data.you.rank}  ·  ${data.you.score}  ·  S${data.you.sector}`, 11, '#fde68a', 0.5)
+        T(256, 292, `YOU  ·  #${data.you.rank}  ·  ${data.you.score}  ·  S${data.you.sector}${this.prestigeTag(currentRank())}`, 11, '#fde68a', 0.5)
         if (data.next) { const who = (data.next.handle || 'the rank above').slice(0, 14); T(256, 308, `▲  ${Math.max(1, data.next.score - data.you.score).toLocaleString()} to pass ${who}`, 9, '#fbbf24', 0.5) }
       }
       if (hasWallet()) {
@@ -2897,7 +2897,7 @@ export class MainScene extends Phaser.Scene {
         T(430, y, fmtTime(r.ms), 11, c, 1)
       })
       if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
-        T(256, 268, `YOU  ·  #${data.you.rank}  ·  ${fmtTime(data.you.ms)}`, 11, '#fde68a', 0.5)
+        T(256, 268, `YOU  ·  #${data.you.rank}  ·  ${fmtTime(data.you.ms)}${this.prestigeTag(currentRank())}`, 11, '#fde68a', 0.5)
         if (data.next) T(256, 284, `▲  ${((data.you.ms - data.next.ms) / 1000).toFixed(1)}s faster to pass ${(data.next.handle || 'the ghost above').slice(0, 14)}`, 9, '#fbbf24', 0.5)
       }
     }
@@ -3095,7 +3095,7 @@ export class MainScene extends Phaser.Scene {
       T(392, y, String(r.score), 10, c, 1)
     })
     if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
-      T(256, 312, `YOU  ·  #${data.you.rank}  ·  ${data.you.score}`, 10, '#fde68a', 0.5)
+      T(256, 312, `YOU  ·  #${data.you.rank}  ·  ${data.you.score}${this.prestigeTag(currentRank())}`, 10, '#fde68a', 0.5)
     }
     back()
   }
@@ -3171,7 +3171,7 @@ export class MainScene extends Phaser.Scene {
       T(392, y, String(r.score), 10, c, 1)
     })
     if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
-      T(256, 300, `YOU  ·  #${data.you.rank}  ·  ${data.you.sector}/7  ·  ${data.you.score}`, 10, '#fde68a', 0.5)
+      T(256, 300, `YOU  ·  #${data.you.rank}  ·  ${data.you.sector}/7  ·  ${data.you.score}${this.prestigeTag(currentRank())}`, 10, '#fde68a', 0.5)
     }
     back()
   }
@@ -3382,7 +3382,7 @@ export class MainScene extends Phaser.Scene {
       T(392, y, String(r.score), 10, c, 1)
     })
     if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
-      T(256, 312, `YOU  ·  #${data.you.rank}  ·  S${data.you.sector}  ·  ${data.you.score}`, 10, '#fde68a', 0.5)
+      T(256, 312, `YOU  ·  #${data.you.rank}  ·  S${data.you.sector}  ·  ${data.you.score}${this.prestigeTag(currentRank())}`, 10, '#fde68a', 0.5)
     }
     back()
   }
@@ -3540,8 +3540,8 @@ export class MainScene extends Phaser.Scene {
     push(this.add.text(256, 20, '◆ APEX RANK', { fontFamily: 'monospace', fontSize: '18px', color: '#a5b4fc', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
     T(256, 40, 'enlist banked shards for permanent prestige — cosmetic, never in-run power', 8, '#71717a', 0.5)
 
-    push(this.add.text(256, 68, 'RANK ' + r, { fontFamily: 'monospace', fontSize: '22px', color: '#c4b5fd', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
-    T(256, 94, rankTitle(r), 11, '#a5b4fc', 0.5)
+    push(this.add.text(256, 68, prestigeGlyph(r) + ' RANK ' + r, { fontFamily: 'monospace', fontSize: '22px', color: rankBandColor(r), fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    T(256, 94, rankTitle(r), 11, rankBandColor(r), 0.5)
 
     const bw = 300, bx = 256 - bw / 2, by = 118
     push(this.add.rectangle(bx, by, bw, 8, 0x1e1b4b).setOrigin(0, 0.5).setScrollFactor(0).setDepth(251))
@@ -3571,7 +3571,7 @@ export class MainScene extends Phaser.Scene {
         const c = you ? '#fde68a' : '#e9d5ff'
         T(150, y, '#' + (i + 1), 10, i < 3 ? '#a5b4fc' : '#a1a1aa')
         T(186, y, (row.handle || short(row.wallet)) + (you ? '  (you)' : ''), 10, c)
-        T(362, y, rankTitle(row.rank) + ' ' + rankBadge(row.rank), 9, c, 1)
+        T(362, y, rankTitle(row.rank) + ' ' + prestigeGlyph(row.rank) + rankBadge(row.rank), 9, you ? c : rankBandColor(row.rank), 1)
       })
       if (d.you && !d.top.some((row) => !!mine && row.wallet.toLowerCase() === mine)) {
         T(256, 322, 'YOU  ·  #' + d.you.pos + '  ·  RANK ' + d.you.rank, 10, '#fde68a', 0.5)
