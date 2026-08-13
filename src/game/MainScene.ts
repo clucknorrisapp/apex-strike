@@ -6233,9 +6233,11 @@ export class MainScene extends Phaser.Scene {
       const txt = 'APEX STRIKE — ' + this.score.toLocaleString() + ' · Sector ' + sector + rankTxt + ' ▸ play at apexstrike.app'
       const theme = THEMES[this.levels()[this.level - 1]?.theme ?? 'streets']
       const hx = (n: number) => '#' + (n >>> 0).toString(16).padStart(6, '0')
+      const pr = currentRank()
       const summary: FlexSummary = {
         score: this.score, sector, kills: this.kills, maxCombo: this.maxCombo, win,
         rank: this.shareRank, handle: localHandle() || null,
+        prestige: pr, prestigeTitle: pr > 0 ? rankTitle(pr) : undefined, prestigeGlyph: prestigeGlyph(pr) || undefined, prestigeHex: pr > 0 ? rankBandColor(pr) : undefined,
         topHex: hx(theme.accent), botHex: hx(theme.bg),
       }
       share.setText('preparing…').setColor('#a5b4fc')
