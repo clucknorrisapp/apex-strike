@@ -3315,7 +3315,33 @@ export class MainScene extends Phaser.Scene {
     this.handleInput(time)
     this.updateMovers(delta)
     this.updateEnemies(delta)
+    this.updateBurns()   // FIRE damage-over-time: drain burn stacks laid down by fire rounds
     this.maybeSpawnReinforcements(delta)
+  }
+
+  // FIRE ignites what it hits: embers keep ticking damage for a beat after the round lands, so
+  // FIRE trades a lighter per-shot punch for sustained pressure (strong on tanks/bosses you keep
+  // painting). hitEnemy tops up the stack (capped); this drains one tick per ~300ms and routes a
+  // burn-death through the normal kill path (combo, drops, boss finisher all intact).
+  private updateBurns() {
+    const now = this.time.now
+    const toKill: Phaser.Physics.Arcade.Sprite[] = []
+    this.enemies.getChildren().forEach((obj) => {
+      const e = obj as Phaser.Physics.Arcade.Sprite
+      if (!e.active || e.getData('dying')) return
+      const ticks = (e.getData('burnTicks') as number) || 0
+      if (ticks <= 0 || now < ((e.getData('burnNext') as number) || 0)) return
+      e.setData('burnTicks', ticks - 1)
+      e.setData('burnNext', now + 300)
+      this.particles.emitParticleAt(e.x + Phaser.Math.Between(-9, 9), e.y + Phaser.Math.Between(-14, 6), 2)   // ember lick
+      const hp = ((e.getData('hp') as number) || 0) - 1
+      e.setData('hp', hp)
+      if (hp <= 0) { toKill.push(e); return }
+      e.setTintFill(0xff7a1a)
+      this.time.delayedCall(70, () => this.restoreTint(e))
+    })
+    // Kill AFTER the walk so killEnemy's group mutations (splitter fission, destroy) never race the iterator.
+    toKill.forEach((e) => { if (e.active && !e.getData('dying')) this.killEnemy(e) })
   }
 
   // Sine-driven moving platforms. Static bodies don't impart motion, so we
@@ -4272,6 +4298,23 @@ export class MainScene extends Phaser.Scene {
     this.time.delayedCall(60, () => this.restoreTint(enemy))
     this.particles.emitParticleAt(enemy.x, enemy.y, 5)
 
+    // Per-weapon impact signature at the point of contact — each gun should FEEL different, not
+    // just do different damage numbers.
+    if (this.weapon === 'laser') {
+      // LASER sears a scar: a thin bright streak along the beam that flares and fades.
+      const bb = bullet.body as Phaser.Physics.Arcade.Body | null
+      const ang = bb ? Math.atan2(bb.velocity.y, bb.velocity.x) : 0
+      const scar = this.add.rectangle(bx, by, 20, 2.5, 0xf0abfc, 0.95).setDepth(7).setRotation(ang)
+      this.tweens.add({ targets: scar, alpha: 0, scaleX: 1.9, scaleY: 0.4, duration: 240, onComplete: () => scar.destroy() })
+      this.shockwave(bx, by, 0xe879f9, 9)
+    } else if (this.weapon === 'fire' && hp > 0) {
+      // FIRE ignites — top up a burning DoT stack (drained by updateBurns) and lick embers.
+      const cur = (enemy.getData('burnTicks') as number) || 0
+      enemy.setData('burnTicks', Math.min(8, cur + 3))
+      if (cur <= 0) enemy.setData('burnNext', this.time.now + 300)
+      this.particles.emitParticleAt(bx, by, 3)
+    }
+
     if (hp > 0) {
       const bsx = enemy.getData('bsx') as number, bsy = enemy.getData('bsy') as number
       if ((enemy.getData('type') as string) === 'boss') {
@@ -4286,9 +4329,16 @@ export class MainScene extends Phaser.Scene {
         this.sfx?.bossHit()
         return
       }
-      // Alive grunt — flinch with a quick squash punch so non-lethal hits still read.
+      // Alive grunt — flinch with a squash punch so non-lethal hits still read. RAPID flinches
+      // light + quick (it fires fast, so a full recoil every shot would jitter); LASER/FIRE hit
+      // heavier; SPREAD/normal sit in between.
+      const rapid = this.weapon === 'rapid'
+      const heavy = this.weapon === 'laser' || this.weapon === 'fire'
+      const fsx = rapid ? 1.08 : heavy ? 1.22 : 1.18
+      const fsy = rapid ? 0.93 : heavy ? 0.80 : 0.84
+      const fdur = rapid ? 40 : 55
       this.tweens.killTweensOf(enemy)
-      this.tweens.add({ targets: enemy, scaleX: bsx * 1.18, scaleY: bsy * 0.84, duration: 55, yoyo: true, onComplete: () => { if (enemy.active) enemy.setScale(bsx, bsy) } })
+      this.tweens.add({ targets: enemy, scaleX: bsx * fsx, scaleY: bsy * fsy, duration: fdur, yoyo: true, onComplete: () => { if (enemy.active) enemy.setScale(bsx, bsy) } })
       this.sfx?.hit()
       return
     }
