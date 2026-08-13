@@ -158,6 +158,8 @@ class Sfx {
   graze(pan?: number) { this.tone(2600, 3100, 0.03, 'triangle', 0.03, pan) }
   // COUNTER-DASH DEFLECT: a bright metallic snap as a caught bolt whips back at its owner.
   deflect(pan?: number) { this.tone(1800, 2700, 0.05, 'triangle', 0.05, pan); this.note(2500, 0.05, 'square', 0.03, 0.04, undefined, pan) }
+  // STAGGER: a heavy poise-break crack — a low downward thud under a short mid ring.
+  stagger(pan?: number) { this.tone(200, 90, 0.1, 'square', 0.06, pan); this.note(680, 0.09, 'triangle', 0.04, 0.05, undefined, pan) }
   explode(pan?: number) { this.noise(0.28, 0.09, pan); this.duck() }
   pickup() { this.tone(620, 1240, 0.16, 'sine', 0.06) }
   // Distinct pickup motif per powerup so you hear WHICH pod you grabbed, eyes on the action.
@@ -2286,6 +2288,15 @@ export class MainScene extends Phaser.Scene {
       enemy.setData('aura', aura)
       this.tweens.add({ targets: aura, scale: { from: 0.9, to: 1.28 }, alpha: { from: 0.9, to: 0.28 }, duration: 720, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
       ;(enemy as Phaser.GameObjects.Sprite).on('destroy', () => { this.tweens.killTweensOf(aura); aura.destroy() })
+    }
+
+    // STAGGER poise: FOCUS-FIRE builds it; a break freezes the enemy for a burst window. Sized off max
+    // HP (~0.7×) so it breaks a durable foe around 30% HP for a finish, while grunts die before it fills.
+    // Bosses are exempt — they run scripted phases.
+    if (t !== 'boss') {
+      const mhp = enemy.getData('maxHp') as number
+      enemy.setData('poiseMax', Math.max(4, Math.round(mhp * 0.7)))
+      enemy.setData('poise', 0); enemy.setData('staggerUntil', 0); enemy.setData('staggerImmuneUntil', 0)
     }
 
     // Materialize: pop in with a quick scale-up + white flash so spawns read with
@@ -4875,6 +4886,17 @@ export class MainScene extends Phaser.Scene {
       const aura = enemy.getData('aura') as Phaser.GameObjects.Arc | undefined   // elite aura rides the enemy
       if (aura) aura.setPosition(enemy.x, enemy.y)
 
+      // STAGGER: frozen + defenseless during the break window; otherwise poise bleeds off, so only
+      // sustained FOCUS-FIRE (not slow chip) ever breaks it.
+      const stU = (enemy.getData('staggerUntil') as number) || 0
+      if (stU > 0) {
+        if (this.time.now < stU) { enemy.setVelocity(0, 0); return }   // broken — skip the AI this frame
+        enemy.setData('staggerUntil', 0); this.restoreTint(enemy)      // window ended — thaw
+      } else {
+        const poise = (enemy.getData('poise') as number) || 0
+        if (poise > 0) { const pm = (enemy.getData('poiseMax') as number) || 6; enemy.setData('poise', Math.max(0, poise - (pm / 1400) * delta)) }
+      }
+
       if (type !== 'turret' && enemy.y > this.levelH + 220) { enemy.destroy(); return }
 
       const speed = enemy.getData('speed') as number
@@ -5311,6 +5333,30 @@ export class MainScene extends Phaser.Scene {
     if (bt) e.setTint(bt)
   }
 
+  // STAGGER — sustained damage builds an enemy's poise; a break freezes it for a burst window (with
+  // bonus damage), then grants brief immunity so it can't be perma-stunned. Non-boss only: bosses have
+  // no poiseMax, so this is a no-op for them. Called from hitEnemy on a surviving hit.
+  private buildStagger(enemy: Phaser.Physics.Arcade.Sprite, dmg: number) {
+    const max = enemy.getData('poiseMax') as number | undefined
+    if (max == null) return
+    const now = this.time.now
+    if (now < ((enemy.getData('staggerUntil') as number) || 0)) return          // already broken
+    if (now < ((enemy.getData('staggerImmuneUntil') as number) || 0)) return    // post-break immunity
+    const poise = ((enemy.getData('poise') as number) || 0) + dmg
+    if (poise < max) { enemy.setData('poise', poise); return }
+    // BREAK: freeze, flash cyan, and open the window.
+    enemy.setData('poise', 0)
+    enemy.setData('staggerUntil', now + 450)
+    enemy.setData('staggerImmuneUntil', now + 2600)
+    enemy.setVelocity(0, 0)
+    enemy.setTintFill(0x67e8f9)
+    this.shockwave(enemy.x, enemy.y, 0x67e8f9, 22)
+    this.popup(enemy.x, enemy.y - 30, 'STAGGER', '#67e8f9')
+    this.hitstop(20)
+    this.sfx?.stagger(this.panAt(enemy.x))
+    this.tipOnce('stagger', 'FOCUS-FIRE cracks their guard — a STAGGERED\nfoe is frozen and takes extra damage', '#67e8f9')
+  }
+
   private hitEnemy(
     bulletObj: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile,
     enemyObj: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Tilemaps.Tile
@@ -5352,6 +5398,7 @@ export class MainScene extends Phaser.Scene {
     const punish = enemy.getData('cstate') === 'wind' || enemy.getData('dstate') === 'wind'
       || enemy.getData('sstate') === 'mark' || enemy.getData('tele') === true || enemy.getData('tele2') === true
     if (punish) dmg = Math.ceil(dmg * 2)
+    if (((enemy.getData('staggerUntil') as number) || 0) > this.time.now) dmg = Math.round(dmg * 1.6)   // STAGGER: a broken enemy takes bonus damage during the window
     const hp = (enemy.getData('hp') as number) - dmg
     enemy.setData('hp', hp)
     enemy.setTintFill(punish ? 0xffe08a : 0xffffff)
@@ -5391,6 +5438,7 @@ export class MainScene extends Phaser.Scene {
     }
 
     if (hp > 0) {
+      this.buildStagger(enemy, dmg)   // STAGGER: sustained damage builds poise (no-op for bosses / already-broken)
       const bsx = enemy.getData('bsx') as number, bsy = enemy.getData('bsy') as number
       if ((enemy.getData('type') as string) === 'boss') {
         // Bosses are the climax — chipping one should land with weight, not feel like plinking a grunt:
