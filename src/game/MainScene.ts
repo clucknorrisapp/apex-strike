@@ -5058,9 +5058,20 @@ export class MainScene extends Phaser.Scene {
     this.particles.emitParticleAt(x, y, 22)
     this.deathParticles.setParticleTint(0xa3e635); this.deathParticles.emitParticleAt(x, y, 12)
     if (!this.reduceMotion) this.fxShake(120, 0.016)
-    this.hitstop(40)
     this.sfx?.explode(this.panAt(x))
     const r2 = radius * radius
+    // Scale the freeze to the SIZE of the play: a 5-enemy detonation should CRUNCH, not freeze the same
+    // ~40ms as chipping one grunt. Pre-count the kills this blast lands, then ONE hitstop up front — the
+    // per-kill hitstops fire while physics is already paused and get swallowed, so the flat 40ms used to
+    // win no matter how big the play. (round-11 combat#8)
+    let arcKills = 0
+    this.enemies.getChildren().forEach((o) => {
+      const e = o as Phaser.Physics.Arcade.Sprite
+      if (!e.active || ((e.getData('hp') as number) ?? 1) <= 0) return
+      const dx = e.x - x, dy = e.y - y
+      if (dx * dx + dy * dy <= r2 && (e.getData('hp') as number) - dmg <= 0) arcKills++
+    })
+    this.hitstop(Math.min(130, 40 + arcKills * 20))
     // Snapshot: killEnemy() destroys enemies, which mutates the group's live array mid-loop.
     this.enemies.getChildren().slice().forEach((o) => {
       const e = o as Phaser.Physics.Arcade.Sprite
