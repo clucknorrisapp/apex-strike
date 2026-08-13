@@ -8,7 +8,7 @@ import { recordSplit, fmtTime, fmtDelta } from './splits'
 import { heatMods, loadHeatUnlocked, noteCampaignClear, noteHeatClear, MAX_HEAT } from './heat'
 import { DOCTRINES, selectedDoctrine, loadSelected, saveSelected, doctrineById, type DoctrinePassive } from './loadouts'
 import { loadRank, currentRank, rankTitle, rankBadge, prestigeGlyph, rankBandColor, toNextRank, cumulativeCost, enlist as enlistShards } from './rank'
-import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, submitRank, fetchRanks, submitSeason, fetchSeason, monthKey, loadRival, saveRival, clearRival, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type RankData, type SeasonData, type SubmitResult } from '../net/leaderboard'
+import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, submitRank, fetchRanks, submitSeason, fetchSeason, monthKey, prevMonthKey, monthLabel, seasonSeen, markSeasonSeen, recordSeasonFinish, loadRival, saveRival, clearRival, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type RankData, type SeasonData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, claimDailyDividend, pendingDividend, claimCampaignDaily, type DailyMod } from './daily'
 import { evalBounties, todayBounties, loadBountyState, bountyDoneCount } from './bounties'
 import { foldRun as foldContracts, contractProgress } from './contracts'
@@ -1017,6 +1017,8 @@ export class MainScene extends Phaser.Scene {
   private padIcon?: Phaser.GameObjects.Text   // persistent HUD "controller connected" chip
   private controlsUI: Phaser.GameObjects.GameObject[] = []
   private controlsOpen = false
+  private seasonCardOpen = false                // the one-time monthly SEASON rollover ceremony is up
+  private seasonCardUI: Phaser.GameObjects.GameObject[] = []
   private armoryOpen = false
   private armoryUI: Phaser.GameObjects.GameObject[] = []
   private badgesOpen = false
@@ -1435,6 +1437,8 @@ export class MainScene extends Phaser.Scene {
     this.touch = { left: false, right: false, jump: false, shoot: false, up: false, down: false, dash: false }
     this.controlsOpen = false
     this.controlsUI = []
+    this.seasonCardOpen = false
+    this.seasonCardUI = []
     this.rebinding = null
     this.rebindArmed = false
     this.rebindHint = undefined
@@ -4043,6 +4047,7 @@ export class MainScene extends Phaser.Scene {
     // you're navigating, only Enter/Space confirms the focused entry — so you can't accidentally start.
     this.startKeyHandler = (e: KeyboardEvent) => {
       if (this.time.now < this.startGraceUntil) return
+      if (this.seasonCardOpen) { this.closeSeasonRollover(); return }   // any key dismisses the season rollover ceremony (nothing else owns its input)
       // Inert while any overlay owns the screen (its own handlers drive it).
       if (this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen || this.rankOpen || this.badgesOpen || this.armoryOpen || this.leaderboardOpen || this.controlsOpen) return
       const k = e.key
@@ -4056,12 +4061,64 @@ export class MainScene extends Phaser.Scene {
       this.beginPlay()
     }
     this.input.keyboard!.on('keydown', this.startKeyHandler)
+    this.maybeShowSeasonRollover()   // once per new month: surface the just-closed season standing + the fresh board
+  }
+
+  // ONE-TIME SEASON ROLLOVER ceremony. The monthly Season board resets silently at 00:00 UTC on the 1st;
+  // without a closing beat a month of climbing vanishes unacknowledged. On the first title of a new month
+  // (per wallet), read the just-closed month (the server keeps past rows) and, if you competed, show a
+  // "you finished #N — new season is live" card. Fires at most once per month; offline retries next launch.
+  private maybeShowSeasonRollover() {
+    if (!hasWallet()) return
+    const now = monthKey()
+    if (seasonSeen() === now) return
+    const prev = prevMonthKey()
+    fetchSeason(prev).then((d) => {
+      if (!d.online) return                       // board unreachable — don't burn the one-shot; retry next launch
+      markSeasonSeen(now)
+      if (!d.you || !d.you.rank) return           // didn't compete last month → nothing to close out
+      recordSeasonFinish(prev, d.you.rank)
+      if (this.started || this.seasonCardOpen || !this.titleUI.length) return   // player already moved on / a card's up
+      this.showSeasonRollover(prev, now, d.you.rank)
+    }).catch(() => { /* offline — ignore, retry next launch */ })
+  }
+
+  private showSeasonRollover(prevKey: string, nowKey: string, rank: number) {
+    if (this.seasonCardOpen) return
+    this.seasonCardOpen = true
+    this.seasonCardUI = []
+    const push = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.seasonCardUI.push(o); return o }
+    const backdrop = push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.9).setScrollFactor(0).setDepth(260).setInteractive())
+    push(this.add.rectangle(256, 192, 344, 214, 0x0a0713, 0.98).setScrollFactor(0).setDepth(261).setStrokeStyle(2, 0x67e8f9, 0.5))
+    const rankCol = rank <= 3 ? '#fbbf24' : rank <= 10 ? '#67e8f9' : '#e5e7eb'
+    push(this.add.text(256, 106, '◆  SEASON CLOSED', { fontFamily: 'monospace', fontSize: '13px', color: '#67e8f9', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(262))
+    push(this.add.text(256, 128, monthLabel(prevKey, true), { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(262))
+    push(this.add.text(256, 162, 'YOU FINISHED', { fontFamily: 'monospace', fontSize: '9px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(262))
+    const big = push(this.add.text(256, 192, '#' + rank, { fontFamily: 'monospace', fontSize: '40px', color: rankCol, fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(262))
+    push(this.add.text(256, 230, '▶  ' + monthLabel(nowKey) + ' IS LIVE', { fontFamily: 'monospace', fontSize: '12px', color: '#4ade80', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(262))
+    push(this.add.text(256, 250, 'board reset · everyone starts at zero · climb again', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(262))
+    const cont = push(this.add.text(256, 278, '[ CONTINUE ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(262).setInteractive({ useHandCursor: true }))
+    cont.on('pointerover', () => cont.setColor('#bbf7d0'))
+    cont.on('pointerout', () => cont.setColor('#86efac'))
+    cont.on('pointerdown', () => this.closeSeasonRollover())
+    backdrop.on('pointerdown', () => this.closeSeasonRollover())
+    big.setScale(0.6)
+    this.tweens.add({ targets: big, scale: 1, duration: 340, ease: 'Back.easeOut' })
+    this.sfx?.resume(); this.sfx?.fanfare()
+  }
+
+  private closeSeasonRollover() {
+    if (!this.seasonCardOpen) return
+    this.seasonCardUI.forEach((o) => o.destroy())
+    this.seasonCardUI = []
+    this.seasonCardOpen = false
+    this.startGraceUntil = this.time.now + 400   // the closing tap/press can't also start play
   }
 
   // Move the title focus ring (bug#5). The first directional press just reveals the ring where you
   // are; subsequent presses step through the menu entries (wrapping).
   private titleNavMove(dir: number) {
-    if (!this.titleNav.length) return
+    if (this.seasonCardOpen || !this.titleNav.length) return
     const first = !this.titleNavActive
     this.titleNavActive = true
     if (!first) this.titleFocus = (this.titleFocus + dir + this.titleNav.length) % this.titleNav.length
@@ -4070,6 +4127,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private titleActivate() {
+    if (this.seasonCardOpen) return
     const it = this.titleNav[this.titleFocus]
     if (it && it.obj.active) it.act()
   }
