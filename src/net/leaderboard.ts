@@ -23,6 +23,16 @@ export function cleanHandle(h: string): string {
   return h.replace(/[^A-Za-z0-9 _-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16)
 }
 
+// PERSISTENT RIVAL — the named rung above you that a board hands back is otherwise forgotten the moment
+// you leave the results screen. Pin it locally so the chase spans sessions and passing them can be
+// celebrated. Season-scoped (the catchable board), stored { handle, score }.
+export interface PinnedRival { handle: string; score: number }
+export function loadRival(): PinnedRival | null {
+  try { const r = JSON.parse(localStorage.getItem('apex_rival') || 'null'); return r && typeof r.score === 'number' && r.handle ? { handle: String(r.handle).slice(0, 16), score: r.score } : null } catch { return null }
+}
+export function saveRival(r: PinnedRival): void { try { localStorage.setItem('apex_rival', JSON.stringify({ handle: String(r.handle).slice(0, 16), score: Math.max(0, Math.round(r.score)) })) } catch { /* storage blocked */ } }
+export function clearRival(): void { try { localStorage.removeItem('apex_rival') } catch { /* storage blocked */ } }
+
 export async function fetchLeaderboard(): Promise<BoardData> {
   try {
     const w = myWallet()
