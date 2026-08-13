@@ -1174,6 +1174,7 @@ export class MainScene extends Phaser.Scene {
   private progressTrack?: Phaser.GameObjects.Rectangle
   private progressGoalMark?: Phaser.GameObjects.Text
   private objectiveText?: Phaser.GameObjects.Text   // persistent "what am I doing" line at the top of the HUD
+  private objectiveMsg = ''                          // last objective string shown — re-pop the line only when it changes
 
   constructor() {
     super({ key: 'MainScene' })
@@ -1880,6 +1881,7 @@ export class MainScene extends Phaser.Scene {
     this.nextBossKind = 'sentinel'
     this.endBossSpawned = false
     this.midSecured = false
+    this.objectiveMsg = ''                            // fresh stage → let its objective line pop into view
     this.pendingEndBoss = undefined
     this.extractionLocked = false
     if (def.endBoss && !(this.goalX === 0 && this.goalY === 0)) {
@@ -2408,7 +2410,9 @@ export class MainScene extends Phaser.Scene {
     this.progressFill.scaleX = 0
     this.progressGoalMark = this.add.text(508, -1, '⚑', { fontFamily: 'monospace', fontSize: '10px', color: '#fbbf24' }).setOrigin(1, 0).setScrollFactor(0).setDepth(101)
     // Persistent objective line under the extraction bar — always says what you're trying to do.
-    this.objectiveText = this.add.text(256, 12, '', { fontFamily: 'monospace', fontSize: '8px', color: '#67e8f9' }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(101)
+    // Legible size + a dark stroke so it reads as a real directive over the busy playfield, not chrome. (round-10 clarity)
+    this.objectiveText = this.add.text(256, 13, '', { fontFamily: 'monospace', fontSize: '11px', color: '#67e8f9', fontStyle: 'bold' }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(101)
+    this.objectiveText.setStroke('#05040a', 3)
   }
 
   // Fill the top bar from spawn → extraction. Hidden on the boss stage (goal is the boss).
@@ -2416,9 +2420,19 @@ export class MainScene extends Phaser.Scene {
     if (!this.progressFill) return
     const boss = this.isBossLevel()
     // Always tell the player what they're doing: kill the boss, drop the guardian, or reach extraction.
-    this.objectiveText?.setText((this.rushRun || boss) ? '☠ DEFEAT THE BOSS'
+    // Colour-code the three states and pop the line whenever it changes — most importantly the moment
+    // the guardian seals extraction, so that state flip never slips past unseen. (round-10 clarity)
+    const msg = (this.rushRun || boss) ? '☠ DEFEAT THE BOSS'
       : this.extractionLocked ? '⚔ DEFEAT THE GUARDIAN — extraction is sealed'
-      : '▶ REACH EXTRACTION ⚑')
+      : '▶ REACH EXTRACTION ⚑'
+    if (this.objectiveText && msg !== this.objectiveMsg) {
+      this.objectiveMsg = msg
+      const col = (this.rushRun || boss) ? '#fca5a5' : this.extractionLocked ? '#fbbf24' : '#67e8f9'
+      this.objectiveText.setText(msg).setColor(col)
+      this.tweens.killTweensOf(this.objectiveText)
+      this.objectiveText.setScale(1)
+      this.tweens.add({ targets: this.objectiveText, scale: { from: 1.35, to: 1 }, duration: 260, ease: 'Back.easeOut' })
+    }
     this.progressFill.setVisible(!boss)
     this.progressTrack?.setVisible(!boss)
     this.progressGoalMark?.setVisible(!boss)
