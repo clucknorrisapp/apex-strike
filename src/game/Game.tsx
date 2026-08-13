@@ -321,7 +321,7 @@ export function Game() {
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
           <div className="flex items-center gap-3">
-            <span className="text-violet-400/70 text-xs">v2.30 — Deflect</span>
+            <span className="text-violet-400/70 text-xs">v2.31 — Prestige</span>
             <button
               onClick={toggleFullscreen}
               className="text-xs text-violet-200 px-2 py-1 rounded-md border border-violet-700/60 hover:border-fuchsia-500/70 hover:text-fuchsia-200 transition-colors"
