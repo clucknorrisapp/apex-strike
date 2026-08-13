@@ -2321,7 +2321,12 @@ export class MainScene extends Phaser.Scene {
     if (!this.compass) return
     if (this.isBossLevel()) { this.compass.setVisible(false); return }
     const cam = this.cameras.main
-    const gx = this.goalX - cam.scrollX, gy = this.goalY - cam.scrollY
+    // The compass lives on the 512x384 UI camera, but the world camera is zoomed (worldView ~720x540).
+    // Map the goal's position WITHIN the visible view into UI space, so the arrow hides exactly when
+    // the goal is genuinely on-screen and points from the true view centre. (round-4 BUG2)
+    const vw = cam.worldView.width || 720, vh = cam.worldView.height || 540
+    const gx = ((this.goalX - cam.worldView.x) / vw) * 512
+    const gy = ((this.goalY - cam.worldView.y) / vh) * 384
     const m = 44
     if (gx > m && gx < 512 - m && gy > m && gy < 384 - m) { this.compass.setVisible(false); return }
     const ang = Math.atan2(gy - 192, gx - 256)
@@ -3398,7 +3403,11 @@ export class MainScene extends Phaser.Scene {
       const k = e.key
       if (k === 'ArrowUp' || k === 'ArrowLeft') { this.titleNavMove(-1); return }
       if (k === 'ArrowDown' || k === 'ArrowRight') { this.titleNavMove(1); return }
-      if (this.titleNavActive) { if (k === 'Enter' || k === ' ' || k === 'Spacebar') this.titleActivate(); return }
+      if (this.titleNavActive) {
+        if (k === 'Enter' || k === ' ' || k === 'Spacebar') this.titleActivate()
+        else if (this.titleFocus === 0) this.beginPlay()   // focus still on START → any key still starts (round-4 FRAGILITY4)
+        return
+      }
       this.beginPlay()
     }
     this.input.keyboard!.on('keydown', this.startKeyHandler)
@@ -3469,13 +3478,15 @@ export class MainScene extends Phaser.Scene {
   // banner clears and fades on its own. Adapts to touch vs keyboard; remembered so it never nags again.
   private showFirstRunCoach() {
     try { if (localStorage.getItem('apex_coached') === '1') return } catch { return }
-    try { localStorage.setItem('apex_coached', '1') } catch { /* storage blocked — show once, don't persist */ }
     const touch = this.sys.game.device.input.touch
     const lines = touch
       ? ['LEFT — drag to move & aim', 'RIGHT — FIRE · JUMP · DASH', 'grab ◆ pods · beat the sector boss']
       : ['MOVE  A/D ◄►      JUMP  W/▲ (double)', 'FIRE  SPACE (hold)      AIM  hold ▲/▼', 'SWAP  Q      DASH  SHIFT']
     this.time.delayedCall(1500, () => {
       if (this.gameOver || !this.started) return
+      // Burn the "seen it" flag only once the card ACTUALLY renders — a fast first death (e.g. a
+      // 1-heart Daily) must not silently consume the game's only controls tutorial. (round-4 BUG1)
+      try { localStorage.setItem('apex_coached', '1') } catch { /* storage blocked — show again next run */ }
       const els: Phaser.GameObjects.GameObject[] = []
       els.push(this.add.rectangle(256, 214, 372, 76, 0x0a0612, 0.8).setScrollFactor(0).setDepth(190).setStrokeStyle(1, 0x22d3ee, 0.55))
       els.push(this.add.text(256, 187, '▸ CONTROLS ◂', { fontFamily: 'monospace', fontSize: '10px', color: '#22d3ee', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(191))
@@ -4938,6 +4949,7 @@ export class MainScene extends Phaser.Scene {
 
   private swapWeapon() {
     if (this.gameOver || !this.started || this.altWeapon === this.weapon) return
+    if (this.contractOpen || this.userPaused || this.levelTransition) return   // a frozen player can't swap (round-4 FRAGILITY3)
     const t = this.weapon; this.weapon = this.altWeapon; this.altWeapon = t
     this.updateWeaponHUD()
     this.sfx?.swap()
