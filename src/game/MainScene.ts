@@ -148,6 +148,8 @@ class Sfx {
   shoot() { this.tone(820 + Math.random() * 180, 300, 0.05, 'square', 0.045) }
   jump() { this.tone(420, 780, 0.12, 'square', 0.05) }
   hit() { this.tone(240, 140, 0.05, 'square', 0.035) }
+  // TELEGRAPH PUNISH: a bright rising two-note ping so a crit reads by ear over the normal thunk.
+  crit(pan?: number) { this.tone(1000, 1950, 0.07, 'square', 0.05, pan); this.note(2100, 0.05, 'triangle', 0.04, 0.04, undefined, pan) }
   explode(pan?: number) { this.noise(0.28, 0.09, pan); this.duck() }
   pickup() { this.tone(620, 1240, 0.16, 'sine', 0.06) }
   // Distinct pickup motif per powerup so you hear WHICH pod you grabbed, eyes on the action.
@@ -4653,12 +4655,25 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    const dmg = (this.weapon === 'laser' ? 3 : this.weapon === 'fire' ? 2 : 1) + (this.weaponLvl[this.weapon] || 0)
+    let dmg = (this.weapon === 'laser' ? 3 : this.weapon === 'fire' ? 2 : 1) + (this.weaponLvl[this.weapon] || 0)
+    // TELEGRAPH PUNISH: shooting an enemy DURING its wind-up flash (the same tell you'd normally
+    // dodge) deals double — read the threat and cancel the attack instead of only evading it. Uses
+    // the state flags the AI already sets: charger/diver wind, sapper mark, turret/sniper + boss tells.
+    const punish = enemy.getData('cstate') === 'wind' || enemy.getData('dstate') === 'wind'
+      || enemy.getData('sstate') === 'mark' || enemy.getData('tele') === true || enemy.getData('tele2') === true
+    if (punish) dmg = Math.ceil(dmg * 2)
     const hp = (enemy.getData('hp') as number) - dmg
     enemy.setData('hp', hp)
-    enemy.setTintFill(0xffffff)
+    enemy.setTintFill(punish ? 0xffe08a : 0xffffff)
     this.time.delayedCall(60, () => this.restoreTint(enemy))
     this.particles.emitParticleAt(enemy.x, enemy.y, 5)
+    if (punish) {
+      // A fat golden spark + a callout so the read reads: you hit the window.
+      this.shockwave(bx, by, 0xffe08a, 20)
+      this.popup(enemy.x, enemy.y - 30, 'PUNISH', '#fbbf24')
+      this.hitstop(14)
+      this.sfx?.crit(this.panAt(enemy.x))
+    }
 
     // Per-weapon impact signature at the point of contact — each gun should FEEL different, not
     // just do different damage numbers.
