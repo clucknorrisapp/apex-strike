@@ -3883,6 +3883,13 @@ export class MainScene extends Phaser.Scene {
     heat.on('pointerdown', () => this.openHeat())
     els.push(heat)
     this.titleNav.push({ obj: heat, act: () => this.openHeat() })
+    // OBJECTIVES readout — daily bounties + weekly contracts are otherwise invisible until you dig into
+    // the Daily / Trials screens, so a returning player never sees what's waiting. Surface the counts on
+    // the hub, brightened to amber while anything's still open (the reason to play today / this week).
+    const objDone = bountyDoneCount(todayKey())
+    const cprog = contractProgress(weekKey())
+    const anyOpen = objDone < 3 || cprog.done < cprog.total
+    els.push(this.add.text(256, 284, '◇ BOUNTIES ' + objDone + '/3    ◈ CONTRACTS ' + cprog.done + '/' + cprog.total, { fontFamily: 'monospace', fontSize: '8px', color: anyOpen ? '#fbbf24' : '#4ade80' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
     // Don't-break-the-chain streak nudge (per-device).
     const ds = getDailyStreak()
     if (ds.streak > 0) {
