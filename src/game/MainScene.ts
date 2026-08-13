@@ -947,6 +947,7 @@ export class MainScene extends Phaser.Scene {
   private grazeCount = 0        // RAZOR GRAZE near-misses this run
   private deflectCount = 0      // COUNTER-DASH deflects this run
   private tipsShown = new Set<string>()   // session cache so a just-in-time tip is evaluated once
+  private activeTip?: Phaser.GameObjects.Text   // single tip slot — a new tip replaces the old so early-run tips can't pile into a blob
   private heartT = 0                 // countdown to the next low-health heartbeat thump
   private prevOnGround = false
   private fallSpeed = 0
@@ -3653,9 +3654,11 @@ export class MainScene extends Phaser.Scene {
     try { seen = localStorage.getItem('apex_tip_' + key) === '1' } catch { seen = true }
     if (seen) return                              // already taught in a past session
     try { localStorage.setItem('apex_tip_' + key, '1') } catch { /* storage blocked */ }
+    if (this.activeTip && this.activeTip.active) this.activeTip.destroy()   // single slot: replace the prior tip so two that fire close together never overlap into an unreadable blob
     const t = this.add.text(256, 150, text, { fontFamily: 'monospace', fontSize: '10px', color, backgroundColor: 'rgba(10,6,18,0.85)', padding: { x: 9, y: 5 }, align: 'center' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(232).setAlpha(0)
-    this.tweens.add({ targets: t, alpha: 1, duration: 200, yoyo: true, hold: 2600, onComplete: () => t.destroy() })
+    this.activeTip = t
+    this.tweens.add({ targets: t, alpha: 1, duration: 200, yoyo: true, hold: 2600, onComplete: () => { if (this.activeTip === t) this.activeTip = undefined; t.destroy() } })
   }
 
   private togglePause() {
@@ -5732,6 +5735,7 @@ export class MainScene extends Phaser.Scene {
     this.runNoHit = false
     this.combo = 0; this.comboText.setText('')
     this.updateHealth()
+    this.tipOnce('dodge', 'HIT! Tap DASH to DODGE — its i-frames\nslip you clean through enemy fire', '#22d3ee')   // teach the survival verb the moment it first matters (not minutes later at the guardian)
     this.invulnUntil = this.time.now + 800
     this.player.setTint(0xff0030)
     this.hitstop(70)
