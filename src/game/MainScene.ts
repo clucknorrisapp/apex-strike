@@ -882,6 +882,9 @@ export class MainScene extends Phaser.Scene {
   // speed on a big beat then ramps back. Driven from update() off the real clock so timers stay honest.
   private slowFrom = 1; private slowStart = 0; private slowDur = 0
   private slowPending: { scale: number; ms: number } | null = null
+  // Player squash & stretch — transient scale multipliers (1 = rest) decayed toward 1 each frame,
+  // applied over the base scale sizePlayer() captures. Stretch on takeoff, squash on a hard landing.
+  private baseSX = 1; private baseSY = 1; private squashX = 1; private squashY = 1
   private quickRetry = false   // set by init() when a death/victory RETRY restarts straight into a run (skips the title)
   private levelTransition = false
   private controllerSeen = false
@@ -1207,6 +1210,7 @@ export class MainScene extends Phaser.Scene {
     this.dailyRun = false                  // reset here — instance fields survive scene.restart()
     this.rushRun = false; this.rushIndex = 0
     this.resetTimeScales()                 // clear any slow-mo left mid-ramp by the previous run
+    this.squashX = 1; this.squashY = 1
     // Apex Armory — apply persistent upgrades to this run's starting stats.
     this.applyArmory()
     this.dashUntil = 0; this.dashCdUntil = 0; this.dashIframeUntil = 0; this.prevDash = false
@@ -1477,6 +1481,7 @@ export class MainScene extends Phaser.Scene {
       // — so one display size + hitbox keeps the physics stable across swaps.
       const DISP_H = 156
       this.player.setDisplaySize(DISP_H * (1024 / 900), DISP_H)
+      this.baseSX = this.player.scaleX; this.baseSY = this.player.scaleY   // rest scale for squash & stretch
       const tw = this.player.width, th = this.player.height   // 1024 x 900
       const b = this.player.body as Phaser.Physics.Arcade.Body
       if (k === 'huntress_crouch') {
@@ -3207,7 +3212,7 @@ export class MainScene extends Phaser.Scene {
       this.jumpsLeft = this.maxJumps
       if (this.player.y < this.levelH) { this.lastGroundX = this.player.x; this.lastGroundY = this.player.y }
     }
-    if (landed && this.fallSpeed > 380) this.landingDust(this.fallSpeed)
+    if (landed && this.fallSpeed > 380) { this.landingDust(this.fallSpeed); this.squashX = 1.2; this.squashY = 0.8 }   // squash short+wide on impact
     if (landed && this.airborneT > 170) this.landRecoverUntil = time + 100   // brief crouch after a real jump/fall
     this.prevOnGround = this.onGround
     if (!this.onGround) { this.fallSpeed = body.velocity.y; this.airborneT += delta } else this.airborneT = 0
@@ -3266,6 +3271,12 @@ export class MainScene extends Phaser.Scene {
         key = (this.runFrame === 1 && this.textures.exists('huntress_run2')) ? 'huntress_run2' : 'huntress_run'
       } else { this.runFrame = 0; this.runFrameT = 0 }
       if (this.player.texture.key !== key) { this.player.setTexture(key); this.sizePlayer() }
+      // Squash & stretch (visual weight): ease the transient multipliers back to rest, then apply
+      // over the captured base scale. A fixed-size body is re-asserted right after so the hitbox
+      // never breathes with the visual deform (collision stays exactly what sizePlayer set).
+      if (this.reduceMotion) { this.squashX = 1; this.squashY = 1 }
+      else { this.squashX += (1 - this.squashX) * 0.16; this.squashY += (1 - this.squashY) * 0.16 }
+      this.player.setScale(this.baseSX * this.squashX, this.baseSY * this.squashY)
     }
 
     // Spawn the stage guardian as the player nears the exit — a proper end-of-stage fight.
@@ -3553,6 +3564,7 @@ export class MainScene extends Phaser.Scene {
     if (jump && !this.prevJump) this.jumpBufferAt = time
     if (time - this.jumpBufferAt < BUFFER && this.jumpsLeft > 0) {
       this.player.setVelocityY(JUMP_V)
+      this.squashX = 0.84; this.squashY = 1.18   // stretch tall+thin off the ground
       this.jumpsLeft--; this.isJumping = true; this.jumpBufferAt = -9999
       this.sfx?.jump()
     }
