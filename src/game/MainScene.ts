@@ -1008,6 +1008,16 @@ export class MainScene extends Phaser.Scene {
   private trialsOpen = false                // the weekly APEX TRIALS board screen is up
   private trialsUI: Phaser.GameObjects.GameObject[] = []
   private closeTrialsKey = () => this.closeTrials()
+  private intelOpen = false                 // the INTEL codex (enemy/boss/weapon encyclopedia) is up
+  private intelUI: Phaser.GameObjects.GameObject[] = []
+  private intelTab = 0                       // 0 WEAPONS · 1 FOES · 2 BOSSES
+  private intelPadPrev = 0                    // gamepad d-pad edge-detect while the codex is open
+  private closeIntelKey = () => this.closeIntel()
+  private intelKeyHandler = (e: KeyboardEvent) => {
+    if (!this.intelOpen) return
+    if (e.key === 'ArrowLeft') this.setIntelTab(this.intelTab - 1)
+    else if (e.key === 'ArrowRight') this.setIntelTab(this.intelTab + 1)
+  }
   private dailyRun = false                 // this run posts to the Daily board (modifier applied, Armory ignored)
   private rushRun = false                  // APEX TRIALS boss-rush run (own arena, 7 bosses back-to-back, local best)
   private rushIndex = 0                    // which boss of the rush we're on
@@ -2753,7 +2763,7 @@ export class MainScene extends Phaser.Scene {
 
   // ---- Badge Case — the achievement grid (per-device, localStorage) ----
   private openBadges() {
-    if (this.badgesOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen) return
+    if (this.badgesOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen) return
     this.badgesOpen = true
     this.buildBadgesScreen()
     this.closeBadgesKey = () => this.closeBadges()
@@ -3015,6 +3025,101 @@ export class MainScene extends Phaser.Scene {
     back()
   }
 
+  // ---- INTEL codex — an in-game encyclopedia of weapons, foes, and bosses (bug: nowhere to learn
+  // what anything does). Three tabs, switchable by click / ◄► / d-pad; read-only, so no per-row focus.
+  private openIntel() {
+    if (this.intelOpen || this.dailyOpen || this.trialsOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.badgesOpen) return
+    this.intelOpen = true
+    this.intelTab = 0
+    this.intelPadPrev = 0
+    this.buildIntelScreen()
+    this.input.keyboard!.on('keydown-ESC', this.closeIntelKey)
+    this.input.keyboard!.on('keydown', this.intelKeyHandler)
+  }
+
+  private closeIntel() {
+    if (!this.intelOpen) return
+    this.input.keyboard!.off('keydown-ESC', this.closeIntelKey)
+    this.input.keyboard!.off('keydown', this.intelKeyHandler)
+    this.intelUI.forEach((o) => o.destroy())
+    this.intelUI = []
+    this.intelOpen = false
+    this.startGraceUntil = this.time.now + 400
+  }
+
+  private setIntelTab(t: number) {
+    this.intelTab = ((t % 3) + 3) % 3
+    this.buildIntelScreen()
+    this.sfx?.swap()
+  }
+
+  private buildIntelScreen() {
+    this.intelUI.forEach((o) => o.destroy())
+    this.intelUI = []
+    const push = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.intelUI.push(o); return o }
+    const hx = (n: number) => '#' + (n >>> 0).toString(16).padStart(6, '0')
+    const T = (x: number, y: number, s: string, size: number, color: string, ox = 0) =>
+      push(this.add.text(x, y, s, { fontFamily: 'monospace', fontSize: size + 'px', color }).setOrigin(ox, 0).setScrollFactor(0).setDepth(251))
+
+    const WEAPONS: [string, number, string][] = [
+      ['PULSE MG', 0xffffff, 'Your sidearm — steady single bolts.'],
+      ['SPREAD', 0x22d3ee, 'Five-way volley; melts crowds up close.'],
+      ['RAPID', 0xfbbf24, 'High fire-rate; light, quick hits.'],
+      ['LASER', 0xe879f9, 'Piercing beam — punches a line, leaves a scar.'],
+      ['FIRE', 0xfb923c, 'Burning rounds — ignite a damage-over-time.'],
+      ['ARC', 0x84cc16, 'Lobbed bomb; area blast on impact.'],
+    ]
+    const FOES: [string, number, string][] = [
+      ['SOLDIER', 0xf43f5e, 'Grunt — marches and takes potshots.'],
+      ['FLYER', 0xa855f7, 'Hovers and strafes; leads its shots.'],
+      ['CHARGER', 0xff7a3c, 'Rushes on sight — sidestep the charge.'],
+      ['DIVER', 0xff4d6d, 'Swoops in from above in an arc.'],
+      ['TANK', 0xfb923c, 'Heavy armor, slow — soaks a lot of damage.'],
+      ['SNIPER', 0x93c5fd, 'Long-range aimed shot with a telegraph.'],
+      ['SHIELDER', 0x94a3b8, 'Frontal shield — hit from above or behind.'],
+      ['TURRET', 0xfca5a5, 'Fixed emplacement, relentless fire.'],
+      ['SAPPER', 0xf97316, 'Marks the ground, then mortars it — step off.'],
+      ['SPLITTER', 0xc084fc, 'Splits into two grunts when destroyed.'],
+    ]
+    const BOSS_BLURB: Record<string, string> = {
+      reaper: 'Blink-dashes and rains aimed bursts.',
+      brute: 'Slam bruiser — brutal at close range.',
+      tyrant: 'Summons adds and dive-bombs you.',
+      warden: 'Lays mines and radial ring curtains.',
+      sentinel: 'Fans and novas — bullet-hell zoning.',
+      wraith: 'Homing seeker bolts; dashes and sweeps.',
+      revenant: 'Spirals and lances — the final trial.',
+    }
+    const BOSSES: [string, number, string][] = Object.keys(BOSS_RUSH).map((k) => [BOSS_RUSH[k].label, bossAccent(k), BOSS_BLURB[k] || ''])
+
+    const TABS = [['WEAPONS', WEAPONS], ['FOES', FOES], ['BOSSES', BOSSES]] as const
+    const rows = TABS[this.intelTab][1] as [string, number, string][]
+
+    push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.985).setScrollFactor(0).setDepth(250).setInteractive())
+    push(this.add.text(256, 20, '⊞  INTEL', { fontFamily: 'monospace', fontSize: '18px', color: '#7dd3fc', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    T(256, 40, 'field guide  ·  ◄ ► switch tabs  ·  Esc back', 8, '#71717a', 0.5)
+
+    // Tabs (clickable + keyboard/pad-switchable)
+    const tx = [136, 256, 376]
+    TABS.forEach(([name], i) => {
+      const on = i === this.intelTab
+      const tab = push(this.add.text(tx[i], 64, String(name), { fontFamily: 'monospace', fontSize: '11px', color: on ? '#e0f2fe' : '#52525b', fontStyle: on ? 'bold' : 'normal' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+      tab.on('pointerdown', () => this.setIntelTab(i))
+      if (on) push(this.add.rectangle(tx[i], 76, String(name).length * 8 + 8, 2, 0x7dd3fc, 0.9).setScrollFactor(0).setDepth(251))
+    })
+
+    // Entries for the active tab
+    const top = 96
+    rows.forEach((r, i) => {
+      const y = top + i * 22
+      T(46, y, String(r[0]), 10, hx(r[1] as number))
+      T(150, y, String(r[2]), 9, '#a1a1aa')
+    })
+
+    const b = push(this.add.text(256, 360, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    b.on('pointerdown', () => this.closeIntel())
+  }
+
   private beginRebind(action: PadBindAction, val: Phaser.GameObjects.Text) {
     this.rebinding = action
     this.rebindArmed = false          // must see all buttons release first, so this tap can't self-bind
@@ -3246,12 +3351,19 @@ export class MainScene extends Phaser.Scene {
     // Badge case — tap to view the achievement grid; shows earned / total.
     const bc = achievementCount()
     const badgeCol = bc.unlocked > 0 ? '#c084fc' : '#52525b'
-    const badges = this.add.text(256, 330, '❖ BADGES  ' + bc.unlocked + '/' + bc.total, { fontFamily: 'monospace', fontSize: '9px', color: badgeCol }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    const badges = this.add.text(176, 330, '❖ BADGES  ' + bc.unlocked + '/' + bc.total, { fontFamily: 'monospace', fontSize: '9px', color: badgeCol }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
     badges.on('pointerover', () => badges.setColor('#e9d5ff'))
     badges.on('pointerout', () => badges.setColor(badgeCol))
     badges.on('pointerdown', () => this.openBadges())
     els.push(badges)
     this.titleNav.push({ obj: badges, act: () => this.openBadges() })
+    // INTEL codex — the enemy / boss / weapon encyclopedia.
+    const intel = this.add.text(340, 330, '⊞ INTEL', { fontFamily: 'monospace', fontSize: '9px', color: '#7dd3fc' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    intel.on('pointerover', () => intel.setColor('#bae6fd'))
+    intel.on('pointerout', () => intel.setColor('#7dd3fc'))
+    intel.on('pointerdown', () => this.openIntel())
+    els.push(intel)
+    this.titleNav.push({ obj: intel, act: () => this.openIntel() })
     // ARMORY · LEADERBOARD · CONTROLS — also ABOVE the start catcher.
     const mkBtn = (x: number, label: string, color: string, hover: string, act: () => void) => {
       const b = this.add.text(x, 342, label, { fontFamily: 'monospace', fontSize: '10px', color }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
@@ -3281,6 +3393,8 @@ export class MainScene extends Phaser.Scene {
     // you're navigating, only Enter/Space confirms the focused entry — so you can't accidentally start.
     this.startKeyHandler = (e: KeyboardEvent) => {
       if (this.time.now < this.startGraceUntil) return
+      // Inert while any overlay owns the screen (its own handlers drive it).
+      if (this.dailyOpen || this.trialsOpen || this.intelOpen || this.badgesOpen || this.armoryOpen || this.leaderboardOpen || this.controlsOpen) return
       const k = e.key
       if (k === 'ArrowUp' || k === 'ArrowLeft') { this.titleNavMove(-1); return }
       if (k === 'ArrowDown' || k === 'ArrowRight') { this.titleNavMove(1); return }
@@ -3334,7 +3448,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private beginPlay() {
-    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.badgesOpen) return
+    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.badgesOpen) return
     if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     if (!this.dailyRun && !this.rushRun) { this.applyArmory(); this.updateHealth(); this.livesText?.setText('LIVES  ' + this.lives) }   // pick up any upgrade bought on the title (Daily/Trials set their own kit)
@@ -3393,6 +3507,17 @@ export class MainScene extends Phaser.Scene {
         const confirm = !!(gp.buttons[0] || gp.buttons[1] || gp.buttons[2] || gp.buttons[3])
         if (confirm && !this.contractPadPrev && this.contractPicks[this.contractFocus]) this.pickContract(this.contractPicks[this.contractFocus].id)
         this.contractPadPrev = confirm
+      }
+      return
+    }
+    if (this.intelOpen) {   // INTEL codex: d-pad ◄► switches tabs, B/circle closes
+      const gp = this.readPad()
+      if (gp) {
+        const ax = gp.axes[0] || 0
+        const dir = (gp.buttons[15] || ax > 0.5) ? 1 : (gp.buttons[14] || ax < -0.5) ? -1 : 0
+        if (dir !== 0 && this.intelPadPrev === 0) this.setIntelTab(this.intelTab + dir)
+        this.intelPadPrev = dir
+        if (gp.buttons[1]) this.closeIntel()
       }
       return
     }
