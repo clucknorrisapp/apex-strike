@@ -69,6 +69,7 @@ class Sfx {
   private ctx: AudioContext | null = null
   private master: DynamicsCompressorNode | null = null   // limiter bus so layered SFX + music never clip
   private duckGain: GainNode | null = null               // music-only bus; dips under big SFX (sidechain)
+  private heat: BiquadFilterNode | null = null           // adaptive lowpass on the musical bed; opens as the fight heats up
   muted = false
   constructor() {
     try {
@@ -83,6 +84,10 @@ class Sfx {
         comp.connect(this.ctx.destination)
         this.master = comp
         const dg = this.ctx.createGain(); dg.gain.value = 1; dg.connect(comp); this.duckGain = dg
+        // Adaptive lowpass sitting in front of the duck bus: the music + drone bed play THROUGH it,
+        // muffled and distant when calm and opening up bright as the fight heats up. SFX bypass it.
+        const hf = this.ctx.createBiquadFilter(); hf.type = 'lowpass'
+        hf.frequency.value = 1800; hf.Q.value = 0.7; hf.connect(dg); this.heat = hf
       }
     } catch { this.ctx = null }
   }
@@ -109,7 +114,9 @@ class Sfx {
   resume() { this.ctx?.resume?.() }
   setMuted(v: boolean) {
     this.muted = v
-    if (this.musicGain && this.ctx) this.musicGain.gain.setTargetAtTime(v ? 0 : this.targetMusicVol(), this.ctx.currentTime, 0.02)
+    const c = this.ctx; if (!c) return
+    if (this.musicGain) this.musicGain.gain.setTargetAtTime(v ? 0 : this.targetMusicVol(), c.currentTime, 0.02)
+    if (this.droneGain) this.droneGain.gain.setTargetAtTime(v ? 0 : this.targetDroneVol(), c.currentTime, 0.05)
   }
   private tone(f0: number, f1: number, dur: number, type: OscillatorType, gain: number, pan?: number) {
     const c = this.ctx; if (!c || this.muted) return
@@ -291,9 +298,10 @@ class Sfx {
     if (!c || this.musicTimer !== null) return
     this.musicGain = c.createGain()
     this.musicGain.gain.value = this.muted ? 0 : this.targetMusicVol()
-    this.musicGain.connect(this.duckGain ?? this.dest())   // music goes through the duck bus; SFX bypass it
+    this.musicGain.connect(this.heat ?? this.duckGain ?? this.dest())   // through the heat lowpass → duck bus; SFX bypass both
     this.musicStep = 0
     this.applyMusicTheme(theme)
+    this.startDrone((MUSIC_THEMES[theme] || MUSIC_THEMES.streets).bass[0])   // ambient low pad, keyed to the sector root
     this.startMusicTimer()
   }
   private startMusicTimer() {
@@ -319,6 +327,7 @@ class Sfx {
   setMusicTheme(theme: string) {
     if (this.musicTimer === null || theme === this.musicTheme) return
     this.applyMusicTheme(theme)
+    this.retuneDrone((MUSIC_THEMES[theme] || MUSIC_THEMES.streets).bass[0])   // glide the pad to the new sector's key
     this.startMusicTimer()
   }
   // Swell + thicken the track while a boss is on the field.
@@ -341,7 +350,61 @@ class Sfx {
   stopMusic() {
     if (this.musicTimer !== null) { clearInterval(this.musicTimer); this.musicTimer = null }
     if (this.musicGain) { try { this.musicGain.disconnect() } catch { /* noop */ } this.musicGain = null }
+    this.stopDrone()
     this.musicIntense = false
+  }
+
+  // ---- Ambient drone bed: a continuous low pad under the whole mix, keyed to the sector ----
+  // Root + a slightly detuned twin (slow beating) + a fifth + an octave shimmer, all breathing on a
+  // very slow LFO. Runs through the heat lowpass + duck bus like the music, so it muffles when calm,
+  // brightens in a fight, and dips under explosions.
+  private droneGain: GainNode | null = null
+  private droneOscs: OscillatorNode[] = []
+  private droneLfo: OscillatorNode | null = null
+  private musicHeat = 0
+  private readonly DRONE_VOL = 0.03
+  private targetDroneVol() { return this.DRONE_VOL * (1 + this.musicHeat * 0.35) }
+  private droneFreqs(root: number) { return [root, root * 1.004, root * 1.5, root * 2] }
+  startDrone(root = 55) {
+    const c = this.ctx; if (!c || this.droneGain) return
+    const g = c.createGain(); g.gain.value = this.muted ? 0 : this.targetDroneVol()
+    g.connect(this.heat ?? this.duckGain ?? this.dest()); this.droneGain = g
+    const types: OscillatorType[] = ['sine', 'sine', 'triangle', 'sine']
+    const gains = [0.6, 0.5, 0.26, 0.12]
+    this.droneOscs = this.droneFreqs(root).map((f, i) => {
+      const o = c.createOscillator(); o.type = types[i]; o.frequency.value = f
+      const og = c.createGain(); og.gain.value = gains[i]
+      o.connect(og); og.connect(g); o.start()
+      return o
+    })
+    // slow breathing on the whole pad's amplitude (summed into the drone gain param)
+    const lfo = c.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.07
+    const lg = c.createGain(); lg.gain.value = this.DRONE_VOL * 0.45
+    lfo.connect(lg); lg.connect(g.gain); lfo.start(); this.droneLfo = lfo
+  }
+  retuneDrone(root: number) {
+    const c = this.ctx; if (!c || !this.droneOscs.length) return
+    const t = c.currentTime
+    this.droneFreqs(root).forEach((f, i) => this.droneOscs[i]?.frequency.setTargetAtTime(f, t, 0.6))
+  }
+  stopDrone() {
+    this.droneOscs.forEach((o) => { try { o.stop() } catch { /* noop */ } try { o.disconnect() } catch { /* noop */ } })
+    this.droneOscs = []
+    if (this.droneLfo) { try { this.droneLfo.stop() } catch { /* noop */ } try { this.droneLfo.disconnect() } catch { /* noop */ } this.droneLfo = null }
+    if (this.droneGain) { try { this.droneGain.disconnect() } catch { /* noop */ } this.droneGain = null }
+  }
+  // Adaptive intensity: 0 calm/exploring … 3 boss/chaos. Opens the lowpass (dark → bright) and swells
+  // the drone as the fight escalates — the soundtrack reacts to what's on screen without a new track.
+  setMusicHeat(level: number) {
+    const c = this.ctx; if (!c) return
+    const L = Math.max(0, Math.min(3, Math.round(level)))
+    if (L === this.musicHeat) return
+    this.musicHeat = L
+    const t = c.currentTime
+    const cutoff = [820, 1800, 3800, 8500][L]
+    const q = [0.6, 0.75, 0.95, 1.15][L]
+    if (this.heat) { this.heat.frequency.setTargetAtTime(cutoff, t, 0.4); this.heat.Q.setTargetAtTime(q, t, 0.4) }
+    if (this.droneGain && !this.muted) this.droneGain.gain.setTargetAtTime(this.targetDroneVol(), t, 0.5)
   }
   dispose() {
     this.stopMusic()
@@ -993,6 +1056,7 @@ export class MainScene extends Phaser.Scene {
   // Boss HP bar
   private bossRef?: Phaser.Physics.Arcade.Sprite
   private bossMusicOn = false          // tracks whether the boss-intensity music layer is engaged
+  private musicHeatAt = 0              // next wall-clock time to re-evaluate adaptive music heat (throttled)
   private bossBar: Phaser.GameObjects.GameObject[] = []
   private bossBarFill?: Phaser.GameObjects.Rectangle
   // Apex Shards (collectibles)
@@ -3212,6 +3276,12 @@ export class MainScene extends Phaser.Scene {
     if (this.bossRef) this.updateBossBar()
     const bossNow = !!(this.bossRef && this.bossRef.active)   // swell the music while a boss holds the field
     if (bossNow !== this.bossMusicOn) { this.bossMusicOn = bossNow; this.sfx?.setMusicIntensity(bossNow) }
+    // Adaptive music heat (throttled): the bed's lowpass opens + the drone swells with on-field pressure.
+    if (time >= this.musicHeatAt) {
+      this.musicHeatAt = time + 400
+      const n = this.enemies.countActive(true)
+      this.sfx?.setMusicHeat(bossNow ? 3 : n >= 6 ? 2 : n >= 1 ? 1 : 0)
+    }
     this.updateCompass()
     this.updateProgress()
 
