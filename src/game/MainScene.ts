@@ -2299,7 +2299,7 @@ export class MainScene extends Phaser.Scene {
     if (t !== 'boss') {
       const mhp = enemy.getData('maxHp') as number
       enemy.setData('poiseMax', Math.max(4, Math.round(mhp * 0.7)))
-      enemy.setData('poise', 0); enemy.setData('staggerUntil', 0); enemy.setData('staggerImmuneUntil', 0)
+      enemy.setData('poise', 0); enemy.setData('staggerUntil', 0); enemy.setData('staggerImmuneUntil', 0); enemy.setData('lastPoiseAt', 0)
     }
 
     // Materialize: pop in with a quick scale-up + white flash so spawns read with
@@ -4780,7 +4780,7 @@ export class MainScene extends Phaser.Scene {
       const pairs = 1 + (this.weaponLvl['spread'] || 0) + (this.doctrinePassive === 'guard' ? 1 : 0)   // BASTION doctrine: +1 pellet pair
       for (let i = 1; i <= pairs; i++) { const off = i * 18; spawn(angle - off, 'bullet', 780, 0.55); spawn(angle + off, 'bullet', 780, 0.55) }
     } else if (this.weapon === 'laser') {
-      spawn(angle, 'laser', 1120, 0.9); spawn(angle, 'laser', 1060, 0.7)
+      spawn(angle, 'laser', 1120, 1.0)   // ONE piercing beam — the old second collinear beam silently doubled laser DPS *and* pierce (round-9 balance fix)
     } else if (this.weapon === 'fire') {
       spawn(angle, 'fireball', 640, 0.78); spawn(angle - 14, 'fireball', 600, 0.62); spawn(angle + 14, 'fireball', 600, 0.62)
     } else if (this.weapon === 'rapid') {
@@ -4952,7 +4952,10 @@ export class MainScene extends Phaser.Scene {
         enemy.setData('staggerUntil', 0); this.restoreTint(enemy)      // window ended — thaw
       } else {
         const poise = (enemy.getData('poise') as number) || 0
-        if (poise > 0) { const pm = (enemy.getData('poiseMax') as number) || 6; enemy.setData('poise', Math.max(0, poise - (pm / 1400) * delta)) }
+        // Poise only bleeds once FOCUS-FIRE lets up: hold it steady for ~600ms after the last hit so a
+        // sustained stream actually reaches a break (a slow chipper still lets it recover). Without the
+        // hold the bleed (~0.5×maxHP/s) outran every weapon and durable foes never staggered at all.
+        if (poise > 0 && this.time.now - (((enemy.getData('lastPoiseAt') as number)) || 0) > 600) { const pm = (enemy.getData('poiseMax') as number) || 6; enemy.setData('poise', Math.max(0, poise - (pm / 1400) * delta)) }
       }
 
       if (type !== 'turret' && enemy.y > this.levelH + 220) { enemy.destroy(); return }
@@ -5405,6 +5408,7 @@ export class MainScene extends Phaser.Scene {
     if (now < ((enemy.getData('staggerUntil') as number) || 0)) return          // already broken
     if (now < ((enemy.getData('staggerImmuneUntil') as number) || 0)) return    // post-break immunity
     const poise = ((enemy.getData('poise') as number) || 0) + dmg
+    enemy.setData('lastPoiseAt', now)   // stamp the hit so poise holds under sustained fire (updateEnemies bleeds only after ~600ms of no hits)
     if (poise < max) { enemy.setData('poise', poise); return }
     // BREAK: freeze, flash cyan, and open the window.
     enemy.setData('poise', 0)
@@ -5643,7 +5647,7 @@ export class MainScene extends Phaser.Scene {
     const type = enemy.getData('type') as string
     // PHASE STRIKE: contact DURING a dash guts the enemy instead of hurting you — the dodge becomes
     // the highest-skill offense (line up a row, dash through, execute; kills feed the combo).
-    if (this.time.now < this.dashUntil) { this.phaseStrike(enemy); return }
+    if (this.time.now < this.dashIframeUntil) { this.phaseStrike(enemy); return }   // full i-frame window, not just the 175ms dash core — closes the PHASE DASH tier-1/2 tail where you passed through dealing nothing
     const pb = this.player.body as Phaser.Physics.Arcade.Body
     const eb = enemy.body as Phaser.Physics.Arcade.Body
     // Mario stomp: falling onto a SOFT enemy from above kills it and bounces you.
