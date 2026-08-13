@@ -7,7 +7,8 @@ import { weekKey, bossOrderForWeek, saveTrialsBest, loadTrialsBest } from './rus
 import { recordSplit, fmtTime, fmtDelta } from './splits'
 import { heatMods, loadHeatUnlocked, noteCampaignClear, MAX_HEAT } from './heat'
 import { DOCTRINES, selectedDoctrine, loadSelected, saveSelected, doctrineById, type DoctrinePassive } from './loadouts'
-import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type SubmitResult } from '../net/leaderboard'
+import { loadRank, currentRank, rankTitle, rankBadge, toNextRank, cumulativeCost, enlist as enlistShards } from './rank'
+import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, submitRank, fetchRanks, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type RankData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, type DailyMod } from './daily'
 import { evalBounties, todayBounties, loadBountyState, bountyDoneCount } from './bounties'
 import { foldRun as foldContracts, contractProgress } from './contracts'
@@ -1042,6 +1043,15 @@ export class MainScene extends Phaser.Scene {
   private heatPadPrev = 0                      // gamepad d-pad edge-detect while the heat screen is open
   private heatConfirmPrev = false              // gamepad face-button rising-edge guard on the heat screen (no confirm re-fire while held)
   private closeHeatKey = () => this.closeHeat()
+  private rankOpen = false                    // the APEX RANK enlist + prestige-board screen is up
+  private rankUI: Phaser.GameObjects.GameObject[] = []
+  private rankData: RankData | null = null    // fetched standings (null = loading/offline)
+  private rankPadPrev = false                 // gamepad face-button rising-edge guard on the rank screen
+  private closeRankKey = () => this.closeRank()
+  private rankKeyHandler = (e: KeyboardEvent) => {
+    if (!this.rankOpen || this.time.now < this.startGraceUntil) return
+    if (e.key === 'Enter' || e.key === ' ') this.enlistNow()
+  }
   private heatRun = false                      // this run is an APEX HEAT ascension run (campaign + modifiers)
   private heatTier = 0                         // active heat tier this run (0 = normal campaign)
   private loadoutOpen = false                  // the APEX LOADOUTS (Strike Doctrine) picker is up
@@ -2756,8 +2766,14 @@ export class MainScene extends Phaser.Scene {
       }
     })
 
-    push(this.add.text(256, 322, 'Shards bank automatically as you grab them in a run.', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
-    const back = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    // Maxed the Armory? Shards still matter — enlist them into APEX RANK (uncapped prestige ladder).
+    const rk = currentRank()
+    const rline = push(this.add.text(256, 320, '◆ APEX RANK ' + rk + ' · ' + rankTitle(rk) + '   —   ENLIST ▸', { fontFamily: 'monospace', fontSize: '10px', color: '#a5b4fc', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    rline.on('pointerover', () => rline.setColor('#c4b5fd'))
+    rline.on('pointerout', () => rline.setColor('#a5b4fc'))
+    rline.on('pointerdown', () => { this.closeArmory(); this.openRank() })
+    push(this.add.text(256, 336, 'shards bank automatically in a run · spend on power above or prestige here', { fontFamily: 'monospace', fontSize: '7px', color: '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    const back = push(this.add.text(256, 358, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
     back.on('pointerdown', () => this.closeArmory())
   }
 
@@ -2868,7 +2884,7 @@ export class MainScene extends Phaser.Scene {
 
   // ---- Badge Case — the achievement grid (per-device, localStorage) ----
   private openBadges() {
-    if (this.badgesOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen) return
+    if (this.badgesOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen || this.rankOpen) return
     this.badgesOpen = true
     this.buildBadgesScreen()
     this.closeBadgesKey = () => this.closeBadges()
@@ -3444,6 +3460,104 @@ export class MainScene extends Phaser.Scene {
     back.on('pointerdown', () => this.closeLoadout())
   }
 
+  // ---- APEX RANK — enlist banked shards for a permanent prestige rank + a global rank board.
+  // Fixes the shard economy's dead end: the Armory caps at 705 shards, after which every shard a run
+  // pays out is worthless. Enlisting is an uncapped sink; Rank is cosmetic (a title/badge) so the score
+  // ladders stay pure. Reached from the Armory.
+  private openRank() {
+    if (this.rankOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.badgesOpen) return
+    this.rankOpen = true
+    this.rankPadPrev = false
+    this.rankData = null
+    this.startGraceUntil = this.time.now + 300
+    this.buildRankScreen()
+    this.input.keyboard!.on('keydown-ESC', this.closeRankKey)
+    this.input.keyboard!.on('keydown', this.rankKeyHandler)
+    fetchRanks().then((d) => { this.rankData = d; if (this.rankOpen) this.buildRankScreen() })
+  }
+
+  private closeRank() {
+    if (!this.rankOpen) return
+    this.input.keyboard!.off('keydown-ESC', this.closeRankKey)
+    this.input.keyboard!.off('keydown', this.rankKeyHandler)
+    this.rankUI.forEach((o) => o.destroy())
+    this.rankUI = []
+    this.rankOpen = false
+    this.startGraceUntil = this.time.now + 400
+  }
+
+  // Enlist ALL banked shards into rank, persist, POST the new standing, and refresh the screen.
+  private enlistNow() {
+    if (!this.rankOpen) return
+    const before = loadMeta().shards
+    if (before <= 0) return
+    const newRank = enlistShards()   // moves every banked shard into enlisted; returns the resulting rank
+    this.sfx?.pickup()
+    this.screenToast('◆ ENLISTED ' + before + ' → RANK ' + newRank, '#a5b4fc', 130)
+    submitRank(newRank).then((res) => { if (res && this.rankOpen) fetchRanks().then((d) => { this.rankData = d; if (this.rankOpen) this.buildRankScreen() }) })
+    this.buildRankScreen()
+    try { window.dispatchEvent(new Event('apex-armory-changed')) } catch { /* SSR/none */ }
+  }
+
+  private buildRankScreen() {
+    this.rankUI.forEach((o) => o.destroy())
+    this.rankUI = []
+    const push = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.rankUI.push(o); return o }
+    const T = (x: number, y: number, s: string, size: number, color: string, ox = 0) =>
+      push(this.add.text(x, y, s, { fontFamily: 'monospace', fontSize: size + 'px', color }).setOrigin(ox, 0).setScrollFactor(0).setDepth(251))
+    const enlisted = loadRank().enlisted
+    const r = currentRank()
+    const banked = loadMeta().shards
+    const toNext = toNextRank(enlisted)
+    const bandBase = cumulativeCost(r), bandTop = cumulativeCost(r + 1)
+    const frac = bandTop > bandBase ? Math.max(0, Math.min(1, (enlisted - bandBase) / (bandTop - bandBase))) : 0
+
+    push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.985).setScrollFactor(0).setDepth(250).setInteractive())
+    push(this.add.text(256, 20, '◆ APEX RANK', { fontFamily: 'monospace', fontSize: '18px', color: '#a5b4fc', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    T(256, 40, 'enlist banked shards for permanent prestige — cosmetic, never in-run power', 8, '#71717a', 0.5)
+
+    push(this.add.text(256, 68, 'RANK ' + r, { fontFamily: 'monospace', fontSize: '22px', color: '#c4b5fd', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    T(256, 94, rankTitle(r), 11, '#a5b4fc', 0.5)
+
+    const bw = 300, bx = 256 - bw / 2, by = 118
+    push(this.add.rectangle(bx, by, bw, 8, 0x1e1b4b).setOrigin(0, 0.5).setScrollFactor(0).setDepth(251))
+    if (frac > 0) push(this.add.rectangle(bx, by, bw * frac, 8, 0xa5b4fc).setOrigin(0, 0.5).setScrollFactor(0).setDepth(252))
+    T(256, 128, '▲ ' + toNext + ' ◆ to RANK ' + (r + 1), 9, '#c4b5fd', 0.5)
+
+    T(256, 152, '◆ ' + banked + ' banked   ·   ◆ ' + enlisted + ' enlisted', 10, '#67e8f9', 0.5)
+    if (banked > 0) {
+      const btn = push(this.add.text(256, 180, '▶  ENLIST ◆' + banked, { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold', backgroundColor: '#a5b4fc', padding: { x: 16, y: 6 } }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+      btn.on('pointerover', () => btn.setAlpha(0.85)); btn.on('pointerout', () => btn.setAlpha(1))
+      btn.on('pointerdown', () => this.enlistNow())
+    } else {
+      T(256, 180, hasWallet() ? 'grab ◆ pods in a run, then enlist here' : 'connect a wallet + bank shards to enlist', 9, '#52525b', 0.5)
+    }
+
+    T(256, 212, '— APEX RANKS —', 9, '#52525b', 0.5)
+    const d = this.rankData
+    if (!d) { T(256, 238, 'loading…', 11, '#a5b4fc', 0.5) }
+    else if (!d.online) { T(256, 238, 'board offline', 10, '#71717a', 0.5) }
+    else {
+      const mine = myWallet()
+      const short = (w: string) => w.slice(0, 6) + '…' + w.slice(-4)
+      if (d.top.length === 0) T(256, 240, 'No ranks enlisted yet — be the first.', 10, '#a5b4fc', 0.5)
+      d.top.slice(0, 5).forEach((row, i) => {
+        const y = 232 + i * 17
+        const you = !!mine && row.wallet.toLowerCase() === mine
+        const c = you ? '#fde68a' : '#e9d5ff'
+        T(150, y, '#' + (i + 1), 10, i < 3 ? '#a5b4fc' : '#a1a1aa')
+        T(186, y, (row.handle || short(row.wallet)) + (you ? '  (you)' : ''), 10, c)
+        T(362, y, rankTitle(row.rank) + ' ' + rankBadge(row.rank), 9, c, 1)
+      })
+      if (d.you && !d.top.some((row) => !!mine && row.wallet.toLowerCase() === mine)) {
+        T(256, 322, 'YOU  ·  #' + d.you.pos + '  ·  RANK ' + d.you.rank, 10, '#fde68a', 0.5)
+      }
+    }
+
+    const back = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    back.on('pointerdown', () => this.closeRank())
+  }
+
   private beginRebind(action: PadBindAction, val: Phaser.GameObjects.Text) {
     this.rebinding = action
     this.rebindArmed = false          // must see all buttons release first, so this tap can't self-bind
@@ -3701,9 +3815,11 @@ export class MainScene extends Phaser.Scene {
       els.push(this.add.text(256, 307, '★ ' + ds.streak + '-DAY STREAK' + (ds.playedToday ? '  ✓' : '  · play to keep it'),
         { fontFamily: 'monospace', fontSize: '8px', color: ds.playedToday ? '#4ade80' : '#fbbf24' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
     }
-    // Apex Armory — banked shards.
+    // Apex Armory — banked shards + Apex Rank prestige (if any).
     const bank = loadMeta().shards
-    els.push(this.add.text(256, 318, bank > 0 ? ('◆ ' + bank + '  BANKED') : 'collect ◆ shards to fund upgrades', { fontFamily: 'monospace', fontSize: '9px', color: bank > 0 ? '#67e8f9' : '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    const rk = currentRank()
+    const bankStr = bank > 0 ? ('◆ ' + bank + '  BANKED') : 'collect ◆ shards to fund upgrades'
+    els.push(this.add.text(256, 318, bankStr + (rk > 0 ? '   ·   ◆ RANK ' + rk + ' ' + rankTitle(rk) : ''), { fontFamily: 'monospace', fontSize: '9px', color: bank > 0 || rk > 0 ? '#67e8f9' : '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
     // Badge case — tap to view the achievement grid; shows earned / total.
     const bc = achievementCount()
     const badgeCol = bc.unlocked > 0 ? '#c084fc' : '#52525b'
@@ -3758,7 +3874,7 @@ export class MainScene extends Phaser.Scene {
     this.startKeyHandler = (e: KeyboardEvent) => {
       if (this.time.now < this.startGraceUntil) return
       // Inert while any overlay owns the screen (its own handlers drive it).
-      if (this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen || this.badgesOpen || this.armoryOpen || this.leaderboardOpen || this.controlsOpen) return
+      if (this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen || this.rankOpen || this.badgesOpen || this.armoryOpen || this.leaderboardOpen || this.controlsOpen) return
       const k = e.key
       if (k === 'ArrowUp' || k === 'ArrowLeft') { this.titleNavMove(-1); return }
       if (k === 'ArrowDown' || k === 'ArrowRight') { this.titleNavMove(1); return }
@@ -3823,7 +3939,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private beginPlay() {
-    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen || this.badgesOpen) return
+    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen || this.rankOpen || this.badgesOpen) return
     if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     if (!this.dailyRun && !this.rushRun) { this.applyArmory(); this.updateHealth(); this.livesText?.setText('LIVES  ' + this.lives); this.updateWeaponHUD() }   // pick up any upgrade / doctrine kit (Daily sets its own)
@@ -3935,6 +4051,16 @@ export class MainScene extends Phaser.Scene {
         if (gp.buttons[1]) this.closeLoadout()
         else if (confirm && !this.loadoutConfirmPrev) this.selectFocusedDoctrine()   // rising edge only — holding the button must not re-select + rebuild every frame
         this.loadoutConfirmPrev = confirm
+      }
+      return
+    }
+    if (this.rankOpen) {   // APEX RANK: a face button ENLISTs banked shards, B closes
+      const gp = this.readPad()
+      if (gp && time > this.startGraceUntil) {
+        const confirm = !!(gp.buttons[0] || gp.buttons[2] || gp.buttons[3])
+        if (gp.buttons[1]) this.closeRank()
+        else if (confirm && !this.rankPadPrev) this.enlistNow()   // rising edge only
+        this.rankPadPrev = confirm
       }
       return
     }
@@ -5854,6 +5980,17 @@ export class MainScene extends Phaser.Scene {
     }))
   }
 
+  // Keep this account's Apex Rank on the server board (covers ranks enlisted while offline), and on a
+  // campaign death surface the run's shard payout so the reward isn't invisible on the quick-retry path.
+  private rankRunEnd(toast: boolean) {
+    const r = currentRank()
+    if (hasWallet() && r > 0) submitRank(r)
+    if (toast && this.runShards > 0) {
+      const banked = loadMeta().shards
+      this.time.delayedCall(950, () => { if (this.gameOver) this.screenToast('◆ +' + this.runShards + ' shards  ·  ' + banked + ' banked' + (r > 0 ? '  ·  RANK ' + r : ''), '#67e8f9', 250) })
+    }
+  }
+
   private triggerGameOver() {
     if (this.gameOver) return   // idempotent — a second death/clear in the same frame must not double-submit or double-eval
     this.gameOver = true
@@ -5895,7 +6032,7 @@ export class MainScene extends Phaser.Scene {
     const btn = this.add.text(256, 268, (this.dailyRun || this.rushRun || this.heatRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ RETRY — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
-    if (this.isBaseCampaign()) this.titleLink()
+    if (this.isBaseCampaign()) { this.titleLink(); this.rankRunEnd(true) }
   }
 
   private showVictory() {
@@ -5940,6 +6077,6 @@ export class MainScene extends Phaser.Scene {
     const btn = this.add.text(256, 268, (this.rushRun || this.heatRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ PLAY AGAIN — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
-    if (this.isBaseCampaign()) this.titleLink()
+    if (this.isBaseCampaign()) { this.titleLink(); this.rankRunEnd(false) }
   }
 }

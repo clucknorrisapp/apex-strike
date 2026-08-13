@@ -83,6 +83,8 @@ async function migrate() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS speedruns_rank_idx ON speedruns (ms ASC, updated_at ASC);
+      ALTER TABLE players ADD COLUMN IF NOT EXISTS rank INT NOT NULL DEFAULT 0;   -- APEX RANK: account prestige ladder (enlisted shards), cosmetic only
+      CREATE INDEX IF NOT EXISTS players_rank_idx ON players (rank DESC, updated_at ASC);
     `)
     dbReady = true
     console.log('[db] connected + migrated — leaderboard ONLINE')
@@ -191,6 +193,21 @@ async function speedRank(ms) {
     return rows[0] ? Number(rows[0].rank) : null
   } catch { return null }
 }
+// ---- APEX RANK ladder helpers (players.rank, ranked DESC) ----
+async function rankRivalAbove(rank) {   // the next player one rung UP the ladder — a beatable target to pass
+  try {
+    const { rows } = await pool.query(
+      `SELECT rank, handle, wallet FROM players
+        WHERE rank > $1 ORDER BY rank ASC, updated_at ASC LIMIT 1`, [rank])
+    return rows[0] || null
+  } catch { return null }
+}
+async function rankPosition(rank) {     // your standing on the Rank board (ties share a position)
+  try {
+    const { rows } = await pool.query(`SELECT count(*) + 1 AS pos FROM players WHERE rank > $1`, [rank])
+    return rows[0] ? Number(rows[0].pos) : null
+  } catch { return null }
+}
 
 // ---- API -----------------------------------------------------------------
 const app = express()
@@ -287,6 +304,8 @@ const MAX_MS = 24 * 60 * 60 * 1000     // sanity cap on a clear time (24h); anyt
 const MIN_MS = 30 * 1000               // plausibility floor: a full 6-sector / 6-boss clear can't happen under 30s.
                                        // The board ranks ascending, so without a floor a fabricated ms:1 would own
                                        // rank #1 permanently and unbeatably — this rejects that whole class of fakes.
+const MAX_RANK = 999                   // APEX RANK cap — rank 999 needs ~12.5M enlisted shards (~180k clears), so it's
+                                       // an unreachable ceiling that still bounds a fabricated client-reported rank.
 
 app.get('/api/daily', async (req, res) => {
   const day = String(req.query.day || '')
@@ -512,6 +531,54 @@ app.post('/api/speedruns/scores', async (req, res) => {
     const next = best ? await speedRivalAbove(best.ms) : null
     res.json({ ok: true, best, rank, next })
   } catch (e) { console.error('[api] speedruns/scores:', e.message); res.status(500).json({ ok: false, error: 'server' }) }
+})
+
+// ---- APEX RANK board (account prestige ladder; enlisted shards -> rank; ranked DESC) ----
+app.get('/api/ranks', async (req, res) => {
+  if (!dbReady) return res.json({ online: false, top: [], you: null })
+  try {
+    const { rows: top } = await pool.query(
+      `SELECT wallet, handle, rank
+         FROM players WHERE rank > 0
+        ORDER BY rank DESC, updated_at ASC
+        LIMIT 10`)
+    let you = null, next = null
+    const wallet = String(req.query.wallet || '').toLowerCase()
+    if (WALLET_RE.test(wallet)) {
+      const { rows } = await pool.query(
+        `SELECT p.rank, p.handle,
+                (SELECT count(*) + 1 FROM players x WHERE x.rank > p.rank)::int AS pos
+           FROM players p WHERE p.wallet = $1 AND p.rank > 0`, [wallet])
+      you = rows[0] || null
+      if (you) next = await rankRivalAbove(you.rank)   // the next-higher-ranked player to chase
+    }
+    res.json({ online: true, top, you, next })
+  } catch (e) { console.error('[api] ranks:', e.message); res.json({ online: false, top: [], you: null }) }
+})
+
+app.post('/api/rank', async (req, res) => {
+  if (!dbReady) return res.status(503).json({ ok: false, offline: true })
+  const b = req.body || {}
+  const wallet = String(b.wallet || '').toLowerCase()
+  const rank = Number(b.rank)
+  const handle = sanitizeHandle(b.handle)
+  if (!WALLET_RE.test(wallet)) return res.status(400).json({ ok: false, error: 'bad wallet' })
+  if (!Number.isInteger(rank) || rank < 0 || rank > MAX_RANK) return res.status(400).json({ ok: false, error: 'bad rank' })
+  if (throttled('rk:' + wallet)) return res.status(429).json({ ok: false, error: 'slow down' })
+  try {
+    // rank only ever climbs (GREATEST), so a stale/again-submitted lower value can't demote you.
+    const { rows } = await pool.query(
+      `INSERT INTO players (wallet, handle, rank) VALUES ($1,$2,$3)
+         ON CONFLICT (wallet) DO UPDATE SET
+           handle = COALESCE(EXCLUDED.handle, players.handle),
+           rank   = GREATEST(players.rank, EXCLUDED.rank),
+           updated_at = now()
+       RETURNING rank`, [wallet, handle || null, rank])
+    const best = rows[0] ? Number(rows[0].rank) : rank
+    const pos = await rankPosition(best)
+    const next = await rankRivalAbove(best)
+    res.json({ ok: true, rank: best, pos, next })
+  } catch (e) { console.error('[api] rank:', e.message); res.status(500).json({ ok: false, error: 'server' }) }
 })
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, db: dbReady }))

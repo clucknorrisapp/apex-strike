@@ -170,6 +170,40 @@ export async function submitSpeedrun(ms: number, sector: number): Promise<SpeedR
   } catch { return null }
 }
 
+// ---- APEX RANK board (account prestige ladder; row.rank = enlisted rank, ranked DESC) ----
+export interface RankRow { wallet: string; handle: string | null; rank: number }
+export interface RankYou { handle: string | null; rank: number; pos: number }
+export interface RankRival { handle: string | null; rank: number }   // the next player one rung up the ladder
+export interface RankData { online: boolean; top: RankRow[]; you: RankYou | null; next: RankRival | null }
+export interface RankResult { ok: boolean; rank: number | null; pos: number | null; next: RankRival | null }
+
+export async function fetchRanks(): Promise<RankData> {
+  try {
+    const w = myWallet()
+    const res = await fetch('/api/ranks' + (w ? '?wallet=' + w : ''), { headers: { accept: 'application/json' } })
+    const d = await res.json()
+    return { online: !!d.online, top: Array.isArray(d.top) ? d.top : [], you: d.you || null, next: d.next || null }
+  } catch { return { online: false, top: [], you: null, next: null } }
+}
+
+// Post the player's account Rank (climbs only — the server keeps GREATEST). Returns the authoritative
+// standing + the next-higher-ranked rival. No-ops (null) with no wallet / offline.
+export async function submitRank(rank: number): Promise<RankResult | null> {
+  const wallet = myWallet()
+  if (!wallet) return null
+  try {
+    const res = await fetch('/api/rank', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ wallet, handle: localHandle() || undefined, rank: Math.max(0, Math.round(rank)) }),
+      keepalive: true,
+    })
+    if (!res.ok) return null
+    const d = await res.json()
+    return { ok: !!d.ok, rank: typeof d.rank === 'number' ? d.rank : null, pos: typeof d.pos === 'number' ? d.pos : null, next: d.next || null }
+  } catch { return null }
+}
+
 export async function setHandle(handle: string): Promise<boolean> {
   const clean = cleanHandle(handle)
   if (!clean) return false
