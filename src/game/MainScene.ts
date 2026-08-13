@@ -960,6 +960,7 @@ export class MainScene extends Phaser.Scene {
   private maxCombo = 0
   private bossesThisRun = 0     // bosses downed this run — feeds daily bounties
   private grazeCount = 0        // RAZOR GRAZE near-misses this run
+  private lastShieldHintAt = 0  // throttle the shielder "BLOCKED" popup so a held beam doesn't spam it
   private deflectCount = 0      // COUNTER-DASH deflects this run
   private tipsShown = new Set<string>()   // session cache so a just-in-time tip is evaluated once
   private activeTip?: Phaser.GameObjects.Text   // single tip slot — a new tip replaces the old so early-run tips can't pile into a blob
@@ -3751,6 +3752,14 @@ export class MainScene extends Phaser.Scene {
     this.tweens.add({ targets: t, alpha: 1, duration: 200, yoyo: true, hold: 2600, onComplete: () => { if (this.activeTip === t) this.activeTip = undefined; t.destroy() } })
   }
 
+  // First time a shield eats a shot, teach the flank once — level-independent (unlike the early-run tipOnce
+  // lane), because a shielder can first appear well past level 2 and its block MUST be explained on contact.
+  private teachShield() {
+    try { if (localStorage.getItem('apex_tip_shield') === '1') return } catch { return }
+    try { localStorage.setItem('apex_tip_shield', '1') } catch { /* storage blocked */ }
+    this.screenToast('◈ SHIELD — hit it from ABOVE (aim down) or BEHIND', '#a5f3fc', 170)
+  }
+
   private togglePause() {
     if (this.controlsOpen || this.coachGate) return   // the DROP IN card says "press any key" — ESC/P mustn't also pause behind it
     if (!this.started || this.gameOver || this.levelTransition || !this.player?.active) return
@@ -4533,6 +4542,7 @@ export class MainScene extends Phaser.Scene {
       this.score += 5; this.scoreText.setText('SCORE  ' + this.score)
       if (this.combo > 0) this.comboTimer = Math.min(2400, this.comboTimer + 420)   // tight dodging sustains a chain
       this.particles.emitParticleAt(b.x, b.y, 2)
+      this.shockwave(b.x, b.y, 0x93c5fd, 8)   // a small cyan flare on the shaved bolt so a single near-miss reads (visual only — payout unchanged) (round-11 combat#5)
       this.sfx?.graze(this.panAt(b.x))
       if (this.grazeCount % 8 === 0) { this.popup(pcx, pcy - 34, 'GRAZE ×' + this.grazeCount, '#a5f3fc'); this.slowmo(0.85, 60) }
     })
@@ -5687,6 +5697,9 @@ export class MainScene extends Phaser.Scene {
         this.particles.emitParticleAt(bx, by, 4)
         this.shockwave(bx, by, 0x67e8f9, 12)
         this.sfx?.hit()
+        // A flat spark read as "my gun broke" — name the block and teach the flank so it reads as design. (round-11 combat#3)
+        if (this.time.now - this.lastShieldHintAt > 800) { this.lastShieldHintAt = this.time.now; this.popup(bx, by - 16, 'BLOCKED', '#a5f3fc') }
+        this.teachShield()
         return   // deflected — no damage
       }
     }
