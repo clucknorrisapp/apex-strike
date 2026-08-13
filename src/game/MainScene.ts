@@ -852,6 +852,17 @@ const BOSS_MOVE_CLASS: Record<string, 'charge' | 'lunge' | 'summon'> = {
   curtain: 'charge', seeker: 'charge', mines: 'summon',
   dash: 'lunge', dive: 'lunge', pound: 'lunge', summon: 'summon',
 }
+// Wind-up telegraph COLOUR per move — a learnable visual tell for what the player must DO, matching the
+// audio cue so the boss's 14 moves stop sharing one indistinguishable gold flash: RED = aimed straight at
+// you (move!), GOLD = a spread/volley (weave to the edge), GREEN = a curtain with one safe lane (find it),
+// VIOLET = a summon/trap (watch for spawns). Any move not listed falls back to the classic gold.
+const BOSS_TELE_COLOR: Record<string, number> = {
+  lance: 0xff5555, seeker: 0xff5555, dash: 0xff5555, dive: 0xff5555, pound: 0xff5555,
+  burst: 0xffe08a, fan: 0xffe08a, spread: 0xffe08a, sweep: 0xffe08a, lob: 0xffe08a,
+  ring: 0xffe08a, nova: 0xffe08a, spiral: 0xffe08a, cross: 0xffe08a,
+  curtain: 0x86efac,
+  mines: 0xc4b5fd, summon: 0xc4b5fd,
+}
 
 const BOSS_CADENCE: Record<string, number> = { reaper: 1100, brute: 1750, tyrant: 1500, warden: 1350, sentinel: 1250, wraith: 1200, revenant: 1300 }
 const BOSS_HOME_Y: Record<string, number> = { reaper: 430, brute: 500, tyrant: 350, warden: 420, sentinel: 400, wraith: 380, revenant: 400 }
@@ -5172,7 +5183,6 @@ export class MainScene extends Phaser.Scene {
     const kind = (enemy.getData('bossKind') as string) || 'sentinel'
     const hp = enemy.getData('hp') as number, maxHp = enemy.getData('maxHp') as number
     const speed = enemy.getData('speed') as number
-    const acc = bossAccent(kind)
     if (hp / maxHp < 0.5 && this.bossPhase === 1) {
       this.bossPhase = 2
       this.screenToast('⚠ ' + this.nextBossLabel + ' ENRAGED', '#f43f5e', 96)
@@ -5218,12 +5228,15 @@ export class MainScene extends Phaser.Scene {
     let atkT = ((enemy.getData('atkT') as number) ?? 1000) - delta
     if (atkT <= 300 && !enemy.getData('tele2') && !dashing) {
       enemy.setData('tele2', true)
-      enemy.setTintFill(0xffe08a)
-      this.time.delayedCall(190, () => this.restoreTint(enemy))
-      this.shockwave(enemy.x, enemy.y, acc, 42)
-      // Audio telegraph: classify the move that's about to fire so it can be dodged by ear.
+      // Telegraph the move about to fire BOTH ways — an audio cue AND a per-move-class tint + shockwave
+      // colour — so attacks read on sight (RED aimed · GOLD spread · GREEN curtain-lane · VIOLET summon).
       const pool = (p2 && BOSS_MOVES_P2[kind]) ? BOSS_MOVES_P2[kind] : (BOSS_MOVES[kind] || BOSS_MOVES.sentinel)
       const upcoming = pool[((enemy.getData('atkIdx') as number) || 0) % pool.length]
+      const teleCol = BOSS_TELE_COLOR[upcoming] || 0xffe08a
+      enemy.setData('teleCol', teleCol)   // restoreTint repaints this if a hit lands mid-wind-up
+      enemy.setTintFill(teleCol)
+      this.time.delayedCall(190, () => this.restoreTint(enemy))
+      this.shockwave(enemy.x, enemy.y, teleCol, 42)
       this.sfx?.bossTele(BOSS_MOVE_CLASS[upcoming] || 'charge')
     }
     if (atkT <= 0) {
@@ -5431,8 +5444,9 @@ export class MainScene extends Phaser.Scene {
     // A non-lethal hit must NOT strip an enemy's "about to strike" telegraph flash while the wind-up is
     // still live — the tell is set once on entering the state, so re-assert the gold flash instead of
     // clearing to base whenever the enemy is still winding/marking/telegraphing.
+    if (e.getData('tele2') === true) { e.setTintFill((e.getData('teleCol') as number) || 0xffe08a); return }   // boss wind-up keeps its per-move class colour
     if (e.getData('cstate') === 'wind' || e.getData('dstate') === 'wind' || e.getData('sstate') === 'mark'
-        || e.getData('tele') === true || e.getData('tele2') === true) { e.setTintFill(0xffe08a); return }
+        || e.getData('tele') === true) { e.setTintFill(0xffe08a); return }
     e.clearTint()
     const bt = e.getData('baseTint') as number | undefined
     if (bt) e.setTint(bt)
