@@ -9,7 +9,7 @@ import { heatMods, loadHeatUnlocked, noteCampaignClear, MAX_HEAT } from './heat'
 import { DOCTRINES, selectedDoctrine, loadSelected, saveSelected, doctrineById, type DoctrinePassive } from './loadouts'
 import { loadRank, currentRank, rankTitle, rankBadge, toNextRank, cumulativeCost, enlist as enlistShards } from './rank'
 import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, submitRank, fetchRanks, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type RankData, type SubmitResult } from '../net/leaderboard'
-import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, type DailyMod } from './daily'
+import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, claimDailyDividend, pendingDividend, type DailyMod } from './daily'
 import { evalBounties, todayBounties, loadBountyState, bountyDoneCount } from './bounties'
 import { foldRun as foldContracts, contractProgress } from './contracts'
 
@@ -3817,7 +3817,9 @@ export class MainScene extends Phaser.Scene {
     // Don't-break-the-chain streak nudge (per-device).
     const ds = getDailyStreak()
     if (ds.streak > 0) {
-      els.push(this.add.text(256, 307, '★ ' + ds.streak + '-DAY STREAK' + (ds.playedToday ? '  ✓' : '  · play to keep it'),
+      const div = pendingDividend()
+      const tail = ds.playedToday ? '  ✓' : (div > 0 ? '  · play today  +' + div + ' ◆' : '  · play to keep it')
+      els.push(this.add.text(256, 307, '★ ' + ds.streak + '-DAY STREAK' + tail,
         { fontFamily: 'monospace', fontSize: '8px', color: ds.playedToday ? '#4ade80' : '#fbbf24' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
     }
     // Apex Armory — banked shards + Apex Rank prestige (if any).
@@ -6044,6 +6046,15 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
+  // RESUPPLY: the first Daily completed each UTC day banks a streak-scaled shard bonus (funds the
+  // Armory / Apex Rank), toasted so the payout is visible. Idempotent per day inside claimDailyDividend.
+  private payDailyResupply() {
+    const div = claimDailyDividend()
+    if (div <= 0) return
+    bankShards(div)
+    this.time.delayedCall(800, () => { if (this.gameOver) this.screenToast('★ RESUPPLY  +' + div + ' ◆   ·   ' + getDailyStreak().streak + '-day streak', '#67e8f9', 250) })
+  }
+
   private triggerGameOver() {
     if (this.gameOver) return   // idempotent — a second death/clear in the same frame must not double-submit or double-eval
     this.gameOver = true
@@ -6053,7 +6064,7 @@ export class MainScene extends Phaser.Scene {
     let submit: Promise<SubmitResult | null> | null = null
     let trialsSubmit: Promise<SubmitResult | null> | null = null
     let heatSubmit: Promise<SubmitResult | null> | null = null
-    if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
+    if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed(); this.payDailyResupply() }
     else if (this.rushRun) trialsSubmit = submitTrials(weekKey(), this.score, this.rushIndex)   // post the run to the weekly Trials board
     else if (this.heatRun) heatSubmit = submitAscension(this.heatTier, this.score, this.level)  // post to the per-tier HEAT board
     else submit = submitScore(this.score, this.level)     // campaign posts to the global board
@@ -6097,7 +6108,7 @@ export class MainScene extends Phaser.Scene {
     let submit: Promise<SubmitResult | null> | null = null
     let trialsSubmit: Promise<SubmitResult | null> | null = null
     let heatSubmit: Promise<SubmitResult | null> | null = null
-    if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
+    if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed(); this.payDailyResupply() }
     else if (this.rushRun) trialsSubmit = submitTrials(weekKey(), this.score, this.rushIndex)   // post the clear to the weekly Trials board
     else if (this.heatRun) heatSubmit = submitAscension(this.heatTier, this.score, this.level)  // post the clear to the per-tier HEAT board
     else submit = submitScore(this.score, this.level)     // campaign posts to the global board
