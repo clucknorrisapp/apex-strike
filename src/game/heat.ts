@@ -45,3 +45,22 @@ export function noteCampaignClear(heatTier: number): { unlocked: number; raised:
   if (raised) { try { localStorage.setItem(KEY, String(next)) } catch { /* storage blocked */ } }
   return { unlocked: Math.max(cur, next), raised }
 }
+
+const CLEARED_KEY = 'apex_heat_cleared'   // bitmask of Heat tiers ever cleared (drives the first-clear bounty)
+// Record clearing a Heat tier; returns true ONLY on its first-ever clear. Unlike the unlock ceiling this
+// fires for the MAX tier too — the ceiling can't rise past MAX_HEAT, so noteCampaignClear().raised is
+// permanently false there and can't gate the pinnacle bounty. Tiers below the current unlock ceiling are
+// back-filled as already-cleared so players who cleared them before this shipped aren't paid again. MUST
+// be called BEFORE noteCampaignClear so the back-fill reads the PRE-raise ceiling.
+export function noteHeatClear(heatTier: number): boolean {
+  const t = clampTier(heatTier)
+  if (t < 1) return false
+  let mask = 0
+  try { mask = Math.max(0, Math.floor(Number(localStorage.getItem(CLEARED_KEY)) || 0)) } catch { mask = 0 }
+  const unlocked = loadHeatUnlocked()
+  for (let i = 1; i < unlocked; i++) mask |= (1 << i)   // clearing tier N unlocks N+1 → every tier below the ceiling was cleared
+  const bit = 1 << t
+  if (mask & bit) return false
+  try { localStorage.setItem(CLEARED_KEY, String(mask | bit)) } catch { /* storage blocked */ }
+  return true
+}

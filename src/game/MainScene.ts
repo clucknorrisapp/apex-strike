@@ -5,7 +5,7 @@ import { evalAchievements, recordBossKill, achievementCount, loadAch, ACHIEVEMEN
 import { renderFlexCard, shareCard, type FlexSummary } from './flexcard'
 import { weekKey, bossOrderForWeek, saveTrialsBest, loadTrialsBest } from './rush'
 import { recordSplit, fmtTime, fmtDelta } from './splits'
-import { heatMods, loadHeatUnlocked, noteCampaignClear, MAX_HEAT } from './heat'
+import { heatMods, loadHeatUnlocked, noteCampaignClear, noteHeatClear, MAX_HEAT } from './heat'
 import { DOCTRINES, selectedDoctrine, loadSelected, saveSelected, doctrineById, type DoctrinePassive } from './loadouts'
 import { loadRank, currentRank, rankTitle, rankBadge, prestigeGlyph, rankBandColor, toNextRank, cumulativeCost, enlist as enlistShards } from './rank'
 import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, submitRank, fetchRanks, submitSeason, fetchSeason, monthKey, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type RankData, type SeasonData, type SubmitResult } from '../net/leaderboard'
@@ -5170,6 +5170,10 @@ export class MainScene extends Phaser.Scene {
           else if (type === 'turret') base = Math.max(650, 1250 - this.level * 90)
           else if (type === 'sniper') base = Math.max(1500, 2100 - this.level * 80)
           enemy.setData('shootTimer', base)
+        } else if (!near && telegraphs) {
+          // Hold an off-screen turret/sniper ABOVE the telegraph lead so crossing into range always leaves
+          // a full wind-up — otherwise a timer sitting in (0, teleLead] would fire a no-tell snap-shot.
+          enemy.setData('shootTimer', Math.max(timer, teleLead + 60)); enemy.setData('tele', false); this.restoreTint(enemy)
         } else { enemy.setData('shootTimer', timer <= 0 ? 140 : timer); if (!near) { enemy.setData('tele', false); this.restoreTint(enemy) } }   // re-arm the wind-up if the target left range (clear the flash too)
       }
     })
@@ -6321,6 +6325,7 @@ export class MainScene extends Phaser.Scene {
     else if (this.heatRun) heatSubmit = submitAscension(this.heatTier, this.score, this.level)  // post the clear to the per-tier HEAT board
     else { submit = submitScore(this.score, this.level); seasonSubmit = submitSeason(monthKey(), this.score, this.level) }   // campaign posts to the all-time board + the current month's Season board
     // Clearing the campaign — the base run OR a heat tier — unlocks the next Heat tier.
+    const heatFirstClear = this.heatRun ? noteHeatClear(this.heatTier) : false   // BEFORE noteCampaignClear (its back-fill reads the pre-raise ceiling); pays every tier's first clear incl. the MAX tier
     const unlock = (!this.dailyRun && !this.rushRun) ? noteCampaignClear(this.heatTier) : null
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
@@ -6346,9 +6351,10 @@ export class MainScene extends Phaser.Scene {
     else if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, seasonSubmit, token, true)
     if (this.isBaseCampaign()) this.speedExtras(Date.now() - this.runStartAt, token)   // post + show the campaign clear time
     if (unlock && unlock.raised) this.time.delayedCall(650, () => { if (this.gameOver) this.screenToast('🔥 APEX HEAT ' + unlock.unlocked + ' UNLOCKED', '#f97316', 150) })
-    if (this.heatRun && unlock && unlock.raised) {
-      // First clear of a new Heat tier — a one-time shard bounty scaled by tier ('raised' only fires the
-      // first time this tier falls, so it can't be farmed). Ties the hardest content into the economy.
+    if (heatFirstClear) {
+      // First-ever clear of this Heat tier — a one-time shard bounty scaled by tier. Gated on a per-tier
+      // stamp (noteHeatClear), not the unlock-ceiling advance, so the MAX tier pays too (v2.47 regression:
+      // 'raised' is always false at the ceiling). Farm-proof: a re-clear returns false.
       const heatBonus = 10 + this.heatTier * 6
       bankShards(heatBonus)
       this.time.delayedCall(1100, () => { if (this.gameOver) this.screenToast('◆ HEAT ' + this.heatTier + ' FIRST-CLEAR BOUNTY  +' + heatBonus, '#fbbf24', 186) })
