@@ -8,7 +8,7 @@ import { recordSplit, fmtTime, fmtDelta } from './splits'
 import { heatMods, loadHeatUnlocked, noteCampaignClear, MAX_HEAT } from './heat'
 import { DOCTRINES, selectedDoctrine, loadSelected, saveSelected, doctrineById, type DoctrinePassive } from './loadouts'
 import { loadRank, currentRank, rankTitle, rankBadge, prestigeGlyph, rankBandColor, toNextRank, cumulativeCost, enlist as enlistShards } from './rank'
-import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, submitRank, fetchRanks, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type RankData, type SubmitResult } from '../net/leaderboard'
+import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, submitRank, fetchRanks, submitSeason, fetchSeason, monthKey, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type RankData, type SeasonData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, claimDailyDividend, pendingDividend, claimCampaignDaily, type DailyMod } from './daily'
 import { evalBounties, todayBounties, loadBountyState, bountyDoneCount } from './bounties'
 import { foldRun as foldContracts, contractProgress } from './contracts'
@@ -1020,8 +1020,9 @@ export class MainScene extends Phaser.Scene {
   private leaderboardOpen = false
   private leaderboardUI: Phaser.GameObjects.GameObject[] = []
   private closeLeaderboardKey = () => this.closeLeaderboard()
-  private lbTab = 0                            // leaderboard tab: 0 SCORE · 1 SPEED (fastest clears)
+  private lbTab = 0                            // leaderboard tab: 0 SCORE · 1 SEASON (monthly) · 2 SPEED (fastest clears)
   private lbScore: BoardData | null = null    // cached global score board
+  private lbSeason: SeasonData | null = null  // cached monthly Season board
   private lbSpeed: SpeedData | null = null    // cached fastest-clears board
   private lbPadPrev = 0                        // gamepad d-pad edge-detect while the leaderboard is open
   private lbKeyHandler = (e: KeyboardEvent) => {
@@ -2803,7 +2804,7 @@ export class MainScene extends Phaser.Scene {
   private openLeaderboard() {
     if (this.leaderboardOpen || this.controlsOpen || this.armoryOpen) return
     this.leaderboardOpen = true
-    this.lbTab = 0; this.lbScore = null; this.lbSpeed = null; this.lbPadPrev = 0
+    this.lbTab = 0; this.lbScore = null; this.lbSeason = null; this.lbSpeed = null; this.lbPadPrev = 0
     this.buildLeaderboardScreen()                                       // loading state
     this.input.keyboard!.on('keydown-ESC', this.closeLeaderboardKey)
     this.input.keyboard!.on('keydown', this.lbKeyHandler)
@@ -2821,11 +2822,12 @@ export class MainScene extends Phaser.Scene {
   }
 
   private setLbTab(t: number) {
-    this.lbTab = ((t % 2) + 2) % 2
+    this.lbTab = ((t % 3) + 3) % 3
     this.buildLeaderboardScreen()
     this.sfx?.swap()
-    if (this.lbTab === 1 && !this.lbSpeed) fetchSpeedruns().then((d) => { this.lbSpeed = d; if (this.leaderboardOpen && this.lbTab === 1) this.buildLeaderboardScreen() })
     if (this.lbTab === 0 && !this.lbScore) fetchLeaderboard().then((d) => { this.lbScore = d; if (this.leaderboardOpen && this.lbTab === 0) this.buildLeaderboardScreen() })
+    if (this.lbTab === 1 && !this.lbSeason) fetchSeason(monthKey()).then((d) => { this.lbSeason = d; if (this.leaderboardOpen && this.lbTab === 1) this.buildLeaderboardScreen() })
+    if (this.lbTab === 2 && !this.lbSpeed) fetchSpeedruns().then((d) => { this.lbSpeed = d; if (this.leaderboardOpen && this.lbTab === 2) this.buildLeaderboardScreen() })
   }
 
   private buildLeaderboardScreen() {
@@ -2843,9 +2845,9 @@ export class MainScene extends Phaser.Scene {
       const b = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
       b.on('pointerdown', () => this.closeLeaderboard())
     }
-    // Tabs (click / ◄ ► / d-pad): SCORE = global high scores · SPEED = fastest full-campaign clears.
-    const tabs = ['SCORE', 'SPEED']
-    const tx = [190, 322]
+    // Tabs (click / ◄ ► / d-pad): SCORE = all-time high scores · SEASON = this month's race · SPEED = fastest clears.
+    const tabs = ['SCORE', 'SEASON', 'SPEED']
+    const tx = [150, 256, 362]
     tabs.forEach((name, i) => {
       const on = i === this.lbTab
       const tab = push(this.add.text(tx[i], 42, name, { fontFamily: 'monospace', fontSize: '11px', color: on ? '#a5f3fc' : '#52525b', fontStyle: on ? 'bold' : 'normal' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
@@ -2880,6 +2882,29 @@ export class MainScene extends Phaser.Scene {
           if (input != null) setHandle(input).then(() => fetchLeaderboard().then((d) => { this.lbScore = d; if (this.leaderboardOpen && this.lbTab === 0) this.buildLeaderboardScreen() }))
         })
       } else { T(256, 326, 'connect your Apex wallet to post a score', 9, '#52525b', 0.5) }
+    } else if (this.lbTab === 1) {
+      // ---- SEASON board: this calendar month's campaign-score race (resets monthly; same metric as SCORE) ----
+      const data = this.lbSeason
+      const MON = ['', 'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER']
+      const label = data ? (MON[Number(data.month.slice(5, 7))] || '') + ' ' + data.month.slice(0, 4) : ''
+      T(256, 300, (label ? label + '  ·  ' : '') + 'resets monthly — the all-time SCORE board keeps every record', 8, '#52525b', 0.5)
+      if (!data) { T(256, 188, 'loading…', 12, '#a5b4fc', 0.5); back(); return }
+      if (!data.online) { T(256, 186, 'The season board is warming up.', 11, '#c4b5fd', 0.5); back(); return }
+      T(30, 66, 'RANK', 8, '#52525b'); T(78, 66, 'PLAYER', 8, '#52525b'); T(372, 66, 'SCORE', 8, '#52525b', 1); T(474, 66, 'SECTOR', 8, '#52525b', 1)
+      if (data.top.length === 0) T(256, 160, 'No runs this month — claim the top slot.', 11, '#a5b4fc', 0.5)
+      data.top.forEach((r, i) => {
+        const y = 82 + i * 20
+        const you = !!mine && r.wallet.toLowerCase() === mine
+        const c = you ? '#fde68a' : '#e9d5ff'
+        T(34, y, '#' + (i + 1), 11, i < 3 ? '#67e8f9' : '#a1a1aa')
+        T(78, y, (r.handle || short(r.wallet)) + this.prestigeTag(r.prestige) + (you ? '  (you)' : ''), 11, c)
+        T(372, y, String(r.score), 11, c, 1)
+        T(474, y, 'S' + r.sector, 11, c, 1)
+      })
+      if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
+        T(256, 292, `YOU  ·  #${data.you.rank}  ·  ${data.you.score}  ·  S${data.you.sector}${this.prestigeTag(currentRank())}`, 11, '#fde68a', 0.5)
+        if (data.next) { const who = (data.next.handle || 'the rank above').slice(0, 14); T(256, 308, `▲  ${Math.max(1, data.next.score - data.you.score).toLocaleString()} to pass ${who}`, 9, '#fbbf24', 0.5) }
+      }
     } else {
       // ---- SPEED board: fastest full-campaign clears (ranked ascending by time) ----
       const data = this.lbSpeed
@@ -6179,7 +6204,7 @@ export class MainScene extends Phaser.Scene {
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed(); this.payDailyResupply() }
     else if (this.rushRun) trialsSubmit = submitTrials(weekKey(), this.score, this.rushIndex)   // post the run to the weekly Trials board
     else if (this.heatRun) heatSubmit = submitAscension(this.heatTier, this.score, this.level)  // post to the per-tier HEAT board
-    else submit = submitScore(this.score, this.level)     // campaign posts to the global board
+    else { submit = submitScore(this.score, this.level); submitSeason(monthKey(), this.score, this.level) }   // campaign posts to the all-time board + the current month's Season board
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
     const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score)
@@ -6223,7 +6248,7 @@ export class MainScene extends Phaser.Scene {
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed(); this.payDailyResupply() }
     else if (this.rushRun) trialsSubmit = submitTrials(weekKey(), this.score, this.rushIndex)   // post the clear to the weekly Trials board
     else if (this.heatRun) heatSubmit = submitAscension(this.heatTier, this.score, this.level)  // post the clear to the per-tier HEAT board
-    else submit = submitScore(this.score, this.level)     // campaign posts to the global board
+    else { submit = submitScore(this.score, this.level); submitSeason(monthKey(), this.score, this.level) }   // campaign posts to the all-time board + the current month's Season board
     // Clearing the campaign — the base run OR a heat tier — unlocks the next Heat tier.
     const unlock = (!this.dailyRun && !this.rushRun) ? noteCampaignClear(this.heatTier) : null
     this.sfx?.stopMusic()

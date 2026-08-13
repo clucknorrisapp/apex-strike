@@ -109,6 +109,44 @@ export async function submitTrials(week: string, score: number, bosses: number):
   } catch { return null }
 }
 
+// ---- MONTHLY SEASON board (calendar-month reset of the campaign-score ladder) ----
+// Same score metric as the all-time board, but keyed by month so there's a fresh, catchable race
+// every month while the global board stays a permanent all-time record.
+export interface SeasonData { online: boolean; month: string; top: BoardRow[]; you: BoardYou | null; next: RivalRow | null }
+
+// Current season key in UTC, e.g. "2026-08". UTC so every player's month flips at the same instant.
+export function monthKey(d: Date = new Date()): string {
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0')
+}
+
+export async function fetchSeason(month: string): Promise<SeasonData> {
+  try {
+    const w = myWallet()
+    const res = await fetch('/api/season?month=' + encodeURIComponent(month) + (w ? '&wallet=' + w : ''), { headers: { accept: 'application/json' } })
+    const d = await res.json()
+    return { online: !!d.online, month, top: Array.isArray(d.top) ? d.top : [], you: d.you || null, next: d.next || null }
+  } catch { return { online: false, month, top: [], you: null, next: null } }
+}
+
+// Post a campaign run to the current month's board and return the authoritative monthly rank + rival
+// (mirrors submitScore). Called alongside submitScore on every base-campaign death. No-ops when
+// there's no wallet / the board is offline.
+export async function submitSeason(month: string, score: number, sector: number): Promise<SubmitResult | null> {
+  const wallet = myWallet()
+  if (!wallet) return null
+  try {
+    const res = await fetch('/api/season/scores', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ month, wallet, handle: localHandle() || undefined, score: Math.max(0, Math.round(score)), sector }),
+      keepalive: true,
+    })
+    if (!res.ok) return null
+    const d = await res.json()
+    return { ok: !!d.ok, best: d.best || null, rank: typeof d.rank === 'number' ? d.rank : null, next: d.next || null }
+  } catch { return null }
+}
+
 // ---- APEX HEAT ascension board (scoped by heat tier; row.sector = sector reached) ----
 export interface AscensionData { online: boolean; heat: number; top: BoardRow[]; you: BoardYou | null; next: RivalRow | null }
 
