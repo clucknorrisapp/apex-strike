@@ -913,6 +913,7 @@ export class MainScene extends Phaser.Scene {
   private uiCam?: Phaser.Cameras.Scene2D.Camera  // crisp HUD camera (hi-res render)
   private decor: Phaser.GameObjects.GameObject[] = []
   private shadowGfx!: Phaser.GameObjects.Graphics  // per-frame drop shadows (grounding)
+  private poiseGfx!: Phaser.GameObjects.Graphics   // per-frame STAGGER poise bars above enemies under fire
   private runFrameT = 0     // run-cycle timer (2-frame bounding run)
   private runFrame = 0      // which run frame (0/1)
   private landRecoverUntil = 0  // brief crouch-on-landing window
@@ -1453,6 +1454,7 @@ export class MainScene extends Phaser.Scene {
     this.bgMid = this.add.tileSprite(vcx, vcy, vw + 60, vh + 60, 'mid_streets').setScrollFactor(0).setDepth(2)
     // Drop shadows drawn fresh each frame (grounds the player + enemies on the busy art).
     this.shadowGfx = this.add.graphics().setDepth(8)
+    this.poiseGfx = this.add.graphics().setDepth(30)   // above enemies — STAGGER poise meters
 
     this.buildLevel(1)
 
@@ -4208,6 +4210,7 @@ export class MainScene extends Phaser.Scene {
     this.prevOnGround = this.onGround
     if (!this.onGround) { this.fallSpeed = body.velocity.y; this.airborneT += delta } else this.airborneT = 0
     this.drawShadows()
+    this.drawPoiseBars()   // STAGGER poise meters (above enemies under fire)
 
     // Dynamic camera: lead the direction you're running (so threats ahead are on-screen, not just to
     // the right) and dip briefly on a hard landing for weight. Lerped so a turn glides, never snaps.
@@ -4870,6 +4873,28 @@ export class MainScene extends Phaser.Scene {
       if (!e.active || !grounded.has(e.getData('type') as string)) return
       g.fillStyle(0x000000, 0.3)
       g.fillEllipse(e.x, e.y + e.displayHeight * 0.44, e.displayWidth * 0.55, e.displayHeight * 0.13)
+    })
+  }
+
+  // STAGGER poise meter — a thin bar above any enemy under fire, filling toward the break so the
+  // "focus-fire cracks their guard" mechanic is something you can SEE and aim for (not a surprise). It
+  // brightens near full (about to crack) and hides during the freeze (the cyan body already reads).
+  private drawPoiseBars() {
+    const g = this.poiseGfx
+    if (!g) return
+    g.clear()
+    const now = this.time.now
+    this.enemies.getChildren().forEach((c) => {
+      const e = c as Phaser.Physics.Arcade.Sprite
+      if (!e.active) return
+      const pm = (e.getData('poiseMax') as number) || 0
+      const pv = (e.getData('poise') as number) || 0
+      if (pm <= 0 || pv <= 0.5) return                                   // no meter until poise is building
+      if (((e.getData('staggerUntil') as number) || 0) > now) return     // frozen — cyan body signals the break
+      const frac = Math.min(1, pv / pm)
+      const bw = 26, bx = e.x - bw / 2, by = e.y - e.displayHeight * 0.5 - 10
+      g.fillStyle(0x0a0612, 0.65); g.fillRect(bx - 1, by - 1, bw + 2, 5)
+      g.fillStyle(frac > 0.78 ? 0xa5f3fc : 0x22d3ee, 0.95); g.fillRect(bx, by, bw * frac, 3)
     })
   }
 
