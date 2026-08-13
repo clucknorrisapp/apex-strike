@@ -1139,6 +1139,7 @@ export class MainScene extends Phaser.Scene {
   private extractionLocked = false
   private pendingEndBoss?: LevelDef['endBoss']
   private endBossSpawned = false
+  private midSecured = false                   // fired the mid-sector "AREA SECURED" checkpoint beat this stage
   private nextBossLabel = 'APEX SENTINEL'
   private nextBossKind = 'sentinel'
   private lockHintAt = 0
@@ -1878,6 +1879,7 @@ export class MainScene extends Phaser.Scene {
     this.nextBossLabel = 'APEX SENTINEL'
     this.nextBossKind = 'sentinel'
     this.endBossSpawned = false
+    this.midSecured = false
     this.pendingEndBoss = undefined
     this.extractionLocked = false
     if (def.endBoss && !(this.goalX === 0 && this.goalY === 0)) {
@@ -4350,6 +4352,15 @@ export class MainScene extends Phaser.Scene {
       if (this.reduceMotion) { this.squashX = 1; this.squashY = 1 }
       else { this.squashX += (1 - this.squashX) * 0.16; this.squashY += (1 - this.squashY) * 0.16 }
       this.player.setScale(this.baseSX * this.squashX, this.baseSY * this.squashY)
+    }
+
+    // Mid-sector CHECKPOINT — a decoupled "first win" ~halfway to extraction, so a run that dies before
+    // the far-right guardian still banks a felt milestone (the biggest lever on starting run 2). Pure
+    // celebration (toast + fanfare); no reward, so it can't touch difficulty or the score economy.
+    if (!this.midSecured && !this.isBossLevel() && this.goalX > 0 && this.player.x > 120 + (this.goalX - 120) * 0.5) {
+      this.midSecured = true
+      this.screenToast('✓ AREA SECURED  ·  push to extraction', '#4ade80', 100)
+      this.sfx?.fanfare()
     }
 
     // Spawn the stage guardian as the player nears the exit — a proper end-of-stage fight.
