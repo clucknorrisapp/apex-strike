@@ -108,6 +108,35 @@ export async function submitTrials(week: string, score: number, bosses: number):
   } catch { return null }
 }
 
+// ---- APEX HEAT ascension board (scoped by heat tier; row.sector = sector reached) ----
+export interface AscensionData { online: boolean; heat: number; top: BoardRow[]; you: BoardYou | null; next: RivalRow | null }
+
+export async function fetchAscension(heat: number): Promise<AscensionData> {
+  try {
+    const w = myWallet()
+    const res = await fetch('/api/ascension?heat=' + encodeURIComponent(heat) + (w ? '&wallet=' + w : ''), { headers: { accept: 'application/json' } })
+    const d = await res.json()
+    return { online: !!d.online, heat, top: Array.isArray(d.top) ? d.top : [], you: d.you || null, next: d.next || null }
+  } catch { return { online: false, heat, top: [], you: null, next: null } }
+}
+
+// Post an APEX HEAT run and return the authoritative per-tier rank + rival (mirrors submitScore).
+export async function submitAscension(heat: number, score: number, sector: number): Promise<SubmitResult | null> {
+  const wallet = myWallet()
+  if (!wallet) return null
+  try {
+    const res = await fetch('/api/ascension/scores', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ heat, wallet, handle: localHandle() || undefined, score: Math.max(0, Math.round(score)), sector }),
+      keepalive: true,
+    })
+    if (!res.ok) return null
+    const d = await res.json()
+    return { ok: !!d.ok, best: d.best || null, rank: typeof d.rank === 'number' ? d.rank : null, next: d.next || null }
+  } catch { return null }
+}
+
 export async function setHandle(handle: string): Promise<boolean> {
   const clean = cleanHandle(handle)
   if (!clean) return false

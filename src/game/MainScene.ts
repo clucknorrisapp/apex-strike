@@ -5,7 +5,8 @@ import { evalAchievements, recordBossKill, achievementCount, loadAch, ACHIEVEMEN
 import { renderFlexCard, shareCard, type FlexSummary } from './flexcard'
 import { weekKey, bossOrderForWeek, saveTrialsBest, loadTrialsBest } from './rush'
 import { recordSplit, fmtTime, fmtDelta } from './splits'
-import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, type BoardData, type DailyData, type TrialsData, type SubmitResult } from '../net/leaderboard'
+import { heatMods, loadHeatUnlocked, noteCampaignClear, MAX_HEAT } from './heat'
+import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, type BoardData, type DailyData, type TrialsData, type AscensionData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, type DailyMod } from './daily'
 import { evalBounties, todayBounties, loadBountyState, bountyDoneCount } from './bounties'
 
@@ -1015,6 +1016,13 @@ export class MainScene extends Phaser.Scene {
   private intelTab = 0                       // 0 WEAPONS · 1 FOES · 2 BOSSES
   private intelPadPrev = 0                    // gamepad d-pad edge-detect while the codex is open
   private closeIntelKey = () => this.closeIntel()
+  private heatOpen = false                   // the APEX HEAT ascension select screen is up
+  private heatUI: Phaser.GameObjects.GameObject[] = []
+  private heatSel = 1                          // tier highlighted on the select screen
+  private heatPadPrev = 0                      // gamepad d-pad edge-detect while the heat screen is open
+  private closeHeatKey = () => this.closeHeat()
+  private heatRun = false                      // this run is an APEX HEAT ascension run (campaign + modifiers)
+  private heatTier = 0                         // active heat tier this run (0 = normal campaign)
   private intelKeyHandler = (e: KeyboardEvent) => {
     if (!this.intelOpen) return
     if (e.key === 'ArrowLeft') this.setIntelTab(this.intelTab - 1)
@@ -1299,6 +1307,7 @@ export class MainScene extends Phaser.Scene {
     this.levelTransition = false
     this.dailyRun = false                  // reset here — instance fields survive scene.restart()
     this.rushRun = false; this.rushIndex = 0
+    this.heatRun = false; this.heatTier = 0
     this.resetTimeScales()                 // clear any slow-mo left mid-ramp by the previous run
     this.squashX = 1; this.squashY = 1
     // Apex Armory — apply persistent upgrades to this run's starting stats.
@@ -1898,10 +1907,15 @@ export class MainScene extends Phaser.Scene {
     // Promote a deterministic handful of ground fighters to ELITE mini-bosses (up to 2/sector) so
     // every run has a couple of memorable tougher fights — fair and identical across runs.
     let eligibleSeen = 0, elitesMade = 0
+    // APEX HEAT packs in more elite mini-bosses (and a denser stride so the cap is actually reached).
+    const hot = this.heatRun && this.heatTier > 0
+    const eliteCap = hot ? Math.min(8, 2 + this.heatTier) : 2
+    const eliteStride = hot ? 3 : 5
+    const eliteOffset = hot ? 1 : 3
     def.enemies.forEach((e) => {
       const eligible = e.kind === 'soldier' || e.kind === 'tank' || e.kind === 'charger'
       let makeElite = false
-      if (eligible) { eligibleSeen++; if (elitesMade < 2 && eligibleSeen % 5 === 3) { makeElite = true; elitesMade++ } }
+      if (eligible) { eligibleSeen++; if (elitesMade < eliteCap && eligibleSeen % eliteStride === eliteOffset) { makeElite = true; elitesMade++ } }
       this.spawnEnemy(e.kind, e.x, e.y, e.hp, e.speed, undefined, makeElite)
     })
     def.pods.forEach(([x, y, kind]) => this.spawnPowerup(x, y, kind as string))
@@ -2131,6 +2145,13 @@ export class MainScene extends Phaser.Scene {
   }
 
   private spawnEnemy(kind: string, x: number, y: number, hp: number, speed: number, type?: string, elite = false) {
+    // APEX HEAT: scale enemy HP + speed by the active tier (campaign heat runs only). Applied to the
+    // parameters so downstream maxHp, elite HP (hp*2.5), and speed all inherit the multiplier.
+    if (this.heatRun && this.heatTier > 0) {
+      const m = heatMods(this.heatTier)
+      hp = Math.max(1, Math.round(hp * m.hp))
+      speed = speed * m.spd
+    }
     let tex = 'enemy'
     let t = type || 'walker'
     let displayW = 48, displayH = 48
@@ -2770,7 +2791,7 @@ export class MainScene extends Phaser.Scene {
 
   // ---- Badge Case — the achievement grid (per-device, localStorage) ----
   private openBadges() {
-    if (this.badgesOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen) return
+    if (this.badgesOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen) return
     this.badgesOpen = true
     this.buildBadgesScreen()
     this.closeBadgesKey = () => this.closeBadges()
@@ -3127,6 +3148,122 @@ export class MainScene extends Phaser.Scene {
     b.on('pointerdown', () => this.closeIntel())
   }
 
+  // ---- APEX HEAT — ascension select screen + launcher (unlocked by clearing the campaign) ----
+  private openHeat() {
+    if (this.heatOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.badgesOpen) return
+    this.heatOpen = true
+    this.heatPadPrev = 0
+    this.startGraceUntil = this.time.now + 300   // swallow the confirm press still held from the title
+    this.heatSel = Math.max(1, loadHeatUnlocked())   // default to the highest tier you've unlocked
+    this.buildHeatScreen(null)
+    this.input.keyboard!.on('keydown-ESC', this.closeHeatKey)
+    this.input.keyboard!.on('keydown', this.heatKeyHandler)
+    if (loadHeatUnlocked() >= 1) fetchAscension(this.heatSel).then((d) => { if (this.heatOpen && d.heat === this.heatSel) this.buildHeatScreen(d) })
+  }
+
+  private closeHeat() {
+    if (!this.heatOpen) return
+    this.input.keyboard!.off('keydown-ESC', this.closeHeatKey)
+    this.input.keyboard!.off('keydown', this.heatKeyHandler)
+    this.heatUI.forEach((o) => o.destroy())
+    this.heatUI = []
+    this.heatOpen = false
+    this.startGraceUntil = this.time.now + 400
+  }
+
+  private heatKeyHandler = (e: KeyboardEvent) => {
+    if (!this.heatOpen || this.time.now < this.startGraceUntil) return
+    if (e.key === 'ArrowLeft') this.setHeatSel(this.heatSel - 1)
+    else if (e.key === 'ArrowRight') this.setHeatSel(this.heatSel + 1)
+    else if (e.key === 'Enter' || e.key === ' ') this.startHeat(this.heatSel)
+  }
+
+  private setHeatSel(t: number) {
+    const unlocked = Math.max(1, loadHeatUnlocked())
+    this.heatSel = Math.max(1, Math.min(unlocked, t))
+    this.buildHeatScreen(null)
+    if (loadHeatUnlocked() >= 1) fetchAscension(this.heatSel).then((d) => { if (this.heatOpen && d.heat === this.heatSel) this.buildHeatScreen(d) })
+    this.sfx?.swap()
+  }
+
+  private startHeat(tier: number) {
+    if (this.started) return
+    this.input.keyboard!.off('keydown-ESC', this.closeHeatKey)
+    this.input.keyboard!.off('keydown', this.heatKeyHandler)
+    this.heatUI.forEach((o) => o.destroy()); this.heatUI = []
+    this.heatOpen = false
+    this.heatRun = true
+    this.heatTier = Math.max(1, Math.min(MAX_HEAT, tier))
+    this.dailyRun = false; this.rushRun = false
+    this.startGraceUntil = 0
+    this.beginPlay()                        // beginPlay applies the Armory kit (heat is not daily/rush)
+    this.screenToast('🔥 APEX HEAT ' + this.heatTier + ' · ' + heatMods(this.heatTier).name, '#f97316', 130)
+  }
+
+  private buildHeatScreen(data: AscensionData | null) {
+    this.heatUI.forEach((o) => o.destroy())
+    this.heatUI = []
+    const push = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.heatUI.push(o); return o }
+    const T = (x: number, y: number, s: string, size: number, color: string, ox = 0) =>
+      push(this.add.text(x, y, s, { fontFamily: 'monospace', fontSize: size + 'px', color }).setOrigin(ox, 0).setScrollFactor(0).setDepth(251))
+    const unlocked = loadHeatUnlocked()
+
+    push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.985).setScrollFactor(0).setDepth(250).setInteractive())
+    push(this.add.text(256, 20, '🔥 APEX HEAT', { fontFamily: 'monospace', fontSize: '18px', color: '#f97316', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+
+    const back = () => {
+      const b = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+      b.on('pointerdown', () => this.closeHeat())
+    }
+
+    if (unlocked < 1) {
+      T(256, 150, 'Clear the campaign to unlock Apex Heat.', 11, '#a5b4fc', 0.5)
+      T(256, 172, 'Then climb stacking difficulty tiers — each with its own board.', 9, '#71717a', 0.5)
+      back(); return
+    }
+
+    T(256, 40, 'ascension · clear a tier to unlock the next · Armory ON', 8, '#71717a', 0.5)
+
+    // Tier selector (◄ / ►, click / keys / d-pad). Only unlocked tiers are selectable.
+    const m = heatMods(this.heatSel)
+    const arrow = (x: number, glyph: string, dir: number, on: boolean) => {
+      const a = push(this.add.text(x, 66, glyph, { fontFamily: 'monospace', fontSize: '18px', color: on ? '#f97316' : '#3f3f46', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+      if (on) { a.setInteractive({ useHandCursor: true }); a.on('pointerdown', () => this.setHeatSel(this.heatSel + dir)) }
+    }
+    arrow(150, '◄', -1, this.heatSel > 1)
+    push(this.add.text(256, 66, 'HEAT ' + this.heatSel + ' · ' + m.name, { fontFamily: 'monospace', fontSize: '15px', color: '#fb923c', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    arrow(362, '►', 1, this.heatSel < unlocked)
+    T(256, 90, 'unlocked: HEAT ' + unlocked + ' / ' + MAX_HEAT, 8, '#52525b', 0.5)
+
+    // Modifier readout
+    const pct = (v: number) => (v >= 1 ? '+' : '') + Math.round((v - 1) * 100) + '%'
+    T(256, 110, 'enemies ' + pct(m.hp) + ' HP  ·  ' + pct(m.spd) + ' speed  ·  ' + m.elite.toFixed(1) + '× elites  ·  ' + Math.round(m.pods * 100) + '% drops', 9, '#c4b5fd', 0.5)
+
+    const play = push(this.add.text(256, 138, '▶  PLAY HEAT ' + this.heatSel, { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold', backgroundColor: '#f97316', padding: { x: 14, y: 6 } }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    play.on('pointerover', () => play.setAlpha(0.85)); play.on('pointerout', () => play.setAlpha(1))
+    play.on('pointerdown', () => this.startHeat(this.heatSel))
+
+    T(256, 166, '— HEAT ' + this.heatSel + ' BOARD —', 9, '#52525b', 0.5)
+    if (!data) { T(256, 192, 'loading…', 11, '#a5b4fc', 0.5); back(); return }
+    if (!data.online) { T(256, 196, 'board offline', 10, '#71717a', 0.5); back(); return }
+    const mine = myWallet()
+    const short = (w: string) => w.slice(0, 6) + '…' + w.slice(-4)
+    if (data.top.length === 0) T(256, 200, 'No clears yet at this tier — set the pace.', 10, '#a5b4fc', 0.5)
+    data.top.slice(0, 6).forEach((r, i) => {
+      const y = 186 + i * 17
+      const you = !!mine && r.wallet.toLowerCase() === mine
+      const c = you ? '#fde68a' : '#e9d5ff'
+      T(120, y, '#' + (i + 1), 10, i < 3 ? '#fb923c' : '#a1a1aa')
+      T(156, y, (r.handle || short(r.wallet)) + (you ? '  (you)' : ''), 10, c)
+      T(338, y, 'S' + r.sector, 9, you ? '#fde68a' : '#9ca3af', 1)
+      T(392, y, String(r.score), 10, c, 1)
+    })
+    if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
+      T(256, 312, `YOU  ·  #${data.you.rank}  ·  S${data.you.sector}  ·  ${data.you.score}`, 10, '#fde68a', 0.5)
+    }
+    back()
+  }
+
   private beginRebind(action: PadBindAction, val: Phaser.GameObjects.Text) {
     this.rebinding = action
     this.rebindArmed = false          // must see all buttons release first, so this tap can't self-bind
@@ -3346,6 +3483,14 @@ export class MainScene extends Phaser.Scene {
     trials.on('pointerdown', () => this.openTrials())
     els.push(trials)
     this.titleNav.push({ obj: trials, act: () => this.openTrials() })
+    // APEX HEAT — ascension ladder (endgame). Centre of the mode row; the screen explains the unlock.
+    const heatLocked = loadHeatUnlocked() < 1
+    const heat = this.add.text(256, 294, '🔥 HEAT', { fontFamily: 'monospace', fontSize: '11px', color: heatLocked ? '#9a5b3b' : '#f97316', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    heat.on('pointerover', () => heat.setColor('#fdba74'))
+    heat.on('pointerout', () => heat.setColor(heatLocked ? '#9a5b3b' : '#f97316'))
+    heat.on('pointerdown', () => this.openHeat())
+    els.push(heat)
+    this.titleNav.push({ obj: heat, act: () => this.openHeat() })
     // Don't-break-the-chain streak nudge (per-device).
     const ds = getDailyStreak()
     if (ds.streak > 0) {
@@ -3401,7 +3546,7 @@ export class MainScene extends Phaser.Scene {
     this.startKeyHandler = (e: KeyboardEvent) => {
       if (this.time.now < this.startGraceUntil) return
       // Inert while any overlay owns the screen (its own handlers drive it).
-      if (this.dailyOpen || this.trialsOpen || this.intelOpen || this.badgesOpen || this.armoryOpen || this.leaderboardOpen || this.controlsOpen) return
+      if (this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.badgesOpen || this.armoryOpen || this.leaderboardOpen || this.controlsOpen) return
       const k = e.key
       if (k === 'ArrowUp' || k === 'ArrowLeft') { this.titleNavMove(-1); return }
       if (k === 'ArrowDown' || k === 'ArrowRight') { this.titleNavMove(1); return }
@@ -3459,7 +3604,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private beginPlay() {
-    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.badgesOpen) return
+    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.badgesOpen) return
     if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     if (!this.dailyRun && !this.rushRun) { this.applyArmory(); this.updateHealth(); this.livesText?.setText('LIVES  ' + this.lives) }   // pick up any upgrade bought on the title (Daily/Trials set their own kit)
@@ -3531,6 +3676,18 @@ export class MainScene extends Phaser.Scene {
         if (dir !== 0 && this.intelPadPrev === 0) this.setIntelTab(this.intelTab + dir)
         this.intelPadPrev = dir
         if (gp.buttons[1]) this.closeIntel()
+      }
+      return
+    }
+    if (this.heatOpen) {   // APEX HEAT select: d-pad ◄► picks a tier, a face button plays it, B closes
+      const gp = this.readPad()
+      if (gp && time > this.startGraceUntil) {
+        const ax = gp.axes[0] || 0
+        const dir = (gp.buttons[15] || ax > 0.5) ? 1 : (gp.buttons[14] || ax < -0.5) ? -1 : 0
+        if (dir !== 0 && this.heatPadPrev === 0) this.setHeatSel(this.heatSel + dir)
+        this.heatPadPrev = dir
+        if (gp.buttons[1]) this.closeHeat()
+        else if (gp.buttons[0] || gp.buttons[2] || gp.buttons[3]) this.startHeat(this.heatSel)
       }
       return
     }
@@ -4749,7 +4906,7 @@ export class MainScene extends Phaser.Scene {
     if (isElite) { this.fxFlash(120, 253, 224, 71, false); this.popup(enemy.x, enemy.y - 40, 'ELITE DOWN', '#fde047'); this.zoomPunch(1.08, 300); this.slowmo(0.55, 200) }
     else if (type === 'tank' || type === 'turret') this.fxFlash(90, 200, 120, 255, false)
     // Elites always drop; grunts drop 30% of the time.
-    if (isElite || Math.random() < 0.3) {
+    if (isElite || Math.random() < 0.3 * (this.heatRun && this.heatTier > 0 ? heatMods(this.heatTier).pods : 1)) {
       const kinds = ['health', 'spread', 'rapid', 'laser', 'fire', 'arc']
       this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
     }
@@ -4845,7 +5002,7 @@ export class MainScene extends Phaser.Scene {
     this.hitstop(isElite ? 70 : 28)
     this.fxShake(isElite ? 140 : 60, isElite ? 0.018 : 0.012)
     this.sfx?.stomp(this.panAt(enemy.x))
-    if (isElite || Math.random() < 0.3) {
+    if (isElite || Math.random() < 0.3 * (this.heatRun && this.heatTier > 0 ? heatMods(this.heatTier).pods : 1)) {
       const kinds = ['health', 'spread', 'rapid', 'laser', 'fire', 'arc']
       this.spawnPowerup(enemy.x, enemy.y, kinds[Math.floor(Math.random() * kinds.length)])
     }
@@ -5144,6 +5301,28 @@ export class MainScene extends Phaser.Scene {
     }).catch(() => { /* offline — the local best line already stands in */ })
   }
 
+  // APEX HEAT results line: the post-commit rank + named rival on THIS tier's board. Token-guarded.
+  private heatExtras(submit: Promise<SubmitResult | null> | null, token: number) {
+    if (!submit) return
+    const tier = this.heatTier
+    const line = (s: string) => {
+      if (!this.gameOver || this.deathToken !== token) return
+      this.add.text(256, 249, s, { fontFamily: 'monospace', fontSize: '9px', color: '#f97316' })
+        .setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    }
+    submit.then((r) => {
+      if (!r || !r.rank) return
+      let s = '◆  HEAT ' + tier + ' RANK  #' + r.rank
+      if (r.next) {
+        const who = (r.next.handle || 'RIVAL').slice(0, 12)
+        const mine = r.best?.score ?? this.score
+        const gap = Math.max(1, r.next.score - mine).toLocaleString()
+        s = '◆  HEAT ' + tier + ' #' + r.rank + '   ▲ ' + gap + ' to pass ' + who
+      }
+      line(s)
+    }).catch(() => { /* offline — local best line stands in */ })
+  }
+
   private deathExtras(sector: number, prevBest: number, record: boolean, submit: Promise<SubmitResult | null> | null, token: number, win: boolean) {
     this.shareRank = null   // the flex card reads this once the POST resolves (below)
     const delta = this.score - prevBest
@@ -5226,7 +5405,7 @@ export class MainScene extends Phaser.Scene {
   // A death/victory/pause restart. Non-daily runs quick-retry straight back into play (skip the
   // title); a daily death is a one-run board so it — and the explicit [ TITLE ] link — go home.
   private restartRun(toTitle = false) {
-    this.scene.restart(toTitle || this.dailyRun || this.rushRun ? {} : { quickRetry: true })
+    this.scene.restart(toTitle || this.dailyRun || this.rushRun || this.heatRun ? {} : { quickRetry: true })
   }
 
   // The small secondary "back to the title" link on a death/victory screen (depth 202 so it sits
@@ -5262,12 +5441,16 @@ export class MainScene extends Phaser.Scene {
     const token = ++this.deathToken
     let submit: Promise<SubmitResult | null> | null = null
     let trialsSubmit: Promise<SubmitResult | null> | null = null
+    let heatSubmit: Promise<SubmitResult | null> | null = null
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
     else if (this.rushRun) trialsSubmit = submitTrials(weekKey(), this.score, this.rushIndex)   // post the run to the weekly Trials board
+    else if (this.heatRun) heatSubmit = submitAscension(this.heatTier, this.score, this.level)  // post to the per-tier HEAT board
     else submit = submitScore(this.score, this.level)     // campaign posts to the global board
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
-    const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score) : this.saveBest()
+    const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score)
+      : this.heatRun ? { best: this.score, record: false, prevBest: this.score }   // heat has its own boards; don't touch the campaign best
+      : this.saveBest()
     this.evalBadges(false)
     this.settleBounties()
     this.gameOverAt = this.time.now
@@ -5279,15 +5462,18 @@ export class MainScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.restartRun() })
     this.add.text(256, 96, 'MISSION FAILED', { fontFamily: 'monospace', fontSize: '21px', color: '#f43f5e' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.resultsCard(record)
-    const midline = this.rushRun ? 'APEX TRIALS  ·  ' + this.rushIndex + '/' + this.rushOrder.length + ' bosses' : 'Reached Sector ' + this.level
+    const midline = this.rushRun ? 'APEX TRIALS  ·  ' + this.rushIndex + '/' + this.rushOrder.length + ' bosses'
+      : this.heatRun ? 'APEX HEAT ' + this.heatTier + '  ·  Reached Sector ' + this.level
+      : 'Reached Sector ' + this.level
     this.add.text(256, 212, midline, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     if (this.rushRun) this.trialsExtras(trialsSubmit, token)
+    else if (this.heatRun) this.heatExtras(heatSubmit, token)
     else if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token, false)
-    const btn = this.add.text(256, 268, (this.dailyRun || this.rushRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ RETRY — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
+    const btn = this.add.text(256, 268, (this.dailyRun || this.rushRun || this.heatRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ RETRY — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
-    if (!this.dailyRun && !this.rushRun) this.titleLink()
+    if (!this.dailyRun && !this.rushRun && !this.heatRun) this.titleLink()
   }
 
   private showVictory() {
@@ -5298,27 +5484,38 @@ export class MainScene extends Phaser.Scene {
     const token = ++this.deathToken
     let submit: Promise<SubmitResult | null> | null = null
     let trialsSubmit: Promise<SubmitResult | null> | null = null
+    let heatSubmit: Promise<SubmitResult | null> | null = null
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
     else if (this.rushRun) trialsSubmit = submitTrials(weekKey(), this.score, this.rushIndex)   // post the clear to the weekly Trials board
+    else if (this.heatRun) heatSubmit = submitAscension(this.heatTier, this.score, this.level)  // post the clear to the per-tier HEAT board
     else submit = submitScore(this.score, this.level)     // campaign posts to the global board
+    // Clearing the campaign — the base run OR a heat tier — unlocks the next Heat tier.
+    const unlock = (!this.dailyRun && !this.rushRun) ? noteCampaignClear(this.heatTier) : null
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
-    const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score) : this.saveBest()
+    const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score)
+      : this.heatRun ? { best: this.score, record: false, prevBest: this.score }
+      : this.saveBest()
     this.evalBadges(!this.rushRun)   // a Trials clear isn't a campaign win (no CHAMPION), but kills/combos/boss-mask still fold in
     this.settleBounties()
     this.gameOverAt = this.time.now
     this.add.rectangle(256, 192, 512, 384, 0x0a0612, 0.9).setScrollFactor(0).setDepth(200).setInteractive()
       .on('pointerdown', () => { if (this.time.now > this.gameOverAt + 400) this.restartRun() })
     this.input.keyboard!.on('keydown', () => { if (this.gameOver && this.time.now > this.gameOverAt + 400) this.restartRun() })
-    this.add.text(256, 92, this.rushRun ? 'TRIALS CLEARED' : 'SECTOR DOMINATED', { fontFamily: 'monospace', fontSize: '19px', color: '#22d3ee' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    this.add.text(256, 92, this.rushRun ? 'TRIALS CLEARED' : this.heatRun ? 'HEAT ' + this.heatTier + ' CLEARED' : 'SECTOR DOMINATED', { fontFamily: 'monospace', fontSize: '19px', color: this.heatRun ? '#f97316' : '#22d3ee' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.resultsCard(record)
-    this.add.text(256, 212, this.rushRun ? 'All ' + this.rushOrder.length + ' bosses down — Apex Trials complete.' : 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    const subtitle = this.rushRun ? 'All ' + this.rushOrder.length + ' bosses down — Apex Trials complete.'
+      : this.heatRun ? 'APEX HEAT ' + this.heatTier + ' · ' + heatMods(this.heatTier).name + ' conquered.'
+      : 'The Huntress claims the Apex.'
+    this.add.text(256, 212, subtitle, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     if (this.rushRun) this.trialsExtras(trialsSubmit, token)
+    else if (this.heatRun) this.heatExtras(heatSubmit, token)
     else if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token, true)
-    const btn = this.add.text(256, 268, this.rushRun ? '[ CLICK / TAP TO CONTINUE ]' : '[ PLAY AGAIN — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
+    if (unlock && unlock.raised) this.time.delayedCall(650, () => { if (this.gameOver) this.screenToast('🔥 APEX HEAT ' + unlock.unlocked + ' UNLOCKED', '#f97316', 150) })
+    const btn = this.add.text(256, 268, (this.rushRun || this.heatRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ PLAY AGAIN — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
-    if (!this.dailyRun && !this.rushRun) this.titleLink()
+    if (!this.dailyRun && !this.rushRun && !this.heatRun) this.titleLink()
   }
 }
