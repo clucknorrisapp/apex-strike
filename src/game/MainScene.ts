@@ -8,7 +8,7 @@ import { recordSplit, fmtTime, fmtDelta } from './splits'
 import { heatMods, loadHeatUnlocked, noteCampaignClear, noteHeatClear, MAX_HEAT } from './heat'
 import { DOCTRINES, selectedDoctrine, loadSelected, saveSelected, doctrineById, type DoctrinePassive } from './loadouts'
 import { loadRank, currentRank, rankTitle, rankBadge, prestigeGlyph, rankBandColor, toNextRank, cumulativeCost, enlist as enlistShards } from './rank'
-import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, submitRank, fetchRanks, submitSeason, fetchSeason, monthKey, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type RankData, type SeasonData, type SubmitResult } from '../net/leaderboard'
+import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, submitRank, fetchRanks, submitSeason, fetchSeason, monthKey, loadRival, saveRival, clearRival, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type RankData, type SeasonData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, claimDailyDividend, pendingDividend, claimCampaignDaily, type DailyMod } from './daily'
 import { evalBounties, todayBounties, loadBountyState, bountyDoneCount } from './bounties'
 import { foldRun as foldContracts, contractProgress } from './contracts'
@@ -6183,6 +6183,17 @@ export class MainScene extends Phaser.Scene {
     // next-run goal. Offline / no wallet falls back to a read-only board read.
     Promise.all([submit || Promise.resolve(null), seasonSubmit || Promise.resolve(null)]).then(([r, se]) => {
       if (r && r.rank && this.gameOver && this.deathToken === token) this.shareRank = r.rank   // flex card reads the all-time rank
+      // PERSISTENT RIVAL — pin the season rung above you and celebrate a run that passes the rival you've
+      // been chasing across sessions, then re-pin the next rung. Turns an anonymous rank into a grudge match.
+      if (se && se.best && this.gameOver && this.deathToken === token) {
+        const pinned = loadRival()
+        if (pinned && se.best.score >= pinned.score) {
+          this.screenToast('★ OVERTOOK ' + pinned.handle, '#fde68a', 64); this.sfx?.fanfare()
+          if (se.next) saveRival({ handle: (se.next.handle || 'RIVAL').slice(0, 16), score: se.next.score }); else clearRival()   // cleared = you reached the top
+        } else if (se.next) {
+          saveRival({ handle: (se.next.handle || 'RIVAL').slice(0, 16), score: se.next.score })
+        }
+      }
       if (se && se.rank) {
         let line = '◆  SEASON #' + se.rank + (r && r.rank ? '  ·  ALL-TIME #' + r.rank : '')
         if (se.next) {
