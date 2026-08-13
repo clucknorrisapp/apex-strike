@@ -1170,15 +1170,8 @@ export class MainScene extends Phaser.Scene {
     this.dailyRun = false                  // reset here — instance fields survive scene.restart()
     this.rushRun = false; this.rushIndex = 0
     // Apex Armory — apply persistent upgrades to this run's starting stats.
-    const meta = loadMeta()
-    this.maxHealth = 6 + meta.up.vitality
-    this.maxJumps = MAX_JUMPS + meta.up.boots
-    this.fireBonus = meta.up.firepower * 12
-    this.dashLevel = meta.up.dash
-    this.dashCd = this.dashLevel >= 2 ? 480 : 700
+    this.applyArmory()
     this.dashUntil = 0; this.dashCdUntil = 0; this.dashIframeUntil = 0; this.prevDash = false
-    this.health = this.maxHealth
-    this.lives = 3 + meta.up.reserves
     this.runStartAt = Date.now()   // playtest telemetry: new run
     this.deathsThisRun = 0
     this.runNoHit = true
@@ -2725,8 +2718,8 @@ export class MainScene extends Phaser.Scene {
     const d = this.levels()[0]
     this.player.setPosition(d.spawn[0], d.spawn[1]); this.player.setVelocity(0, 0)
     this.lastGroundX = d.spawn[0]; this.lastGroundY = d.spawn[1]
-    this.health = this.maxHealth; this.jumpsLeft = this.maxJumps
-    this.updateHealth()
+    this.applyArmory()   // Trials fights with your Armory kit — pick up any upgrade bought on the title
+    this.updateHealth(); this.livesText.setText('LIVES  ' + this.lives)
     this.levelText.setText('TRIALS')
     this.startGraceUntil = 0
     this.started = true
@@ -3066,10 +3059,25 @@ export class MainScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown', this.startKeyHandler)
   }
 
+  // Apply persistent Apex Armory upgrades to this run's starting stats. Called at create() AND at
+  // the moment a run actually begins, so an upgrade BOUGHT on the title takes effect THIS run, not next.
+  private applyArmory() {
+    const meta = loadMeta()
+    this.maxHealth = 6 + meta.up.vitality
+    this.maxJumps = MAX_JUMPS + meta.up.boots
+    this.fireBonus = meta.up.firepower * 12
+    this.dashLevel = meta.up.dash
+    this.dashCd = this.dashLevel >= 2 ? 480 : 700
+    this.lives = 3 + meta.up.reserves
+    this.health = this.maxHealth
+    this.jumpsLeft = this.maxJumps
+  }
+
   private beginPlay() {
     if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.badgesOpen) return
     if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
+    if (!this.dailyRun && !this.rushRun) { this.applyArmory(); this.updateHealth(); this.livesText?.setText('LIVES  ' + this.lives) }   // pick up any upgrade bought on the title (Daily/Trials set their own kit)
     this.started = true
     this.sfx?.resume()
     this.sfx?.startMusic(this.levels()[this.level - 1]?.theme ?? 'streets')
@@ -4492,7 +4500,8 @@ export class MainScene extends Phaser.Scene {
         let line = '◆  GLOBAL RANK  #' + r.rank
         if (r.next) {
           const who = (r.next.handle || 'RIVAL').slice(0, 12)
-          const gap = Math.max(1, r.next.score - this.score).toLocaleString()
+          const mine = r.best?.score ?? this.score          // rank/rival are computed vs your BEST, so gap must be too
+          const gap = Math.max(1, r.next.score - mine).toLocaleString()
           line = '◆  RANK #' + r.rank + '    ▲ ' + gap + ' to pass ' + who
         }
         rankLine(line)
