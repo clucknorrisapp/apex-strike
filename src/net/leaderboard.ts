@@ -77,6 +77,37 @@ export async function submitDaily(day: string, score: number, sector: number): P
   } catch { /* offline / no board — ignore */ }
 }
 
+// ---- Weekly APEX TRIALS board (scoped by ISO week key; row.sector = bosses cleared 0..7) ----
+export interface TrialsData { online: boolean; week: string; top: BoardRow[]; you: BoardYou | null; next: RivalRow | null }
+
+export async function fetchTrials(week: string): Promise<TrialsData> {
+  try {
+    const w = myWallet()
+    const res = await fetch('/api/trials?week=' + encodeURIComponent(week) + (w ? '&wallet=' + w : ''), { headers: { accept: 'application/json' } })
+    const d = await res.json()
+    return { online: !!d.online, week, top: Array.isArray(d.top) ? d.top : [], you: d.you || null, next: d.next || null }
+  } catch { return { online: false, week, top: [], you: null, next: null } }
+}
+
+// Post a TRIALS run and return the authoritative weekly rank + rival the server computes after the
+// upsert commits (mirrors submitScore, so the Trials results screen shows a real standing). bosses =
+// how many of the 7 gauntlet bosses fell this run. No-ops (returns null) with no wallet / offline.
+export async function submitTrials(week: string, score: number, bosses: number): Promise<SubmitResult | null> {
+  const wallet = myWallet()
+  if (!wallet) return null
+  try {
+    const res = await fetch('/api/trials/scores', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ week, wallet, handle: localHandle() || undefined, score: Math.max(0, Math.round(score)), sector: Math.max(0, Math.min(7, Math.round(bosses))) }),
+      keepalive: true,
+    })
+    if (!res.ok) return null
+    const d = await res.json()
+    return { ok: !!d.ok, best: d.best || null, rank: typeof d.rank === 'number' ? d.rank : null, next: d.next || null }
+  } catch { return null }
+}
+
 export async function setHandle(handle: string): Promise<boolean> {
   const clean = cleanHandle(handle)
   if (!clean) return false
