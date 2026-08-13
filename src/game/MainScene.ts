@@ -3541,9 +3541,14 @@ export class MainScene extends Phaser.Scene {
     if (!this.rankOpen) return
     const before = loadMeta().shards
     if (before <= 0) return
+    const oldRank = currentRank()
     const newRank = enlistShards()   // moves every banked shard into enlisted; returns the resulting rank
     this.sfx?.pickup()
     this.screenToast('◆ ENLISTED ' + before + ' → RANK ' + newRank, '#a5b4fc', 130)
+    if (newRank > oldRank && rankTitle(newRank) !== rankTitle(oldRank)) {
+      // crossed into a new Insignia band — celebrate the promotion in the band's colour
+      this.time.delayedCall(380, () => { if (this.rankOpen) { this.screenToast('★ PROMOTED — ' + rankTitle(newRank), rankBandColor(newRank), 240); this.sfx?.crit() } })
+    }
     submitRank(newRank).then((res) => { if (res && this.rankOpen) fetchRanks().then((d) => { this.rankData = d; if (this.rankOpen) this.buildRankScreen() }) })
     this.buildRankScreen()
     try { window.dispatchEvent(new Event('apex-armory-changed')) } catch { /* SSR/none */ }
@@ -3875,11 +3880,25 @@ export class MainScene extends Phaser.Scene {
       els.push(this.add.text(256, 307, '★ ' + ds.streak + '-DAY STREAK' + tail,
         { fontFamily: 'monospace', fontSize: '8px', color: ds.playedToday ? '#4ade80' : '#fbbf24' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
     }
-    // Apex Armory — banked shards + Apex Rank prestige (if any).
+    // Apex shard bank + APEX RANK prestige — an interactive gateway to the RANK screen (the endgame
+    // shard sink, buried till now with no title entry). Shows the Insignia glyph + band colour when
+    // ranked so the flex reads at a glance; registered in titleNav for pad users.
     const bank = loadMeta().shards
     const rk = currentRank()
-    const bankStr = bank > 0 ? ('◆ ' + bank + '  BANKED') : 'collect ◆ shards to fund upgrades'
-    els.push(this.add.text(256, 318, bankStr + (rk > 0 ? '   ·   ◆ RANK ' + rk + ' ' + rankTitle(rk) : ''), { fontFamily: 'monospace', fontSize: '9px', color: bank > 0 || rk > 0 ? '#67e8f9' : '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    if (rk > 0 || bank > 0) {
+      const label = rk > 0
+        ? '◆ ' + bank + '  ·  ' + prestigeGlyph(rk) + ' RANK ' + rk + ' ' + rankTitle(rk) + '  ▸'
+        : '◆ ' + bank + ' BANKED  ·  ENLIST FOR RANK  ▸'
+      const base = rk > 0 ? rankBandColor(rk) : '#67e8f9'
+      const rankLine = this.add.text(256, 318, label, { fontFamily: 'monospace', fontSize: '9px', color: base, fontStyle: rk > 0 ? 'bold' : 'normal' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+      rankLine.on('pointerover', () => rankLine.setColor('#f5f3ff'))
+      rankLine.on('pointerout', () => rankLine.setColor(base))
+      rankLine.on('pointerdown', () => this.openRank())
+      els.push(rankLine)
+      this.titleNav.push({ obj: rankLine, act: () => this.openRank() })
+    } else {
+      els.push(this.add.text(256, 318, 'collect ◆ shards to fund upgrades', { fontFamily: 'monospace', fontSize: '9px', color: '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    }
     // Badge case — tap to view the achievement grid; shows earned / total.
     const bc = achievementCount()
     const badgeCol = bc.unlocked > 0 ? '#c084fc' : '#52525b'
