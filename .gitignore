@@ -143,3 +143,6 @@ vite.config.ts.timestamp-*
 .vite/
 
 package-lock.json
+
+# Session scratch — headless probes, deploy-poll scripts and their output. Throwaway, never shipped.
+scratchpad/
