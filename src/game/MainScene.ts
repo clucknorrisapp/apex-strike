@@ -857,8 +857,8 @@ const BOSS_MOVE_CLASS: Record<string, 'charge' | 'lunge' | 'summon'> = {
 // you (move!), GOLD = a spread/volley (weave to the edge), GREEN = a curtain with one safe lane (find it),
 // VIOLET = a summon/trap (watch for spawns). Any move not listed falls back to the classic gold.
 const BOSS_TELE_COLOR: Record<string, number> = {
-  lance: 0xff5555, seeker: 0xff5555, dash: 0xff5555, dive: 0xff5555, pound: 0xff5555,
-  burst: 0xffe08a, fan: 0xffe08a, spread: 0xffe08a, sweep: 0xffe08a, lob: 0xffe08a,
+  lance: 0xff5555, seeker: 0xff5555, dash: 0xff5555, dive: 0xff5555, pound: 0xff5555, burst: 0xff5555,   // burst = 3 AIMED bolts → RED (move!)
+  fan: 0xffe08a, spread: 0xffe08a, sweep: 0xffe08a, lob: 0xffe08a,
   ring: 0xffe08a, nova: 0xffe08a, spiral: 0xffe08a, cross: 0xffe08a,
   curtain: 0x86efac,
   mines: 0xc4b5fd, summon: 0xc4b5fd,
@@ -5210,7 +5210,7 @@ export class MainScene extends Phaser.Scene {
       this.slowmo(0.5, 260)
       this.sfx?.enrage()
       this.sfx?.bossLeitmotif(BOSS_LEITMOTIF[kind] || [], true)
-      enemy.setData('atkT', 340)
+      enemy.setData('atkT', 340); enemy.setData('tele2', false); this.restoreTint(enemy)   // drop any live telegraph so the new phase's pool re-telegraphs cleanly (no stale colour/audio)
     }
     if (hp / maxHp < 0.2 && this.bossPhase === 2) {   // LAST STAND — a desperation phase at 20% HP
       this.bossPhase = 3
@@ -5221,7 +5221,7 @@ export class MainScene extends Phaser.Scene {
       this.slowmo(0.42, 300)
       this.sfx?.enrage()
       this.sfx?.bossLeitmotif(BOSS_LEITMOTIF[kind] || [], true)
-      enemy.setData('atkT', 300)
+      enemy.setData('atkT', 300); enemy.setData('tele2', false); this.restoreTint(enemy)   // drop any live telegraph so the LAST STAND pool re-telegraphs cleanly
     }
     const p2 = this.bossPhase >= 2        // phase-2 behaviours persist into phase 3 (was === 2, which reverted at p3)
     const p3 = this.bossPhase === 3
@@ -5242,8 +5242,10 @@ export class MainScene extends Phaser.Scene {
     enemy.x = Phaser.Math.Clamp(enemy.x, 140, this.levelW - 140)
     enemy.y = Phaser.Math.Clamp(enemy.y, 110, 575)
 
-    // attack cadence + pre-move telegraph
-    let atkT = ((enemy.getData('atkT') as number) ?? 1000) - delta
+    // attack cadence + pre-move telegraph. FREEZE the countdown mid-dash: a phase-3 lunge (dashUntil up
+    // to ~600ms) outlasts the 300ms telegraph window, so counting down during it would fire the NEXT move
+    // with no tell. Freezing means the telegraph always gets its full lead once the lunge resolves.
+    let atkT = ((enemy.getData('atkT') as number) ?? 1000) - (dashing ? 0 : delta)
     if (atkT <= 300 && !enemy.getData('tele2') && !dashing) {
       enemy.setData('tele2', true)
       // Telegraph the move about to fire BOTH ways — an audio cue AND a per-move-class tint + shockwave
