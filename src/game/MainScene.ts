@@ -937,6 +937,7 @@ export class MainScene extends Phaser.Scene {
   private maxCombo = 0
   private bossesThisRun = 0     // bosses downed this run — feeds daily bounties
   private grazeCount = 0        // RAZOR GRAZE near-misses this run
+  private tipsShown = new Set<string>()   // session cache so a just-in-time tip is evaluated once
   private heartT = 0                 // countdown to the next low-health heartbeat thump
   private prevOnGround = false
   private fallSpeed = 0
@@ -3362,6 +3363,22 @@ export class MainScene extends Phaser.Scene {
     this.tweens.add({ targets: t, alpha: 1, duration: 160, yoyo: true, hold: 800, onComplete: () => t.destroy() })
   }
 
+  // Just-in-time teaching: the first time a mechanic becomes relevant (a telegraph, a graze, a second
+  // gun, the guardian), show ONE readable tip — once ever (localStorage), campaign-only, early levels.
+  // Spaced contextual tips teach action mechanics far better than one front-loaded wall of text.
+  private tipOnce(key: string, text: string, color = '#67e8f9') {
+    if (this.tipsShown.has(key)) return
+    if (this.dailyRun || this.rushRun || this.heatRun || this.level > 2 || this.gameOver) return
+    this.tipsShown.add(key)                       // don't re-evaluate this session
+    let seen = false
+    try { seen = localStorage.getItem('apex_tip_' + key) === '1' } catch { seen = true }
+    if (seen) return                              // already taught in a past session
+    try { localStorage.setItem('apex_tip_' + key, '1') } catch { /* storage blocked */ }
+    const t = this.add.text(256, 150, text, { fontFamily: 'monospace', fontSize: '10px', color, backgroundColor: 'rgba(10,6,18,0.85)', padding: { x: 9, y: 5 }, align: 'center' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(232).setAlpha(0)
+    this.tweens.add({ targets: t, alpha: 1, duration: 200, yoyo: true, hold: 2600, onComplete: () => t.destroy() })
+  }
+
   private togglePause() {
     if (this.controlsOpen) return
     if (!this.started || this.gameOver || this.levelTransition || !this.player?.active) return
@@ -3902,6 +3919,7 @@ export class MainScene extends Phaser.Scene {
       this.nextBossKind = eb.kind
       this.spawnEnemy('boss', eb.x, eb.y, eb.hp, eb.speed)   // roar + shake fire inside spawnEnemy now
       this.screenToast('⚠ GUARDIAN  ·  ' + eb.label, '#f43f5e', 110)
+      this.tipOnce('dash', 'DASH through danger — i-frames dodge shots,\nand dashing THROUGH a foe guts it (Phase Strike)', '#22d3ee')
     }
 
     // Reached the extraction point? Boss stages clear by kill-all; guardian stages stay
@@ -3942,6 +3960,7 @@ export class MainScene extends Phaser.Scene {
       if (d <= inner || d >= outer) return
       b.setData('grazed', true)
       this.grazeCount++
+      this.tipOnce('graze', 'RAZOR GRAZE — shaving a bolt scores\n+ keeps your combo alive', '#a5f3fc')
       this.score += 5; this.scoreText.setText('SCORE  ' + this.score)
       if (this.combo > 0) this.comboTimer = Math.min(2400, this.comboTimer + 420)   // tight dodging sustains a chain
       this.particles.emitParticleAt(b.x, b.y, 2)
@@ -4605,6 +4624,7 @@ export class MainScene extends Phaser.Scene {
           enemy.setTintFill(0xffe08a)
           this.time.delayedCall(type === 'sniper' ? 260 : 170, () => this.restoreTint(enemy))
           this.sfx?.turretTele(this.panAt(enemy.x))
+          this.tipOnce('punish', 'they FLASH before firing — dodge it,\nor shoot the flash to PUNISH (2× dmg)', '#fbbf24')
         }
         if (timer <= 0 && near && alive) {
           enemy.setData('tele', false)
@@ -5211,6 +5231,7 @@ export class MainScene extends Phaser.Scene {
       if (kind !== this.weapon) {
         // Two-weapon carry: the new gun becomes active; the previous one drops to the backup slot.
         this.altWeapon = this.weapon; this.weapon = kind as typeof this.weapon
+        this.tipOnce('swap', 'TWO GUNS now — swap anytime with Q\n(or the SWAP button)', '#c4b5fd')
       } else {
         // Same gun again — bank mastery instead of wasting the pod.
         const lv = Math.min(2, (this.weaponLvl[kind] || 0) + 1)
