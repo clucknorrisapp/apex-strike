@@ -284,6 +284,9 @@ const WEEK_RE = /^\d{4}-W\d{2}$/       // ISO week key, e.g. 2026-W33 (matches r
 const MAX_BOSSES = 7                    // TRIALS is a 7-boss gauntlet; the "sector" column holds bosses cleared (0..7)
 const MAX_HEAT = 8                      // APEX HEAT ascension tiers 1..8 (matches heat.ts MAX_HEAT)
 const MAX_MS = 24 * 60 * 60 * 1000     // sanity cap on a clear time (24h); anything longer is rejected
+const MIN_MS = 30 * 1000               // plausibility floor: a full 6-sector / 6-boss clear can't happen under 30s.
+                                       // The board ranks ascending, so without a floor a fabricated ms:1 would own
+                                       // rank #1 permanently and unbeatably — this rejects that whole class of fakes.
 
 app.get('/api/daily', async (req, res) => {
   const day = String(req.query.day || '')
@@ -490,7 +493,7 @@ app.post('/api/speedruns/scores', async (req, res) => {
   const sector = Number(b.sector)
   const handle = sanitizeHandle(b.handle)
   if (!WALLET_RE.test(wallet)) return res.status(400).json({ ok: false, error: 'bad wallet' })
-  if (!Number.isInteger(ms) || ms <= 0 || ms > MAX_MS) return res.status(400).json({ ok: false, error: 'bad time' })
+  if (!Number.isInteger(ms) || ms < MIN_MS || ms > MAX_MS) return res.status(400).json({ ok: false, error: 'bad time' })
   if (!Number.isInteger(sector) || sector < 1 || sector > MAX_SECTOR) return res.status(400).json({ ok: false, error: 'bad sector' })
   if (throttled('r:' + wallet)) return res.status(429).json({ ok: false, error: 'slow down' })
   try {
