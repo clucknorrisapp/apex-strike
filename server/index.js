@@ -288,7 +288,7 @@ app.post('/api/scores', async (req, res) => {
            sector = CASE WHEN EXCLUDED.score > scores.score THEN EXCLUDED.sector ELSE scores.sector END,
            score  = GREATEST(scores.score, EXCLUDED.score),
            runs   = scores.runs + 1,
-           updated_at = now()
+           updated_at = CASE WHEN EXCLUDED.score > scores.score THEN now() ELSE scores.updated_at END
        RETURNING score, sector`, [wallet, score, sector])
     const best = rows[0] || null
     // Rank + rival are computed AFTER the upsert commits in this same request, so the
@@ -380,7 +380,7 @@ app.post('/api/daily/scores', async (req, res) => {
          ON CONFLICT (day, wallet) DO UPDATE SET
            sector = CASE WHEN EXCLUDED.score > daily_scores.score THEN EXCLUDED.sector ELSE daily_scores.sector END,
            score  = GREATEST(daily_scores.score, EXCLUDED.score),
-           updated_at = now()
+           updated_at = CASE WHEN EXCLUDED.score > daily_scores.score THEN now() ELSE daily_scores.updated_at END
        RETURNING score, sector`, [day, wallet, score, sector])
     const best = rows[0] || null
     const rank = best ? await dailyRank(day, best.score) : null
@@ -438,7 +438,7 @@ app.post('/api/trials/scores', async (req, res) => {
          ON CONFLICT (week, wallet) DO UPDATE SET
            sector = CASE WHEN EXCLUDED.score > trials_scores.score THEN EXCLUDED.sector ELSE trials_scores.sector END,
            score  = GREATEST(trials_scores.score, EXCLUDED.score),
-           updated_at = now()
+           updated_at = CASE WHEN EXCLUDED.score > trials_scores.score THEN now() ELSE trials_scores.updated_at END
        RETURNING score, sector`, [week, wallet, score, sector])
     const best = rows[0] || null
     const rank = best ? await trialsRank(week, best.score) : null
@@ -486,7 +486,7 @@ app.post('/api/season/scores', async (req, res) => {
   if (!MONTH_RE.test(season)) return res.status(400).json({ ok: false, error: 'bad month' })
   if (!WALLET_RE.test(wallet)) return res.status(400).json({ ok: false, error: 'bad wallet' })
   if (!Number.isInteger(score) || score < 0 || score > MAX_SCORE) return res.status(400).json({ ok: false, error: 'bad score' })
-  if (!Number.isInteger(sector) || sector < 0 || sector > MAX_BOSSES) return res.status(400).json({ ok: false, error: 'bad sector' })
+  if (!Number.isInteger(sector) || sector < 1 || sector > MAX_SECTOR) return res.status(400).json({ ok: false, error: 'bad sector' })
   if (throttled('se:' + wallet)) return res.status(429).json({ ok: false, error: 'slow down' })
   try {
     if (handle) {
@@ -497,7 +497,7 @@ app.post('/api/season/scores', async (req, res) => {
          ON CONFLICT (season, wallet) DO UPDATE SET
            sector = CASE WHEN EXCLUDED.score > season_scores.score THEN EXCLUDED.sector ELSE season_scores.sector END,
            score  = GREATEST(season_scores.score, EXCLUDED.score),
-           updated_at = now()
+           updated_at = CASE WHEN EXCLUDED.score > season_scores.score THEN now() ELSE season_scores.updated_at END
        RETURNING score, sector`, [season, wallet, score, sector])
     const best = rows[0] || null
     const rank = best ? await seasonRank(season, best.score) : null
@@ -555,7 +555,7 @@ app.post('/api/ascension/scores', async (req, res) => {
          ON CONFLICT (heat, wallet) DO UPDATE SET
            sector = CASE WHEN EXCLUDED.score > ascension_scores.score THEN EXCLUDED.sector ELSE ascension_scores.sector END,
            score  = GREATEST(ascension_scores.score, EXCLUDED.score),
-           updated_at = now()
+           updated_at = CASE WHEN EXCLUDED.score > ascension_scores.score THEN now() ELSE ascension_scores.updated_at END
        RETURNING score, sector`, [heat, wallet, score, sector])
     const best = rows[0] || null
     const rank = best ? await ascensionRank(heat, best.score) : null
@@ -608,7 +608,7 @@ app.post('/api/speedruns/scores', async (req, res) => {
          ON CONFLICT (wallet) DO UPDATE SET
            sector = CASE WHEN EXCLUDED.ms < speedruns.ms THEN EXCLUDED.sector ELSE speedruns.sector END,
            ms     = LEAST(speedruns.ms, EXCLUDED.ms),
-           updated_at = now()
+           updated_at = CASE WHEN EXCLUDED.ms < speedruns.ms THEN now() ELSE speedruns.updated_at END
        RETURNING ms, sector`, [wallet, ms, sector])
     const best = rows[0] || null
     const rank = best ? await speedRank(best.ms) : null
