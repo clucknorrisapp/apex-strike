@@ -6,6 +6,7 @@ import { renderFlexCard, shareCard, type FlexSummary } from './flexcard'
 import { weekKey, bossOrderForWeek, saveTrialsBest, loadTrialsBest } from './rush'
 import { recordSplit, fmtTime, fmtDelta } from './splits'
 import { heatMods, loadHeatUnlocked, noteCampaignClear, MAX_HEAT } from './heat'
+import { DOCTRINES, selectedDoctrine, loadSelected, saveSelected, doctrineById, type DoctrinePassive } from './loadouts'
 import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, submitAscension, fetchAscension, submitSpeedrun, fetchSpeedruns, type BoardData, type DailyData, type TrialsData, type AscensionData, type SpeedData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, type DailyMod } from './daily'
 import { evalBounties, todayBounties, loadBountyState, bountyDoneCount } from './bounties'
@@ -979,6 +980,7 @@ export class MainScene extends Phaser.Scene {
   private weapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' | 'arc' = 'normal'
   // Two-weapon carry: a backup slot you can swap into (Q / touch / gamepad Y).
   private altWeapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' | 'arc' = 'normal'
+  private doctrinePassive: DoctrinePassive = 'refund'   // the active Strike Doctrine's signature passive (Apex Loadouts)
   // Weapon mastery (per kind, 0..2): picking up a pod for the gun you already hold levels it —
   // faster fire + more damage, plus a signature perk (laser pierces, spread gains pellets).
   private weaponLvl: Record<string, number> = { normal: 0, spread: 0, rapid: 0, laser: 0, fire: 0, arc: 0 }
@@ -1037,6 +1039,17 @@ export class MainScene extends Phaser.Scene {
   private closeHeatKey = () => this.closeHeat()
   private heatRun = false                      // this run is an APEX HEAT ascension run (campaign + modifiers)
   private heatTier = 0                         // active heat tier this run (0 = normal campaign)
+  private loadoutOpen = false                  // the APEX LOADOUTS (Strike Doctrine) picker is up
+  private loadoutUI: Phaser.GameObjects.GameObject[] = []
+  private loadoutSel = 0                        // focused doctrine index on the picker
+  private loadoutPadPrev = 0
+  private closeLoadoutKey = () => this.closeLoadout()
+  private loadoutKeyHandler = (e: KeyboardEvent) => {
+    if (!this.loadoutOpen) return
+    if (e.key === 'ArrowLeft') this.setLoadoutSel(this.loadoutSel - 1)
+    else if (e.key === 'ArrowRight') this.setLoadoutSel(this.loadoutSel + 1)
+    else if (e.key === 'Enter' || e.key === ' ') this.selectFocusedDoctrine()
+  }
   private intelKeyHandler = (e: KeyboardEvent) => {
     if (!this.intelOpen) return
     if (e.key === 'ArrowLeft') this.setIntelTab(this.intelTab - 1)
@@ -2847,7 +2860,7 @@ export class MainScene extends Phaser.Scene {
 
   // ---- Badge Case — the achievement grid (per-device, localStorage) ----
   private openBadges() {
-    if (this.badgesOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen) return
+    if (this.badgesOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen) return
     this.badgesOpen = true
     this.buildBadgesScreen()
     this.closeBadgesKey = () => this.closeBadges()
@@ -3328,6 +3341,101 @@ export class MainScene extends Phaser.Scene {
     back()
   }
 
+  // ---- APEX LOADOUTS — Strike Doctrine picker (choose a pre-run identity; campaign/heat/trials) ----
+  private openLoadout() {
+    if (this.loadoutOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.badgesOpen) return
+    this.loadoutOpen = true
+    this.loadoutPadPrev = 0
+    this.loadoutSel = Math.max(0, DOCTRINES.findIndex((d) => d.id === loadSelected()))
+    this.buildLoadoutScreen()
+    this.input.keyboard!.on('keydown-ESC', this.closeLoadoutKey)
+    this.input.keyboard!.on('keydown', this.loadoutKeyHandler)
+  }
+
+  private closeLoadout() {
+    if (!this.loadoutOpen) return
+    this.input.keyboard!.off('keydown-ESC', this.closeLoadoutKey)
+    this.input.keyboard!.off('keydown', this.loadoutKeyHandler)
+    this.loadoutUI.forEach((o) => o.destroy())
+    this.loadoutUI = []
+    this.loadoutOpen = false
+    this.startGraceUntil = this.time.now + 400
+  }
+
+  private setLoadoutSel(i: number) {
+    const n = DOCTRINES.length
+    this.loadoutSel = ((i % n) + n) % n
+    this.buildLoadoutScreen()
+    this.sfx?.swap()
+  }
+
+  private selectFocusedDoctrine() {
+    saveSelected(DOCTRINES[this.loadoutSel].id)
+    this.sfx?.pickup()
+    this.buildLoadoutScreen()
+  }
+
+  private buildLoadoutScreen() {
+    this.loadoutUI.forEach((o) => o.destroy())
+    this.loadoutUI = []
+    const push = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.loadoutUI.push(o); return o }
+    const T = (x: number, y: number, s: string, size: number, color: string, ox = 0) =>
+      push(this.add.text(x, y, s, { fontFamily: 'monospace', fontSize: size + 'px', color }).setOrigin(ox, 0).setScrollFactor(0).setDepth(251))
+    const d = DOCTRINES[this.loadoutSel]
+    const activeId = loadSelected()
+    const isActive = d.id === activeId
+
+    push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.985).setScrollFactor(0).setDepth(250).setInteractive())
+    push(this.add.text(256, 18, 'STRIKE DOCTRINE', { fontFamily: 'monospace', fontSize: '18px', color: '#a5b4fc', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    T(256, 38, 'choose your kit — a starting weapon, stats, and a passive', 8, '#71717a', 0.5)
+
+    // selector arrows + focused name
+    const arrow = (x: number, glyph: string, dir: number) => {
+      const a = push(this.add.text(x, 66, glyph, { fontFamily: 'monospace', fontSize: '18px', color: '#a5b4fc', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+      a.on('pointerdown', () => this.setLoadoutSel(this.loadoutSel + dir))
+    }
+    arrow(140, '◄', -1)
+    push(this.add.text(256, 66, d.glyph + '  ' + d.name, { fontFamily: 'monospace', fontSize: '16px', color: d.hex, fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    arrow(372, '►', 1)
+    T(256, 90, d.blurb, 9, '#c4b5fd', 0.5)
+
+    // stat readout
+    const sign = (n: number) => (n > 0 ? '+' + n : String(n))
+    const stats: string[] = ['start ' + d.startWeapon.toUpperCase() + '★'.repeat(d.startMastery)]
+    if (d.dHealth) stats.push(sign(d.dHealth) + ' ♥')
+    if (d.dLives) stats.push(sign(d.dLives) + ' life')
+    if (d.dJumps) stats.push(sign(d.dJumps) + ' jump')
+    if (d.dFire) stats.push((d.dFire > 0 ? 'faster' : 'slower') + ' fire')
+    T(256, 118, stats.join('   ·   '), 9, '#e9d5ff', 0.5)
+    T(256, 140, '✦ ' + d.passiveText, 9, '#fbbf24', 0.5)
+
+    // select / active button
+    if (isActive) {
+      push(this.add.text(256, 174, '✓  ACTIVE DOCTRINE', { fontFamily: 'monospace', fontSize: '13px', color: '#4ade80', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    } else {
+      const sel = push(this.add.text(256, 174, '▶  SELECT', { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold', backgroundColor: '#a5b4fc', padding: { x: 16, y: 6 } }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+      sel.on('pointerover', () => sel.setAlpha(0.85)); sel.on('pointerout', () => sel.setAlpha(1))
+      sel.on('pointerdown', () => this.selectFocusedDoctrine())
+    }
+
+    // roster row (all doctrines; active ringed)
+    T(256, 210, '— ROSTER —', 9, '#52525b', 0.5)
+    const step = 512 / (DOCTRINES.length + 1)
+    DOCTRINES.forEach((dd, i) => {
+      const x = step * (i + 1)
+      const on = dd.id === activeId, foc = i === this.loadoutSel
+      const g = push(this.add.text(x, 236, dd.glyph, { fontFamily: 'monospace', fontSize: '18px', color: on ? dd.hex : '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+      g.on('pointerdown', () => this.setLoadoutSel(i))
+      if (foc) push(this.add.rectangle(x, 236, 26, 26, 0x000000, 0).setStrokeStyle(2, 0xa5b4fc, 0.9).setScrollFactor(0).setDepth(251))
+      push(this.add.text(x, 254, dd.name.slice(0, 7), { fontFamily: 'monospace', fontSize: '7px', color: on ? '#e9d5ff' : '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    })
+
+    T(256, 290, 'your Doctrine applies to Campaign, Heat & Trials runs', 8, '#52525b', 0.5)
+    T(256, 306, '◄ ► browse   ·   Enter select   ·   Esc back', 8, '#3f3f46', 0.5)
+    const back = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    back.on('pointerdown', () => this.closeLoadout())
+  }
+
   private beginRebind(action: PadBindAction, val: Phaser.GameObjects.Text) {
     this.rebinding = action
     this.rebindArmed = false          // must see all buttons release first, so this tap can't self-bind
@@ -3591,14 +3699,22 @@ export class MainScene extends Phaser.Scene {
     // Badge case — tap to view the achievement grid; shows earned / total.
     const bc = achievementCount()
     const badgeCol = bc.unlocked > 0 ? '#c084fc' : '#52525b'
-    const badges = this.add.text(176, 330, '❖ BADGES  ' + bc.unlocked + '/' + bc.total, { fontFamily: 'monospace', fontSize: '9px', color: badgeCol }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    const badges = this.add.text(96, 330, '❖ BADGES ' + bc.unlocked + '/' + bc.total, { fontFamily: 'monospace', fontSize: '9px', color: badgeCol }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
     badges.on('pointerover', () => badges.setColor('#e9d5ff'))
     badges.on('pointerout', () => badges.setColor(badgeCol))
     badges.on('pointerdown', () => this.openBadges())
     els.push(badges)
     this.titleNav.push({ obj: badges, act: () => this.openBadges() })
+    // APEX LOADOUTS — pick your Strike Doctrine (starting kit + passive). Shows the active one.
+    const docName = doctrineById(loadSelected()).name
+    const doc = this.add.text(256, 330, '◆ ' + docName, { fontFamily: 'monospace', fontSize: '9px', color: '#a5b4fc', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    doc.on('pointerover', () => doc.setColor('#c7d2fe'))
+    doc.on('pointerout', () => doc.setColor('#a5b4fc'))
+    doc.on('pointerdown', () => this.openLoadout())
+    els.push(doc)
+    this.titleNav.push({ obj: doc, act: () => this.openLoadout() })
     // INTEL codex — the enemy / boss / weapon encyclopedia.
-    const intel = this.add.text(340, 330, '⊞ INTEL', { fontFamily: 'monospace', fontSize: '9px', color: '#7dd3fc' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
+    const intel = this.add.text(416, 330, '⊞ INTEL', { fontFamily: 'monospace', fontSize: '9px', color: '#7dd3fc' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
     intel.on('pointerover', () => intel.setColor('#bae6fd'))
     intel.on('pointerout', () => intel.setColor('#7dd3fc'))
     intel.on('pointerdown', () => this.openIntel())
@@ -3634,7 +3750,7 @@ export class MainScene extends Phaser.Scene {
     this.startKeyHandler = (e: KeyboardEvent) => {
       if (this.time.now < this.startGraceUntil) return
       // Inert while any overlay owns the screen (its own handlers drive it).
-      if (this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.badgesOpen || this.armoryOpen || this.leaderboardOpen || this.controlsOpen) return
+      if (this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen || this.badgesOpen || this.armoryOpen || this.leaderboardOpen || this.controlsOpen) return
       const k = e.key
       if (k === 'ArrowUp' || k === 'ArrowLeft') { this.titleNavMove(-1); return }
       if (k === 'ArrowDown' || k === 'ArrowRight') { this.titleNavMove(1); return }
@@ -3681,21 +3797,28 @@ export class MainScene extends Phaser.Scene {
   // the moment a run actually begins, so an upgrade BOUGHT on the title takes effect THIS run, not next.
   private applyArmory() {
     const meta = loadMeta()
-    this.maxHealth = 6 + meta.up.vitality
-    this.maxJumps = MAX_JUMPS + meta.up.boots
-    this.fireBonus = meta.up.firepower * 12
+    // APEX LOADOUTS: layer the chosen Strike Doctrine on top of the Armory result — reshaped stats, a
+    // pre-mastered starting weapon, and a signature passive. Side-grades, so the campaign board stays fair.
+    const doc = selectedDoctrine()
+    this.doctrinePassive = doc.passive
+    this.maxHealth = Math.max(1, 6 + meta.up.vitality + doc.dHealth)
+    this.maxJumps = MAX_JUMPS + meta.up.boots + doc.dJumps
+    this.fireBonus = meta.up.firepower * 12 + doc.dFire
     this.dashLevel = meta.up.dash
     this.dashCd = this.dashLevel >= 2 ? 480 : this.dashLevel >= 1 ? 660 : 820   // baseline cooldown shortens per tier
-    this.lives = 3 + meta.up.reserves
+    this.lives = Math.max(1, 3 + meta.up.reserves + doc.dLives)
+    this.weapon = doc.startWeapon
+    this.altWeapon = doc.startWeapon
+    this.weaponLvl[doc.startWeapon] = Math.max(this.weaponLvl[doc.startWeapon] || 0, doc.startMastery)
     this.health = this.maxHealth
     this.jumpsLeft = this.maxJumps
   }
 
   private beginPlay() {
-    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.badgesOpen) return
+    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.loadoutOpen || this.badgesOpen) return
     if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
-    if (!this.dailyRun && !this.rushRun) { this.applyArmory(); this.updateHealth(); this.livesText?.setText('LIVES  ' + this.lives) }   // pick up any upgrade bought on the title (Daily/Trials set their own kit)
+    if (!this.dailyRun && !this.rushRun) { this.applyArmory(); this.updateHealth(); this.livesText?.setText('LIVES  ' + this.lives); this.updateWeaponHUD() }   // pick up any upgrade / doctrine kit (Daily sets its own)
     this.started = true
     this.sfx?.resume()
     this.sfx?.startMusic(this.levels()[this.level - 1]?.theme ?? 'streets')
@@ -3787,6 +3910,18 @@ export class MainScene extends Phaser.Scene {
         if (dir !== 0 && this.lbPadPrev === 0) this.setLbTab(this.lbTab + dir)
         this.lbPadPrev = dir
         if (gp.buttons[1]) this.closeLeaderboard()
+      }
+      return
+    }
+    if (this.loadoutOpen) {   // STRIKE DOCTRINE picker: d-pad ◄► browses, a face button selects, B closes
+      const gp = this.readPad()
+      if (gp && time > this.startGraceUntil) {
+        const ax = gp.axes[0] || 0
+        const dir = (gp.buttons[15] || ax > 0.5) ? 1 : (gp.buttons[14] || ax < -0.5) ? -1 : 0
+        if (dir !== 0 && this.loadoutPadPrev === 0) this.setLoadoutSel(this.loadoutSel + dir)
+        this.loadoutPadPrev = dir
+        if (gp.buttons[1]) this.closeLoadout()
+        else if (gp.buttons[0] || gp.buttons[2] || gp.buttons[3]) this.selectFocusedDoctrine()
       }
       return
     }
@@ -4279,6 +4414,7 @@ export class MainScene extends Phaser.Scene {
       else if (this.weapon === 'fire') rate = 85
       else if (this.weapon === 'arc') rate = 560   // heavy launcher — slow, deliberate lobs
       rate = Math.max(20, rate - this.fireBonus - (this.weaponLvl[this.weapon] || 0) * 10)   // Armory FIREPOWER + weapon mastery speed up fire
+      if (this.doctrinePassive === 'rampage') rate = Math.max(18, rate - Math.min(34, this.combo * 2))   // GUNSLINGER: fire rate climbs with combo
       this.lastFired = time + rate
     }
   }
@@ -4307,7 +4443,7 @@ export class MainScene extends Phaser.Scene {
       ;(b.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)   // pooled bodies: keep them flat
       // Laser is a PIERCING beam: it passes through up to (2 + mastery) enemies instead of dying on
       // first contact. 'hit' tracks who it already struck so it can't double-tap one enemy in passing.
-      const pierce = tex === 'laser' ? 2 + laserLvl : 0
+      const pierce = tex === 'laser' ? 2 + laserLvl + (this.doctrinePassive === 'pierce' ? 1 : 0) : 0   // LANCER doctrine: +1 pierce
       b.setData('pierce', pierce)
       b.setData('hit', pierce > 0 ? [] : null)
       const rad = Phaser.Math.DegToRad(ang)
@@ -4336,7 +4472,7 @@ export class MainScene extends Phaser.Scene {
     if (this.weapon === 'spread') {
       // Base 3-pellet fan; mastery adds a pair of wider outer pellets per level (L1 = 5, L2 = 7).
       spawn(angle, 'bullet', 820, 0.64)
-      const pairs = 1 + (this.weaponLvl['spread'] || 0)
+      const pairs = 1 + (this.weaponLvl['spread'] || 0) + (this.doctrinePassive === 'guard' ? 1 : 0)   // BASTION doctrine: +1 pellet pair
       for (let i = 1; i <= pairs; i++) { const off = i * 18; spawn(angle - off, 'bullet', 780, 0.55); spawn(angle + off, 'bullet', 780, 0.55) }
     } else if (this.weapon === 'laser') {
       spawn(angle, 'laser', 1120, 0.9); spawn(angle, 'laser', 1060, 0.7)
@@ -4962,6 +5098,7 @@ export class MainScene extends Phaser.Scene {
       this.popup(enemy.x, enemy.y - 30, 'PUNISH', '#fbbf24')
       this.hitstop(14)
       this.sfx?.crit(this.panAt(enemy.x))
+      if (this.doctrinePassive === 'refund') this.dashCdUntil = Math.max(this.time.now, this.dashCdUntil - 260)   // VANGUARD: a read refunds dash
     }
 
     // Per-weapon impact signature at the point of contact — each gun should FEEL different, not
@@ -5048,6 +5185,24 @@ export class MainScene extends Phaser.Scene {
     if (type === 'splitter' && this.enemies.countActive(true) < 12) {
       const sx = enemy.x, sy = enemy.y, mhp = Math.max(2, Math.ceil((enemy.getData('maxHp') as number) / 2))
       ;[-1, 1].forEach((s) => this.spawnEnemy('soldier', sx + s * 30, sy, mhp, 100, 'walker'))
+    }
+    // PYRO ignite: a burning kill leaps its fire to the nearest other foe, chaining the DoT through a pack.
+    if (this.doctrinePassive === 'ignite' && (((enemy.getData('burnTicks') as number) || 0) > 0)) {
+      const ex = enemy.x, ey = enemy.y
+      let near: Phaser.Physics.Arcade.Sprite | undefined
+      let best = 240
+      this.enemies.getChildren().forEach((o) => {
+        const e = o as Phaser.Physics.Arcade.Sprite
+        if (e === enemy || !e.active || e.getData('dying') === true) return
+        const d = Phaser.Math.Distance.Between(ex, ey, e.x, e.y)
+        if (d < best) { best = d; near = e }
+      })
+      if (near) {
+        const cur = (near.getData('burnTicks') as number) || 0
+        near.setData('burnTicks', Math.min(8, cur + 3))
+        if (cur <= 0) near.setData('burnNext', this.time.now + 300)
+        this.popup(near.x, near.y - 24, 'SPREAD', '#fb923c')
+      }
     }
     enemy.destroy()
     if (this.isBossLevel() && this.enemies.countActive(true) === 0) this.onLevelClear()
