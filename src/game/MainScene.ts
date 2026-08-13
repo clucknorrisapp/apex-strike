@@ -3914,6 +3914,13 @@ export class MainScene extends Phaser.Scene {
     this.tweens.add({ targets: t, alpha: 1, duration: 300, yoyo: true, hold: 700, onComplete: () => t.destroy() })
   }
 
+  // Whole hours until the next UTC midnight — when the daily bounties reset. Min 1 so it never reads "0h".
+  private hoursToUtcMidnight(): number {
+    const now = new Date()
+    const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
+    return Math.max(1, Math.ceil((next - now.getTime()) / 3600000))
+  }
+
   private showTitle() {
     this.physics.pause()
     this.setBridge('title')
@@ -3966,13 +3973,21 @@ export class MainScene extends Phaser.Scene {
     heat.on('pointerdown', () => this.openHeat())
     els.push(heat)
     this.titleNav.push({ obj: heat, act: () => this.openHeat() })
-    // OBJECTIVES readout — daily bounties + weekly contracts are otherwise invisible until you dig into
-    // the Daily / Trials screens, so a returning player never sees what's waiting. Surface the counts on
-    // the hub, brightened to amber while anything's still open (the reason to play today / this week).
-    const objDone = bountyDoneCount(todayKey())
+    // OBJECTIVES readout — surface the single most immediate OPEN objective and its expiry, not just a
+    // count: an abstract "0/3" gives no reason to play, but a concrete, time-boxed task does. Daily bounties
+    // (reset soonest) lead; once they're clear the top open weekly contract shows with its progress. (round-11 retention)
+    const dk = todayKey()
+    const bdone = loadBountyState(dk).done
+    const openB = todayBounties(dk).find((b) => !bdone.includes(b.id))
     const cprog = contractProgress(weekKey())
-    const anyOpen = objDone < 3 || cprog.done < cprog.total
-    els.push(this.add.text(256, 284, '◇ BOUNTIES ' + objDone + '/3    ◈ CONTRACTS ' + cprog.done + '/' + cprog.total, { fontFamily: 'monospace', fontSize: '8px', color: anyOpen ? '#fbbf24' : '#4ade80' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    const openC = cprog.list.find((x) => !x.done)
+    const anyOpen = !!openB || !!openC
+    const objLine = openB
+      ? '◇ ' + openB.label + '  ·  resets ' + this.hoursToUtcMidnight() + 'h    ◈ ' + cprog.done + '/' + cprog.total
+      : openC
+        ? '◇ bounties ✓    ◈ ' + openC.c.label + '  (' + openC.have + '/' + openC.c.need + ')'
+        : '✓ all bounties & contracts clear — come back tomorrow'
+    els.push(this.add.text(256, 284, objLine, { fontFamily: 'monospace', fontSize: '8px', color: anyOpen ? '#fbbf24' : '#4ade80' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
     // Don't-break-the-chain streak nudge (per-device).
     const ds = getDailyStreak()
     if (ds.streak > 0) {
