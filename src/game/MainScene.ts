@@ -5470,6 +5470,30 @@ export class MainScene extends Phaser.Scene {
     if (bt) e.setTint(bt)
   }
 
+  // A PUNISH the enemy SURVIVES doesn't just chip it — it CANCELS the telegraphed attack, so reading a
+  // tell becomes the highest-skill OFFENSE, not only a damage bonus. Each archetype's wind-up state is
+  // reset to its recovery/idle branch (a vulnerable window). Boss moves are exempt — cancelling them would
+  // trivialise the fight. Idempotent: once a wind-up is cleared, a second call this volley is a no-op.
+  private interruptEnemy(enemy: Phaser.Physics.Arcade.Sprite) {
+    const type = enemy.getData('type') as string
+    let did = false
+    if (type === 'charger' && enemy.getData('cstate') === 'wind') {
+      enemy.setData('cstate', 'cool'); enemy.setData('ctimer', 950); enemy.setVelocityX(0); did = true
+    } else if (type === 'diver' && enemy.getData('dstate') === 'wind') {
+      enemy.setData('dstate', 'recover'); enemy.setData('dtimer', 800); did = true
+    } else if (type === 'sapper' && enemy.getData('sstate') === 'mark') {
+      enemy.setData('sstate', 'creep'); enemy.setData('stimer', Phaser.Math.Between(1200, 2000)); enemy.setVelocityX(0)
+      const ret = enemy.getData('reticle') as Phaser.GameObjects.Arc | undefined
+      if (ret) { ret.destroy(); enemy.setData('reticle', undefined) }   // cancel the mark → no mortar fires
+      did = true
+    } else if ((type === 'turret' || type === 'sniper') && enemy.getData('tele') === true) {
+      enemy.setData('tele', false); enemy.setData('shootTimer', type === 'sniper' ? 1500 : 850); did = true   // shove the shot back into cooldown
+    }
+    if (!did) return
+    this.restoreTint(enemy)
+    this.popup(enemy.x, enemy.y - 44, 'INTERRUPT', '#a5f3fc')
+  }
+
   // STAGGER — sustained damage builds an enemy's poise; a break freezes it for a burst window (with
   // bonus damage), then grants brief immunity so it can't be perma-stunned. Non-boss only: bosses have
   // no poiseMax, so this is a no-op for them. Called from hitEnemy on a surviving hit.
@@ -5548,6 +5572,8 @@ export class MainScene extends Phaser.Scene {
       this.popup(enemy.x, enemy.y - 30, 'PUNISH', '#fbbf24')
       this.hitstop(14)
       this.sfx?.crit(this.panAt(enemy.x))
+      if (hp > 0) this.interruptEnemy(enemy)   // a SURVIVED punish CANCELS the telegraphed attack (boss moves exempt) — reading the tell is now offense
+
       // VANGUARD: a read refunds dash — but ONE read is one refund. hitEnemy runs per bullet→enemy
       // contact, so a multi-pellet spread or a piercing laser would otherwise refund N×260ms in a single
       // volley; the 150ms window collapses a volley (same-frame pellets + a bolt piercing over a few
