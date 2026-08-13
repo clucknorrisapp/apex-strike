@@ -28,9 +28,16 @@ export function cleanHandle(h: string): string {
 // celebrated. Season-scoped (the catchable board), stored { handle, score }.
 export interface PinnedRival { handle: string; score: number }
 export function loadRival(): PinnedRival | null {
-  try { const r = JSON.parse(localStorage.getItem('apex_rival') || 'null'); return r && typeof r.score === 'number' && r.handle ? { handle: String(r.handle).slice(0, 16), score: r.score } : null } catch { return null }
+  try {
+    const r = JSON.parse(localStorage.getItem('apex_rival') || 'null')
+    if (!r || typeof r.score !== 'number' || !r.handle) return null
+    // Season-scoped: the Season board resets each month, so a pin from a past month is void — otherwise
+    // a stale rival fires a bogus "OVERTOOK" the first run after rollover for a race you never ran. (round-11 bug#2)
+    if (r.month !== monthKey()) return null
+    return { handle: String(r.handle).slice(0, 16), score: r.score }
+  } catch { return null }
 }
-export function saveRival(r: PinnedRival): void { try { localStorage.setItem('apex_rival', JSON.stringify({ handle: String(r.handle).slice(0, 16), score: Math.max(0, Math.round(r.score)) })) } catch { /* storage blocked */ } }
+export function saveRival(r: PinnedRival): void { try { localStorage.setItem('apex_rival', JSON.stringify({ month: monthKey(), handle: String(r.handle).slice(0, 16), score: Math.max(0, Math.round(r.score)) })) } catch { /* storage blocked */ } }
 export function clearRival(): void { try { localStorage.removeItem('apex_rival') } catch { /* storage blocked */ } }
 
 export async function fetchLeaderboard(): Promise<BoardData> {
