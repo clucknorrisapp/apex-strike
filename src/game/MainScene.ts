@@ -1058,6 +1058,7 @@ export class MainScene extends Phaser.Scene {
   // Phase Dash (Armory-unlocked dodge). dashLevel 0 = locked.
   private dashKey!: Phaser.Input.Keyboard.Key
   private dashLevel = 0
+  private dashHitList: Phaser.GameObjects.GameObject[] = []   // enemies already struck by the current dash (PHASE STRIKE)
   private dashCd = 700
   private dashUntil = 0
   private dashCdUntil = 0
@@ -4110,6 +4111,7 @@ export class MainScene extends Phaser.Scene {
         const dir = left ? -1 : right ? 1 : (this.facingRight ? 1 : -1)
         this.dashDir = dir
         this.dashUntil = time + 175
+        this.dashHitList = []                 // fresh dedupe list per dash (PHASE STRIKE)
         this.dashCdUntil = time + this.dashCd
         this.dashIframeUntil = time + (this.dashLevel >= 2 ? 220 : 150)
         this.facingRight = dir > 0; this.player.setFlipX(dir < 0)
@@ -4971,6 +4973,9 @@ export class MainScene extends Phaser.Scene {
   ) {
     const enemy = eObj as Phaser.Physics.Arcade.Sprite
     const type = enemy.getData('type') as string
+    // PHASE STRIKE: contact DURING a dash guts the enemy instead of hurting you — the dodge becomes
+    // the highest-skill offense (line up a row, dash through, execute; kills feed the combo).
+    if (this.time.now < this.dashUntil) { this.phaseStrike(enemy); return }
     const pb = this.player.body as Phaser.Physics.Arcade.Body
     const eb = enemy.body as Phaser.Physics.Arcade.Body
     // Mario stomp: falling onto a SOFT enemy from above kills it and bounces you.
@@ -4983,6 +4988,32 @@ export class MainScene extends Phaser.Scene {
     }
     // Armored / turret / boss punish the stomp — you take the hit.
     this.damagePlayer(type === 'boss' ? 'boss' : 'enemy', type)
+  }
+
+  // PHASE STRIKE — a dash-through execute. Deduped per dash so one sustained overlap can't multi-hit
+  // across frames. NO hitstop on a non-lethal chip (it would freeze the dash mid-lunge); a lethal hit
+  // routes through killEnemy so the kill's combo / drops / splitter-fission / boss finisher all fire.
+  private phaseStrike(enemy: Phaser.Physics.Arcade.Sprite) {
+    if (!enemy.active || enemy.getData('dying') === true) return
+    if (this.dashHitList.includes(enemy)) return
+    this.dashHitList.push(enemy)
+    const type = enemy.getData('type') as string
+    const dmg = 2 + this.dashLevel
+    const hp = ((enemy.getData('hp') as number) || 0) - dmg
+    enemy.setData('hp', hp)
+    const col = this.dashLevel >= 2 ? 0x67e8f9 : 0x22d3ee
+    enemy.setTintFill(0xffffff)
+    this.time.delayedCall(60, () => this.restoreTint(enemy))
+    this.particles.emitParticleAt(enemy.x, enemy.y, 8)
+    this.shockwave(enemy.x, enemy.y, col, 18)
+    this.sfx?.crit(this.panAt(enemy.x))
+    if (hp > 0) {
+      if (type === 'boss') this.bossBarChip()
+      const bsx = enemy.getData('bsx') as number, bsy = enemy.getData('bsy') as number
+      if (bsx) { this.tweens.killTweensOf(enemy); this.tweens.add({ targets: enemy, scaleX: bsx * 1.2, scaleY: bsy * 0.82, duration: 60, yoyo: true, onComplete: () => { if (enemy.active) enemy.setScale(bsx, bsy) } }) }
+      return
+    }
+    this.killEnemy(enemy)   // routes a boss through bossDeath internally
   }
 
   private stompEnemy(enemy: Phaser.Physics.Arcade.Sprite) {
