@@ -11,6 +11,10 @@ export interface FlexSummary {
   win: boolean
   rank?: number | null
   handle?: string | null
+  prestige?: number        // Apex Rank (prestige ladder); 0/undefined = unranked
+  prestigeTitle?: string   // title band, e.g. 'MYTHIC'
+  prestigeGlyph?: string   // Insignia band glyph, e.g. '✹'
+  prestigeHex?: string     // Insignia band colour
   topHex: string     // sector accent — the gradient glow / highlight colour
   botHex: string     // sector background — the gradient base
 }
@@ -99,6 +103,20 @@ export function renderFlexCard(s: FlexSummary): HTMLCanvasElement {
     ctx.fillStyle = withAlpha(s.topHex, 0.16); ctx.fill()
     ctx.strokeStyle = withAlpha(s.topHex, 0.6); ctx.lineWidth = 3; ctx.stroke()
     ctx.fillStyle = '#fde68a'; ctx.fillText(label, W / 2, py + 66)
+  }
+
+  // Apex Rank INSIGNIA pill — the prestige the Rank grind earns, drawn in its earned band colour so the
+  // share image finally carries the flex (the Insignia glyph + title band from the in-game boards).
+  if (s.prestige && s.prestige > 0) {
+    const label = (s.prestigeGlyph || '◆') + '  APEX RANK ' + s.prestige + (s.prestigeTitle ? '  ·  ' + s.prestigeTitle : '')
+    const hex = s.prestigeHex || s.topHex
+    font('700 46px')
+    const w = Math.min(W - 120, ctx.measureText(label).width + 90)
+    const px = W / 2 - w / 2, py = 1104
+    roundRect(ctx, px, py, w, 92, 20)
+    ctx.fillStyle = withAlpha(hex, 0.16); ctx.fill()
+    ctx.strokeStyle = withAlpha(hex, 0.7); ctx.lineWidth = 3; ctx.stroke()
+    ctx.fillStyle = hex; ctx.fillText(label, W / 2, py + 60)
   }
 
   // Footer — the call to action.
