@@ -1107,6 +1107,7 @@ export class MainScene extends Phaser.Scene {
   private progressFill?: Phaser.GameObjects.Rectangle
   private progressTrack?: Phaser.GameObjects.Rectangle
   private progressGoalMark?: Phaser.GameObjects.Text
+  private objectiveText?: Phaser.GameObjects.Text   // persistent "what am I doing" line at the top of the HUD
 
   constructor() {
     super({ key: 'MainScene' })
@@ -2326,12 +2327,18 @@ export class MainScene extends Phaser.Scene {
     this.progressFill = this.add.rectangle(6, 3, 500, 3, 0x67e8f9, 0.9).setOrigin(0, 0.5).setScrollFactor(0).setDepth(101)
     this.progressFill.scaleX = 0
     this.progressGoalMark = this.add.text(508, -1, '⚑', { fontFamily: 'monospace', fontSize: '10px', color: '#fbbf24' }).setOrigin(1, 0).setScrollFactor(0).setDepth(101)
+    // Persistent objective line under the extraction bar — always says what you're trying to do.
+    this.objectiveText = this.add.text(256, 12, '', { fontFamily: 'monospace', fontSize: '8px', color: '#67e8f9' }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(101)
   }
 
   // Fill the top bar from spawn → extraction. Hidden on the boss stage (goal is the boss).
   private updateProgress() {
     if (!this.progressFill) return
     const boss = this.isBossLevel()
+    // Always tell the player what they're doing: kill the boss, drop the guardian, or reach extraction.
+    this.objectiveText?.setText((this.rushRun || boss) ? '☠ DEFEAT THE BOSS'
+      : this.extractionLocked ? '⚔ DEFEAT THE GUARDIAN — extraction is sealed'
+      : '▶ REACH EXTRACTION ⚑')
     this.progressFill.setVisible(!boss)
     this.progressTrack?.setVisible(!boss)
     this.progressGoalMark?.setVisible(!boss)
@@ -3316,7 +3323,15 @@ export class MainScene extends Phaser.Scene {
       restart.on('pointerdown', () => this.restartRun())
       const controls = this.add.text(256, 278, '[ CONTROLS ]', { fontFamily: 'monospace', fontSize: '11px', color: '#a5b4fc' }).setOrigin(0.5).setScrollFactor(0).setDepth(231).setInteractive({ useHandCursor: true })
       controls.on('pointerdown', () => this.openControls())
-      this.pauseUI = [dim, title, hint, resume, restart, controls]
+      // Accessibility toggles reachable mid-run (previously title-only) — dial down motion or sound
+      // without quitting to the title.
+      const motionLbl = () => 'MOTION:  ' + (this.reduceMotion ? 'REDUCED' : 'FULL')
+      const motion = this.add.text(256, 304, motionLbl(), { fontFamily: 'monospace', fontSize: '10px', color: '#94a3b8' }).setOrigin(0.5).setScrollFactor(0).setDepth(231).setInteractive({ useHandCursor: true })
+      motion.on('pointerdown', () => { this.toggleReduceMotion(); motion.setText(motionLbl()) })
+      const muteLbl = () => 'SOUND:  ' + (this.muted ? 'OFF' : 'ON')
+      const mute = this.add.text(256, 324, muteLbl(), { fontFamily: 'monospace', fontSize: '10px', color: '#94a3b8' }).setOrigin(0.5).setScrollFactor(0).setDepth(231).setInteractive({ useHandCursor: true })
+      mute.on('pointerdown', () => { this.toggleMute(); mute.setText(muteLbl()) })
+      this.pauseUI = [dim, title, hint, resume, restart, controls, motion, mute]
     } else {
       this.physics.resume()
       this.pauseUI.forEach((o) => o.destroy())
