@@ -5,7 +5,9 @@
 // already boot a run from a kit descriptor (the Daily system proves it), so this just layers on top of
 // applyArmory. Local selection in localStorage; no new art.
 
-export type DoctrinePassive = 'refund' | 'ignite' | 'pierce' | 'rampage' | 'guard'
+// 'none' is the neutral runtime state for modes that ignore the Armory/Doctrine kit (Daily, Trials) —
+// no Doctrine ever carries it; it just switches every passive check off so those boards stay equal-kit.
+export type DoctrinePassive = 'none' | 'refund' | 'ignite' | 'pierce' | 'rampage' | 'guard'
 export type WeaponId = 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' | 'arc'
 
 export interface Doctrine {

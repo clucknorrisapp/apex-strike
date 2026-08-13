@@ -929,6 +929,7 @@ export class MainScene extends Phaser.Scene {
   private level = 1
   private lives = 3
   private runStartAt = 0       // Date.now() at run start (playtest telemetry)
+  private sectorClearedMs = 0  // frozen elapsed-ms at the instant a sector is cleared, so the recorded SPLIT excludes the post-clear delay + contract deliberation
   private deathsThisRun = 0
   private runNoHit = true      // stays true until the player takes any damage this run (FLAWLESS badge)
   private runShards = 0        // Apex Shards collected this run, across all sectors (SHARDLORD badge)
@@ -980,7 +981,7 @@ export class MainScene extends Phaser.Scene {
   private weapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' | 'arc' = 'normal'
   // Two-weapon carry: a backup slot you can swap into (Q / touch / gamepad Y).
   private altWeapon: 'normal' | 'spread' | 'rapid' | 'laser' | 'fire' | 'arc' = 'normal'
-  private doctrinePassive: DoctrinePassive = 'refund'   // the active Strike Doctrine's signature passive (Apex Loadouts)
+  private doctrinePassive: DoctrinePassive = 'none'   // the active Strike Doctrine's signature passive (Apex Loadouts); 'none' until a kit-applying run sets it
   // Weapon mastery (per kind, 0..2): picking up a pod for the gun you already hold levels it —
   // faster fire + more damage, plus a signature perk (laser pierces, spread gains pellets).
   private weaponLvl: Record<string, number> = { normal: 0, spread: 0, rapid: 0, laser: 0, fire: 0, arc: 0 }
@@ -1036,6 +1037,7 @@ export class MainScene extends Phaser.Scene {
   private heatUI: Phaser.GameObjects.GameObject[] = []
   private heatSel = 1                          // tier highlighted on the select screen
   private heatPadPrev = 0                      // gamepad d-pad edge-detect while the heat screen is open
+  private heatConfirmPrev = false              // gamepad face-button rising-edge guard on the heat screen (no confirm re-fire while held)
   private closeHeatKey = () => this.closeHeat()
   private heatRun = false                      // this run is an APEX HEAT ascension run (campaign + modifiers)
   private heatTier = 0                         // active heat tier this run (0 = normal campaign)
@@ -1043,6 +1045,7 @@ export class MainScene extends Phaser.Scene {
   private loadoutUI: Phaser.GameObjects.GameObject[] = []
   private loadoutSel = 0                        // focused doctrine index on the picker
   private loadoutPadPrev = 0
+  private loadoutConfirmPrev = false           // gamepad face-button rising-edge guard on the doctrine picker (no select re-fire / rebuild-flicker while held)
   private closeLoadoutKey = () => this.closeLoadout()
   private loadoutKeyHandler = (e: KeyboardEvent) => {
     if (!this.loadoutOpen) return
@@ -3341,7 +3344,7 @@ export class MainScene extends Phaser.Scene {
     back()
   }
 
-  // ---- APEX LOADOUTS — Strike Doctrine picker (choose a pre-run identity; campaign/heat/trials) ----
+  // ---- APEX LOADOUTS — Strike Doctrine picker (choose a pre-run identity; Campaign & Heat only — Daily/Trials stay equal-kit) ----
   private openLoadout() {
     if (this.loadoutOpen || this.dailyOpen || this.trialsOpen || this.intelOpen || this.heatOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.badgesOpen) return
     this.loadoutOpen = true
@@ -3430,7 +3433,7 @@ export class MainScene extends Phaser.Scene {
       push(this.add.text(x, 254, dd.name.slice(0, 7), { fontFamily: 'monospace', fontSize: '7px', color: on ? '#e9d5ff' : '#52525b' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
     })
 
-    T(256, 290, 'your Doctrine applies to Campaign, Heat & Trials runs', 8, '#52525b', 0.5)
+    T(256, 290, 'applies to Campaign & Heat — Daily & Trials stay equal-kit', 8, '#52525b', 0.5)
     T(256, 306, '◄ ► browse   ·   Enter select   ·   Esc back', 8, '#3f3f46', 0.5)
     const back = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
     back.on('pointerdown', () => this.closeLoadout())
@@ -3819,6 +3822,7 @@ export class MainScene extends Phaser.Scene {
     if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     if (!this.dailyRun && !this.rushRun) { this.applyArmory(); this.updateHealth(); this.livesText?.setText('LIVES  ' + this.lives); this.updateWeaponHUD() }   // pick up any upgrade / doctrine kit (Daily sets its own)
+    else this.doctrinePassive = 'none'   // Daily & Trials ignore the Armory/Doctrine kit — force the passive off so those equal-kit boards can't be swayed by the selected Doctrine
     this.started = true
     this.sfx?.resume()
     this.sfx?.startMusic(this.levels()[this.level - 1]?.theme ?? 'streets')
@@ -3835,7 +3839,7 @@ export class MainScene extends Phaser.Scene {
   // One-time control coach on a player's first run — a control card that appears after the SECTOR
   // banner clears and fades on its own. Adapts to touch vs keyboard; remembered so it never nags again.
   private showFirstRunCoach() {
-    try { if (localStorage.getItem('apex_coached') === '1') return } catch { return }
+    try { if (localStorage.getItem('apex_coached') === '1') return } catch { /* storage blocked — still show the card, just don't persist that it was seen */ }
     const touch = this.sys.game.device.input.touch
     const lines = touch
       ? ['LEFT — drag to move & aim', 'RIGHT — FIRE · JUMP · DASH', 'grab ◆ pods · beat the sector boss']
@@ -3897,8 +3901,10 @@ export class MainScene extends Phaser.Scene {
         const dir = (gp.buttons[15] || ax > 0.5) ? 1 : (gp.buttons[14] || ax < -0.5) ? -1 : 0
         if (dir !== 0 && this.heatPadPrev === 0) this.setHeatSel(this.heatSel + dir)
         this.heatPadPrev = dir
+        const confirm = !!(gp.buttons[0] || gp.buttons[2] || gp.buttons[3])
         if (gp.buttons[1]) this.closeHeat()
-        else if (gp.buttons[0] || gp.buttons[2] || gp.buttons[3]) this.startHeat(this.heatSel)
+        else if (confirm && !this.heatConfirmPrev) this.startHeat(this.heatSel)   // rising edge only
+        this.heatConfirmPrev = confirm
       }
       return
     }
@@ -3920,8 +3926,10 @@ export class MainScene extends Phaser.Scene {
         const dir = (gp.buttons[15] || ax > 0.5) ? 1 : (gp.buttons[14] || ax < -0.5) ? -1 : 0
         if (dir !== 0 && this.loadoutPadPrev === 0) this.setLoadoutSel(this.loadoutSel + dir)
         this.loadoutPadPrev = dir
+        const confirm = !!(gp.buttons[0] || gp.buttons[2] || gp.buttons[3])
         if (gp.buttons[1]) this.closeLoadout()
-        else if (gp.buttons[0] || gp.buttons[2] || gp.buttons[3]) this.selectFocusedDoctrine()
+        else if (confirm && !this.loadoutConfirmPrev) this.selectFocusedDoctrine()   // rising edge only — holding the button must not re-select + rebuild every frame
+        this.loadoutConfirmPrev = confirm
       }
       return
     }
@@ -4082,7 +4090,7 @@ export class MainScene extends Phaser.Scene {
   // a pooled bolt is fresh on reuse.
   private updateGraze() {
     const pb = this.player?.body as Phaser.Physics.Arcade.Body | undefined
-    if (!pb || this.time.now < this.invulnUntil) return   // no "graze" while already i-framed
+    if (!pb || this.time.now < this.invulnUntil || this.time.now < this.dashIframeUntil) return   // no "graze" while already i-framed — hit-invuln OR a dash (grazing rewards shaving a bolt UNPROTECTED)
     const pcx = pb.center.x, pcy = pb.center.y
     const hitR = Math.max(pb.halfWidth, pb.halfHeight)
     const inner = hitR + 6, outer = hitR + 24               // the graze band, just outside the hitbox
@@ -4377,7 +4385,7 @@ export class MainScene extends Phaser.Scene {
         this.dashUntil = time + 175
         this.dashHitList = []                 // fresh dedupe list per dash (PHASE STRIKE)
         this.dashCdUntil = time + this.dashCd
-        this.dashIframeUntil = time + (this.dashLevel >= 2 ? 220 : this.dashLevel >= 1 ? 170 : 130)   // baseline i-frames scale with the tier
+        this.dashIframeUntil = Math.max(this.dashUntil, time + (this.dashLevel >= 2 ? 220 : this.dashLevel >= 1 ? 170 : 130))   // i-frames scale with tier but ALWAYS cover the full dash — bodies phase for dashUntil, so bullets must too
         this.facingRight = dir > 0; this.player.setFlipX(dir < 0)
         this.dashFx()
         this.sfx?.jump()
@@ -5041,6 +5049,11 @@ export class MainScene extends Phaser.Scene {
   // Clear a hit/telegraph flash but keep any persistent base tint (e.g. the charger's).
   private restoreTint(e: Phaser.Physics.Arcade.Sprite) {
     if (!e.active) return
+    // A non-lethal hit must NOT strip an enemy's "about to strike" telegraph flash while the wind-up is
+    // still live — the tell is set once on entering the state, so re-assert the gold flash instead of
+    // clearing to base whenever the enemy is still winding/marking/telegraphing.
+    if (e.getData('cstate') === 'wind' || e.getData('dstate') === 'wind' || e.getData('sstate') === 'mark'
+        || e.getData('tele') === true || e.getData('tele2') === true) { e.setTintFill(0xffe08a); return }
     e.clearTint()
     const bt = e.getData('baseTint') as number | undefined
     if (bt) e.setTint(bt)
@@ -5456,6 +5469,7 @@ export class MainScene extends Phaser.Scene {
     if (this.rushRun) { this.advanceTrials(); return }   // boss rush drives its own progression (heal + next boss)
     if (this.levelTransition) return
     this.levelTransition = true
+    this.sectorClearedMs = Date.now() - this.runStartAt   // freeze the split NOW — before the 900ms delay + contract screen, so it measures the clear, not the deliberation
     this.sfx?.fanfare()
     if (this.level < this.levels().length) {
       // Campaign: offer an Apex Contract between sectors, then advance. Daily stays pure (no boons).
@@ -5474,7 +5488,7 @@ export class MainScene extends Phaser.Scene {
     // run their own boards, so they don't record splits.
     let splitObj: Phaser.GameObjects.Text | null = null
     if (this.isBaseCampaign()) {
-      const cur = Date.now() - this.runStartAt
+      const cur = this.sectorClearedMs   // the frozen clear instant (set in onLevelClear), not "now" — excludes the contract-screen time
       const r = recordSplit(this.level, cur)
       const txt = r.first ? '⏱ ' + fmtTime(cur) + '  ·  first clear'
         : r.record ? '⏱ ' + fmtTime(cur) + '  ·  ' + fmtDelta(r.delta) + ' — PB!'
