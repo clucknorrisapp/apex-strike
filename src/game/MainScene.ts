@@ -3,8 +3,8 @@ import { record as recordTelemetry, newRun, currentIds, type DeathCause } from '
 import { loadMeta, bankShards, buyUpgrade, nextCost, UPGRADES } from './meta'
 import { evalAchievements, recordBossKill, achievementCount, loadAch, ACHIEVEMENTS, type RunSummary } from './achievements'
 import { renderFlexCard, shareCard, type FlexSummary } from './flexcard'
-import { weekKey, bossOrderForWeek, saveTrialsBest } from './rush'
-import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, type BoardData, type DailyData, type SubmitResult } from '../net/leaderboard'
+import { weekKey, bossOrderForWeek, saveTrialsBest, loadTrialsBest } from './rush'
+import { submitScore, fetchLeaderboard, setHandle, myWallet, hasWallet, localHandle, submitDaily, fetchDaily, submitTrials, fetchTrials, type BoardData, type DailyData, type TrialsData, type SubmitResult } from '../net/leaderboard'
 import { todayMod, todayKey, noteDailyPlayed, getDailyStreak, type DailyMod } from './daily'
 
 const ASSETS = {
@@ -69,6 +69,7 @@ class Sfx {
   private ctx: AudioContext | null = null
   private master: DynamicsCompressorNode | null = null   // limiter bus so layered SFX + music never clip
   private duckGain: GainNode | null = null               // music-only bus; dips under big SFX (sidechain)
+  private heat: BiquadFilterNode | null = null           // adaptive lowpass on the musical bed; opens as the fight heats up
   muted = false
   constructor() {
     try {
@@ -83,6 +84,10 @@ class Sfx {
         comp.connect(this.ctx.destination)
         this.master = comp
         const dg = this.ctx.createGain(); dg.gain.value = 1; dg.connect(comp); this.duckGain = dg
+        // Adaptive lowpass sitting in front of the duck bus: the music + drone bed play THROUGH it,
+        // muffled and distant when calm and opening up bright as the fight heats up. SFX bypass it.
+        const hf = this.ctx.createBiquadFilter(); hf.type = 'lowpass'
+        hf.frequency.value = 1800; hf.Q.value = 0.7; hf.connect(dg); this.heat = hf
       }
     } catch { this.ctx = null }
   }
@@ -109,7 +114,9 @@ class Sfx {
   resume() { this.ctx?.resume?.() }
   setMuted(v: boolean) {
     this.muted = v
-    if (this.musicGain && this.ctx) this.musicGain.gain.setTargetAtTime(v ? 0 : this.targetMusicVol(), this.ctx.currentTime, 0.02)
+    const c = this.ctx; if (!c) return
+    if (this.musicGain) this.musicGain.gain.setTargetAtTime(v ? 0 : this.targetMusicVol(), c.currentTime, 0.02)
+    if (this.droneGain) this.droneGain.gain.setTargetAtTime(v ? 0 : this.targetDroneVol(), c.currentTime, 0.05)
   }
   private tone(f0: number, f1: number, dur: number, type: OscillatorType, gain: number, pan?: number) {
     const c = this.ctx; if (!c || this.muted) return
@@ -291,9 +298,10 @@ class Sfx {
     if (!c || this.musicTimer !== null) return
     this.musicGain = c.createGain()
     this.musicGain.gain.value = this.muted ? 0 : this.targetMusicVol()
-    this.musicGain.connect(this.duckGain ?? this.dest())   // music goes through the duck bus; SFX bypass it
+    this.musicGain.connect(this.heat ?? this.duckGain ?? this.dest())   // through the heat lowpass → duck bus; SFX bypass both
     this.musicStep = 0
     this.applyMusicTheme(theme)
+    this.startDrone((MUSIC_THEMES[theme] || MUSIC_THEMES.streets).bass[0])   // ambient low pad, keyed to the sector root
     this.startMusicTimer()
   }
   private startMusicTimer() {
@@ -319,6 +327,7 @@ class Sfx {
   setMusicTheme(theme: string) {
     if (this.musicTimer === null || theme === this.musicTheme) return
     this.applyMusicTheme(theme)
+    this.retuneDrone((MUSIC_THEMES[theme] || MUSIC_THEMES.streets).bass[0])   // glide the pad to the new sector's key
     this.startMusicTimer()
   }
   // Swell + thicken the track while a boss is on the field.
@@ -341,7 +350,61 @@ class Sfx {
   stopMusic() {
     if (this.musicTimer !== null) { clearInterval(this.musicTimer); this.musicTimer = null }
     if (this.musicGain) { try { this.musicGain.disconnect() } catch { /* noop */ } this.musicGain = null }
+    this.stopDrone()
     this.musicIntense = false
+  }
+
+  // ---- Ambient drone bed: a continuous low pad under the whole mix, keyed to the sector ----
+  // Root + a slightly detuned twin (slow beating) + a fifth + an octave shimmer, all breathing on a
+  // very slow LFO. Runs through the heat lowpass + duck bus like the music, so it muffles when calm,
+  // brightens in a fight, and dips under explosions.
+  private droneGain: GainNode | null = null
+  private droneOscs: OscillatorNode[] = []
+  private droneLfo: OscillatorNode | null = null
+  private musicHeat = 0
+  private readonly DRONE_VOL = 0.03
+  private targetDroneVol() { return this.DRONE_VOL * (1 + this.musicHeat * 0.35) }
+  private droneFreqs(root: number) { return [root, root * 1.004, root * 1.5, root * 2] }
+  startDrone(root = 55) {
+    const c = this.ctx; if (!c || this.droneGain) return
+    const g = c.createGain(); g.gain.value = this.muted ? 0 : this.targetDroneVol()
+    g.connect(this.heat ?? this.duckGain ?? this.dest()); this.droneGain = g
+    const types: OscillatorType[] = ['sine', 'sine', 'triangle', 'sine']
+    const gains = [0.6, 0.5, 0.26, 0.12]
+    this.droneOscs = this.droneFreqs(root).map((f, i) => {
+      const o = c.createOscillator(); o.type = types[i]; o.frequency.value = f
+      const og = c.createGain(); og.gain.value = gains[i]
+      o.connect(og); og.connect(g); o.start()
+      return o
+    })
+    // slow breathing on the whole pad's amplitude (summed into the drone gain param)
+    const lfo = c.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.07
+    const lg = c.createGain(); lg.gain.value = this.DRONE_VOL * 0.45
+    lfo.connect(lg); lg.connect(g.gain); lfo.start(); this.droneLfo = lfo
+  }
+  retuneDrone(root: number) {
+    const c = this.ctx; if (!c || !this.droneOscs.length) return
+    const t = c.currentTime
+    this.droneFreqs(root).forEach((f, i) => this.droneOscs[i]?.frequency.setTargetAtTime(f, t, 0.6))
+  }
+  stopDrone() {
+    this.droneOscs.forEach((o) => { try { o.stop() } catch { /* noop */ } try { o.disconnect() } catch { /* noop */ } })
+    this.droneOscs = []
+    if (this.droneLfo) { try { this.droneLfo.stop() } catch { /* noop */ } try { this.droneLfo.disconnect() } catch { /* noop */ } this.droneLfo = null }
+    if (this.droneGain) { try { this.droneGain.disconnect() } catch { /* noop */ } this.droneGain = null }
+  }
+  // Adaptive intensity: 0 calm/exploring … 3 boss/chaos. Opens the lowpass (dark → bright) and swells
+  // the drone as the fight escalates — the soundtrack reacts to what's on screen without a new track.
+  setMusicHeat(level: number) {
+    const c = this.ctx; if (!c) return
+    const L = Math.max(0, Math.min(3, Math.round(level)))
+    if (L === this.musicHeat) return
+    this.musicHeat = L
+    const t = c.currentTime
+    const cutoff = [820, 1800, 3800, 8500][L]
+    const q = [0.6, 0.75, 0.95, 1.15][L]
+    if (this.heat) { this.heat.frequency.setTargetAtTime(cutoff, t, 0.4); this.heat.Q.setTargetAtTime(q, t, 0.4) }
+    if (this.droneGain && !this.muted) this.droneGain.gain.setTargetAtTime(this.targetDroneVol(), t, 0.5)
   }
   dispose() {
     this.stopMusic()
@@ -939,6 +1002,9 @@ export class MainScene extends Phaser.Scene {
   private dailyOpen = false
   private dailyUI: Phaser.GameObjects.GameObject[] = []
   private closeDailyKey = () => this.closeDaily()
+  private trialsOpen = false                // the weekly APEX TRIALS board screen is up
+  private trialsUI: Phaser.GameObjects.GameObject[] = []
+  private closeTrialsKey = () => this.closeTrials()
   private dailyRun = false                 // this run posts to the Daily board (modifier applied, Armory ignored)
   private rushRun = false                  // APEX TRIALS boss-rush run (own arena, 7 bosses back-to-back, local best)
   private rushIndex = 0                    // which boss of the rush we're on
@@ -993,6 +1059,7 @@ export class MainScene extends Phaser.Scene {
   // Boss HP bar
   private bossRef?: Phaser.Physics.Arcade.Sprite
   private bossMusicOn = false          // tracks whether the boss-intensity music layer is engaged
+  private musicHeatAt = 0              // next wall-clock time to re-evaluate adaptive music heat (throttled)
   private bossBar: Phaser.GameObjects.GameObject[] = []
   private bossBarFill?: Phaser.GameObjects.Rectangle
   // Apex Shards (collectibles)
@@ -2674,7 +2741,7 @@ export class MainScene extends Phaser.Scene {
 
   // ---- Badge Case — the achievement grid (per-device, localStorage) ----
   private openBadges() {
-    if (this.badgesOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen) return
+    if (this.badgesOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen) return
     this.badgesOpen = true
     this.buildBadgesScreen()
     this.closeBadgesKey = () => this.closeBadges()
@@ -2713,7 +2780,7 @@ export class MainScene extends Phaser.Scene {
 
   // ---- Daily Challenge — a rotating modifier + its own daily board (pure skill; Armory ignored) ----
   private openDaily() {
-    if (this.dailyOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen) return
+    if (this.dailyOpen || this.trialsOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen) return
     this.dailyOpen = true
     this.buildDailyScreen(null)
     this.input.keyboard!.on('keydown-ESC', this.closeDailyKey)
@@ -2851,6 +2918,74 @@ export class MainScene extends Phaser.Scene {
     })
     if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
       T(256, 326, `YOU  ·  #${data.you.rank}  ·  ${data.you.score}`, 10, '#fde68a', 0.5)
+    }
+    back()
+  }
+
+  // ---- Weekly APEX TRIALS board screen (clones the Daily screen; scoped by ISO week) ----
+  private openTrials() {
+    if (this.trialsOpen || this.dailyOpen || this.controlsOpen || this.armoryOpen || this.leaderboardOpen) return
+    this.trialsOpen = true
+    this.buildTrialsScreen(null)
+    this.input.keyboard!.on('keydown-ESC', this.closeTrialsKey)
+    fetchTrials(weekKey()).then((d) => { if (this.trialsOpen) this.buildTrialsScreen(d) })
+  }
+
+  private closeTrials() {
+    if (!this.trialsOpen) return
+    this.input.keyboard!.off('keydown-ESC', this.closeTrialsKey)
+    this.trialsUI.forEach((o) => o.destroy())
+    this.trialsUI = []
+    this.trialsOpen = false
+    this.startGraceUntil = this.time.now + 400
+  }
+
+  private buildTrialsScreen(data: TrialsData | null) {
+    this.trialsUI.forEach((o) => o.destroy())
+    this.trialsUI = []
+    const push = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.trialsUI.push(o); return o }
+    const T = (x: number, y: number, s: string, size: number, color: string, ox = 0) =>
+      push(this.add.text(x, y, s, { fontFamily: 'monospace', fontSize: size + 'px', color }).setOrigin(ox, 0).setScrollFactor(0).setDepth(251))
+    const wk = weekKey()
+    const best = loadTrialsBest()
+
+    push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.985).setScrollFactor(0).setDepth(250).setInteractive())
+    push(this.add.text(256, 20, 'APEX TRIALS', { fontFamily: 'monospace', fontSize: '18px', color: '#fca5a5', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    T(256, 40, wk + '  ·  resets Monday 00:00 UTC  ·  Armory ON', 8, '#71717a', 0.5)
+    push(this.add.text(256, 62, '⚔  7-BOSS GAUNTLET', { fontFamily: 'monospace', fontSize: '13px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(251))
+    T(256, 82, 'All 7 bosses back-to-back — same order for everyone this week.', 8, '#c4b5fd', 0.5)
+    const play = push(this.add.text(256, 110, '▶  PLAY TRIALS', { fontFamily: 'monospace', fontSize: '13px', color: '#0a0612', fontStyle: 'bold', backgroundColor: '#fca5a5', padding: { x: 14, y: 7 } }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+    play.on('pointerover', () => play.setAlpha(0.85)); play.on('pointerout', () => play.setAlpha(1))
+    play.on('pointerdown', () => {
+      this.input.keyboard!.off('keydown-ESC', this.closeTrialsKey)
+      this.trialsUI.forEach((o) => o.destroy()); this.trialsUI = []
+      this.trialsOpen = false
+      this.startTrials()
+    })
+    if (best > 0) T(256, 136, 'your local best  ' + best.toLocaleString(), 8, '#67e8f9', 0.5)
+
+    const back = () => {
+      const b = push(this.add.text(256, 356, '[ BACK ]', { fontFamily: 'monospace', fontSize: '12px', color: '#86efac' }).setOrigin(0.5).setScrollFactor(0).setDepth(251).setInteractive({ useHandCursor: true }))
+      b.on('pointerdown', () => this.closeTrials())
+    }
+
+    T(256, 154, "— THIS WEEK'S BOARD —", 9, '#52525b', 0.5)
+    if (!data) { T(256, 182, 'loading…', 11, '#a5b4fc', 0.5); back(); return }
+    if (!data.online) { T(256, 186, 'board offline', 10, '#71717a', 0.5); back(); return }
+    const mine = myWallet()
+    const short = (w: string) => w.slice(0, 6) + '…' + w.slice(-4)
+    if (data.top.length === 0) T(256, 190, 'No runs yet this week — set the pace.', 10, '#a5b4fc', 0.5)
+    data.top.slice(0, 8).forEach((r, i) => {
+      const y = 174 + i * 19
+      const you = !!mine && r.wallet.toLowerCase() === mine
+      const c = you ? '#fde68a' : '#e9d5ff'
+      T(120, y, '#' + (i + 1), 10, i < 3 ? '#67e8f9' : '#a1a1aa')
+      T(156, y, (r.handle || short(r.wallet)) + (you ? '  (you)' : ''), 10, c)
+      T(338, y, r.sector + '/7', 9, you ? '#fde68a' : '#9ca3af', 1)   // bosses cleared that run
+      T(392, y, String(r.score), 10, c, 1)
+    })
+    if (data.you && !data.top.some((r) => !!mine && r.wallet.toLowerCase() === mine)) {
+      T(256, 330, `YOU  ·  #${data.you.rank}  ·  ${data.you.sector}/7  ·  ${data.you.score}`, 10, '#fde68a', 0.5)
     }
     back()
   }
@@ -3062,11 +3197,11 @@ export class MainScene extends Phaser.Scene {
     daily.on('pointerout', () => daily.setColor('#fbbf24'))
     daily.on('pointerdown', () => this.openDaily())
     els.push(daily)
-    // APEX TRIALS — weekly boss rush; starts straight into the arena (headline entry, never starts campaign play).
+    // APEX TRIALS — weekly boss rush; opens the board screen (weekly standings + PLAY). Above the start catcher.
     const trials = this.add.text(378, 294, '⚔ TRIALS', { fontFamily: 'monospace', fontSize: '11px', color: '#fca5a5', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
     trials.on('pointerover', () => trials.setColor('#fecaca'))
     trials.on('pointerout', () => trials.setColor('#fca5a5'))
-    trials.on('pointerdown', () => this.startTrials())
+    trials.on('pointerdown', () => this.openTrials())
     els.push(trials)
     // Don't-break-the-chain streak nudge (per-device).
     const ds = getDailyStreak()
@@ -3128,7 +3263,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private beginPlay() {
-    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.badgesOpen) return
+    if (this.started || this.controlsOpen || this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.badgesOpen) return
     if (this.time.now < this.startGraceUntil) return   // the keypress/tap that just closed CONTROLS can't also start
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     if (!this.dailyRun && !this.rushRun) { this.applyArmory(); this.updateHealth(); this.livesText?.setText('LIVES  ' + this.lives) }   // pick up any upgrade bought on the title (Daily/Trials set their own kit)
@@ -3189,7 +3324,7 @@ export class MainScene extends Phaser.Scene {
       }
       return
     }
-    if (this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.badgesOpen) return   // a menu screen owns input (pointer-driven)
+    if (this.armoryOpen || this.leaderboardOpen || this.dailyOpen || this.trialsOpen || this.badgesOpen) return   // a menu screen owns input (pointer-driven)
     if (this.gameOver) {
       // Restart on any gamepad button (tap/click/key handled by listeners set at game over).
       const gp = this.readPad()
@@ -3212,6 +3347,12 @@ export class MainScene extends Phaser.Scene {
     if (this.bossRef) this.updateBossBar()
     const bossNow = !!(this.bossRef && this.bossRef.active)   // swell the music while a boss holds the field
     if (bossNow !== this.bossMusicOn) { this.bossMusicOn = bossNow; this.sfx?.setMusicIntensity(bossNow) }
+    // Adaptive music heat (throttled): the bed's lowpass opens + the drone swells with on-field pressure.
+    if (time >= this.musicHeatAt) {
+      this.musicHeatAt = time + 400
+      const n = this.enemies.countActive(true)
+      this.sfx?.setMusicHeat(bossNow ? 3 : n >= 6 ? 2 : n >= 1 ? 1 : 0)
+    }
     this.updateCompass()
     this.updateProgress()
 
@@ -4720,6 +4861,28 @@ export class MainScene extends Phaser.Scene {
   // Death-screen retention hooks (shared by MISSION FAILED / SECTOR DOMINATED): a personal-best
   // delta, the player's live GLOBAL RANK (fetched async, graceful when offline), and a one-tap
   // SHARE that copies a result line to the clipboard. All degrade silently with no wallet/board.
+  // Weekly TRIALS results line: the post-commit rank + named rival for this run's weekly standing,
+  // painted on the death/clear screen. Token-guarded so a slow response can't bleed onto a later run.
+  private trialsExtras(submit: Promise<SubmitResult | null> | null, token: number) {
+    if (!submit) return
+    const line = (s: string) => {
+      if (!this.gameOver || this.deathToken !== token) return
+      this.add.text(256, 249, s, { fontFamily: 'monospace', fontSize: '9px', color: '#fbbf24' })
+        .setOrigin(0.5).setScrollFactor(0).setDepth(201)
+    }
+    submit.then((r) => {
+      if (!r || !r.rank) return
+      let s = '◆  WEEKLY RANK  #' + r.rank
+      if (r.next) {
+        const who = (r.next.handle || 'RIVAL').slice(0, 12)
+        const mine = r.best?.score ?? this.score          // rank/rival are computed vs your weekly BEST, so gap must be too
+        const gap = Math.max(1, r.next.score - mine).toLocaleString()
+        s = '◆  TRIALS #' + r.rank + '   ▲ ' + gap + ' to pass ' + who
+      }
+      line(s)
+    }).catch(() => { /* offline — the local best line already stands in */ })
+  }
+
   private deathExtras(sector: number, prevBest: number, record: boolean, submit: Promise<SubmitResult | null> | null, token: number, win: boolean) {
     this.shareRank = null   // the flex card reads this once the POST resolves (below)
     const delta = this.score - prevBest
@@ -4837,8 +5000,10 @@ export class MainScene extends Phaser.Scene {
     this.setBridge('over')
     const token = ++this.deathToken
     let submit: Promise<SubmitResult | null> | null = null
+    let trialsSubmit: Promise<SubmitResult | null> | null = null
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
-    else if (!this.rushRun) submit = submitScore(this.score, this.level)     // campaign only — trials & daily don't post to the global board
+    else if (this.rushRun) trialsSubmit = submitTrials(weekKey(), this.score, this.rushIndex)   // post the run to the weekly Trials board
+    else submit = submitScore(this.score, this.level)     // campaign posts to the global board
     this.sfx?.stopMusic()
     this.player.setTint(0x333333); this.player.setVelocity(0, 0)
     const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score) : this.saveBest()
@@ -4855,7 +5020,8 @@ export class MainScene extends Phaser.Scene {
     const midline = this.rushRun ? 'APEX TRIALS  ·  ' + this.rushIndex + '/' + this.rushOrder.length + ' bosses' : 'Reached Sector ' + this.level
     this.add.text(256, 212, midline, { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    if (!this.dailyRun && !this.rushRun) this.deathExtras(this.level, prevBest, record, submit, token, false)
+    if (this.rushRun) this.trialsExtras(trialsSubmit, token)
+    else if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token, false)
     const btn = this.add.text(256, 268, (this.dailyRun || this.rushRun) ? '[ CLICK / TAP TO CONTINUE ]' : '[ RETRY — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
@@ -4869,8 +5035,10 @@ export class MainScene extends Phaser.Scene {
     this.setBridge('over')
     const token = ++this.deathToken
     let submit: Promise<SubmitResult | null> | null = null
+    let trialsSubmit: Promise<SubmitResult | null> | null = null
     if (this.dailyRun) { submitDaily(this.dailyDay || todayKey(), this.score, this.level); noteDailyPlayed() }
-    else if (!this.rushRun) submit = submitScore(this.score, this.level)     // campaign only — trials & daily don't post to the global board
+    else if (this.rushRun) trialsSubmit = submitTrials(weekKey(), this.score, this.rushIndex)   // post the clear to the weekly Trials board
+    else submit = submitScore(this.score, this.level)     // campaign posts to the global board
     this.sfx?.stopMusic()
     this.player.setVelocity(0, 0)
     const { best, record, prevBest } = this.rushRun ? saveTrialsBest(this.score) : this.saveBest()
@@ -4883,7 +5051,8 @@ export class MainScene extends Phaser.Scene {
     this.resultsCard(record)
     this.add.text(256, 212, this.rushRun ? 'All ' + this.rushOrder.length + ' bosses down — Apex Trials complete.' : 'The Huntress claims the Apex.', { fontFamily: 'monospace', fontSize: '10px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
     this.add.text(256, 230, 'Best  ' + best, { fontFamily: 'monospace', fontSize: '10px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
-    if (!this.dailyRun && !this.rushRun) this.deathExtras(this.level, prevBest, record, submit, token, true)
+    if (this.rushRun) this.trialsExtras(trialsSubmit, token)
+    else if (!this.dailyRun) this.deathExtras(this.level, prevBest, record, submit, token, true)
     const btn = this.add.text(256, 268, this.rushRun ? '[ CLICK / TAP TO CONTINUE ]' : '[ PLAY AGAIN — CLICK / TAP / ANY KEY ]', { fontFamily: 'monospace', fontSize: '11px', color: '#c4b5fd' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true })
     btn.on('pointerdown', () => this.restartRun())
