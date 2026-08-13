@@ -62,6 +62,37 @@ export function noteDailyPlayed(): { streak: number; playedToday: boolean } {
   } catch { return { streak: 1, playedToday: true } }
 }
 
+// ---- RESUPPLY dividend — the first Daily completed each UTC day pays a shard bonus that scales with
+// the streak, giving don't-break-the-chain a concrete payout that funds the Armory / Apex Rank. ----
+const DIV_KEY = 'apex_daily_dividend'   // the UTC day a dividend was last paid (idempotency)
+
+// Shards paid for a given streak length: 2 + streak, floored at 2 and capped at 12 (a full run banks
+// ~60-70, so this is a nudge, not a shortcut).
+export function dividendFor(streak: number): number { return Math.max(2, Math.min(12, 2 + Math.max(0, Math.floor(streak)))) }
+
+// Claim today's RESUPPLY. Call AFTER noteDailyPlayed() so the streak reflects today. Idempotent per UTC
+// day (only the first Daily completion pays). Returns the shards to bank (0 if already claimed / error).
+export function claimDailyDividend(): number {
+  try {
+    const today = todayKey()
+    if (localStorage.getItem(DIV_KEY) === today) return 0
+    const reward = dividendFor(Math.max(1, getDailyStreak().streak))
+    localStorage.setItem(DIV_KEY, today)
+    return reward
+  } catch { return 0 }
+}
+
+// Preview the dividend a Daily completion would pay right now (0 if already claimed today) — for the
+// title/daily-screen incentive line.
+export function pendingDividend(): number {
+  try {
+    if (localStorage.getItem(DIV_KEY) === todayKey()) return 0
+    const s = getDailyStreak()
+    const wouldBe = s.playedToday ? Math.max(1, s.streak) : (s.streak > 0 ? s.streak + 1 : 1)
+    return dividendFor(wouldBe)
+  } catch { return 0 }
+}
+
 // Read the current streak without mutating. A streak is only "alive" if the last play was
 // today (playedToday) or yesterday (still continuable today); older = broken, shown as 0.
 export function getDailyStreak(): { streak: number; playedToday: boolean } {
