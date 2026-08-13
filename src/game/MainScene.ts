@@ -3745,7 +3745,7 @@ export class MainScene extends Phaser.Scene {
     if (seen) return                              // already taught in a past session
     try { localStorage.setItem('apex_tip_' + key, '1') } catch { /* storage blocked */ }
     if (this.activeTip && this.activeTip.active) this.activeTip.destroy()   // single slot: replace the prior tip so two that fire close together never overlap into an unreadable blob
-    const t = this.add.text(256, 150, text, { fontFamily: 'monospace', fontSize: '10px', color, backgroundColor: 'rgba(10,6,18,0.85)', padding: { x: 9, y: 5 }, align: 'center' })
+    const t = this.add.text(256, 170, text, { fontFamily: 'monospace', fontSize: '10px', color, backgroundColor: 'rgba(10,6,18,0.85)', padding: { x: 9, y: 5 }, align: 'center' })   // y=170: off the SECTOR-banner lane (y=150) so a tip + banner never overlap (round-11 onboarding#6)
       .setOrigin(0.5).setScrollFactor(0).setDepth(232).setAlpha(0)
     this.activeTip = t
     this.tweens.add({ targets: t, alpha: 1, duration: 200, yoyo: true, hold: 2600, onComplete: () => { if (this.activeTip === t) this.activeTip = undefined; t.destroy() } })
@@ -4205,21 +4205,21 @@ export class MainScene extends Phaser.Scene {
       : ['MOVE  A / D   ( or ◄ ► )', 'JUMP  W / ▲   — tap again to double-jump', 'AIM   hold ▲ / ▼ while you FIRE', 'FIRE  SPACE (hold)       SWAP  Q', 'DASH  SHIFT — i-frames, and DEFLECT bolts back']
     const els: Phaser.GameObjects.GameObject[] = []
     els.push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.86).setScrollFactor(0).setDepth(240).setInteractive())
-    els.push(this.add.text(256, 92, '▸ CONTROLS ◂', { fontFamily: 'monospace', fontSize: '15px', color: '#22d3ee', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    // Premise line — the desktop card was controls-only, so a new player learned keys but never what the
-    // game IS or wants. State the fantasy/goal up front for touch AND keyboard.
-    els.push(this.add.text(256, 110, 'Fight to the extraction — drop the guardian, get out.', { fontFamily: 'monospace', fontSize: '9px', color: '#fbbf24' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
-    lines.forEach((ln, i) => els.push(this.add.text(256, 130 + i * 20, ln, { fontFamily: 'monospace', fontSize: touch ? '11px' : '10px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)))
+    // Premise HEADLINE — read first. It used to be a 9px afterthought wedged under the CONTROLS label, so a
+    // first-timer learned keys but never what the game IS; now it leads and CONTROLS is a sub-caption. (round-11 onboarding#2)
+    els.push(this.add.text(256, 86, 'Fight to the extraction. Drop the guardian. Get out.', { fontFamily: 'monospace', fontSize: '12px', color: '#fde68a', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    els.push(this.add.text(256, 112, '▸ CONTROLS ◂', { fontFamily: 'monospace', fontSize: '10px', color: '#22d3ee', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
+    lines.forEach((ln, i) => els.push(this.add.text(256, 132 + i * 20, ln, { fontFamily: 'monospace', fontSize: touch ? '11px' : '10px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)))
     const prompt = this.add.text(256, 262, '▶  DROP IN', { fontFamily: 'monospace', fontSize: '15px', color: '#0a0612', fontStyle: 'bold', backgroundColor: '#22d3ee', padding: { x: 18, y: 7 } }).setOrigin(0.5).setScrollFactor(0).setDepth(241).setInteractive({ useHandCursor: true })
     els.push(prompt)
     els.push(this.add.text(256, 298, 'press any key · tap · or a gamepad button to begin', { fontFamily: 'monospace', fontSize: '8px', color: '#71717a' }).setOrigin(0.5).setScrollFactor(0).setDepth(241))
     this.coachGateUI = els
     this.tweens.add({ targets: prompt, alpha: 0.55, duration: 620, yoyo: true, repeat: -1 })
-    this.coachGraceUntil = this.time.now + 350
+    this.coachGraceUntil = this.time.now + 700   // longer beat so the title's start-mash can't blow through the card (round-11 onboarding#3)
     const drop = () => { if (this.coachGate && this.time.now >= this.coachGraceUntil) this.endCoachGate() }
     ;(els[0] as Phaser.GameObjects.Rectangle).on('pointerdown', drop)   // tap anywhere on the backdrop
     prompt.on('pointerdown', drop)
-    this.coachGateKey = () => drop()
+    this.coachGateKey = (e: KeyboardEvent) => { if (!e.repeat) drop() }   // ignore auto-repeat from a still-held start key — only a deliberate fresh press drops in
     this.input.keyboard!.on('keydown', this.coachGateKey)
   }
 
