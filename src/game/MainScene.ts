@@ -1017,7 +1017,15 @@ export class MainScene extends Phaser.Scene {
   private rebindArmed = false          // true once all buttons release, so the opening tap can't self-bind
   private rebindHint?: Phaser.GameObjects.Text
   private startGraceUntil = 0          // brief guard so a pad press leaving a menu can't skip the next screen
-  private startKeyHandler?: () => void
+  private startKeyHandler?: (e: KeyboardEvent) => void
+  // Title focus-nav (bug#5): d-pad / arrow keys move a focus ring across the title's menu entries so
+  // gamepad + TV players can reach DAILY / TRIALS / ARMORY / etc., not just start the campaign.
+  private titleNav: { obj: Phaser.GameObjects.Text; act: () => void }[] = []
+  private titleFocus = 0
+  private titleNavActive = false       // has the player begun navigating? (ring hidden until then, so mouse/touch never see it)
+  private titleRing?: Phaser.GameObjects.Rectangle
+  private titleNavPrev = 0             // gamepad d-pad edge-detect on the title
+  private titleConfirmPrev = false     // gamepad confirm edge-detect on the title
   private closeControlsKey = () => this.closeControls()
   private particles!: Phaser.GameObjects.Particles.ParticleEmitter
   private dangerVignette?: Phaser.GameObjects.Image
@@ -2834,6 +2842,7 @@ export class MainScene extends Phaser.Scene {
     if (this.started) return
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
     this.titleUI.forEach((o) => o.destroy()); this.titleUI = []
+    this.titleNav = []; this.titleRing = undefined; this.titleNavActive = false
     this.rushRun = true
     this.rushIndex = 0
     this.rushOrder = bossOrderForWeek(weekKey())
@@ -3192,6 +3201,9 @@ export class MainScene extends Phaser.Scene {
     let best = 0
     try { best = parseInt(localStorage.getItem('apex_best') || '0', 10) || 0 } catch { best = 0 }
     const els: Phaser.GameObjects.GameObject[] = []
+    // Reset the focus-nav layer for this fresh title build.
+    this.titleNav = []; this.titleFocus = 0; this.titleNavActive = false
+    this.titleRing = undefined; this.titleNavPrev = 0; this.titleConfirmPrev = false
     els.push(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.68).setScrollFactor(0).setDepth(240))
     if (this.textures.exists('logo')) {
       const logo = this.add.image(256, 112, 'logo').setScrollFactor(0).setDepth(241)
@@ -3206,6 +3218,7 @@ export class MainScene extends Phaser.Scene {
     const prompt = this.add.text(256, 272, this.sys.game.device.input.touch ? '▶  TAP TO START' : '▶  PRESS ANY KEY TO START', { fontFamily: 'monospace', fontSize: '12px', color: '#f5f3ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(241)
     this.tweens.add({ targets: prompt, alpha: 0.32, duration: 620, yoyo: true, repeat: -1 })
     els.push(prompt)
+    this.titleNav.push({ obj: prompt, act: () => this.beginPlay() })   // focus #0 — START (default)
     // DAILY CHALLENGE — headline entry. ABOVE the start catcher so a tap opens it, never starts play.
     // Show today's modifier name so the title visibly changes each day and hints at the run.
     const daily = this.add.text(150, 294, '◆ DAILY · ' + todayMod().name, { fontFamily: 'monospace', fontSize: '11px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
@@ -3213,12 +3226,14 @@ export class MainScene extends Phaser.Scene {
     daily.on('pointerout', () => daily.setColor('#fbbf24'))
     daily.on('pointerdown', () => this.openDaily())
     els.push(daily)
+    this.titleNav.push({ obj: daily, act: () => this.openDaily() })
     // APEX TRIALS — weekly boss rush; opens the board screen (weekly standings + PLAY). Above the start catcher.
     const trials = this.add.text(378, 294, '⚔ TRIALS', { fontFamily: 'monospace', fontSize: '11px', color: '#fca5a5', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
     trials.on('pointerover', () => trials.setColor('#fecaca'))
     trials.on('pointerout', () => trials.setColor('#fca5a5'))
     trials.on('pointerdown', () => this.openTrials())
     els.push(trials)
+    this.titleNav.push({ obj: trials, act: () => this.openTrials() })
     // Don't-break-the-chain streak nudge (per-device).
     const ds = getDailyStreak()
     if (ds.streak > 0) {
@@ -3236,6 +3251,7 @@ export class MainScene extends Phaser.Scene {
     badges.on('pointerout', () => badges.setColor(badgeCol))
     badges.on('pointerdown', () => this.openBadges())
     els.push(badges)
+    this.titleNav.push({ obj: badges, act: () => this.openBadges() })
     // ARMORY · LEADERBOARD · CONTROLS — also ABOVE the start catcher.
     const mkBtn = (x: number, label: string, color: string, hover: string, act: () => void) => {
       const b = this.add.text(x, 342, label, { fontFamily: 'monospace', fontSize: '10px', color }).setOrigin(0.5).setScrollFactor(0).setDepth(242).setInteractive({ useHandCursor: true })
@@ -3243,6 +3259,7 @@ export class MainScene extends Phaser.Scene {
       b.on('pointerout', () => b.setColor(color))
       b.on('pointerdown', act)
       els.push(b)
+      this.titleNav.push({ obj: b, act })
     }
     mkBtn(108, '[ ARMORY ]', '#fbbf24', '#fde68a', () => this.openArmory())
     mkBtn(256, '[ LEADERBOARD ]', '#67e8f9', '#a5f3fc', () => this.openLeaderboard())
@@ -3254,14 +3271,52 @@ export class MainScene extends Phaser.Scene {
     motion.on('pointerout', () => motion.setColor('#94a3b8'))
     motion.on('pointerdown', () => { this.toggleReduceMotion(); motion.setText(motionLabel()) })
     els.push(motion)
+    this.titleNav.push({ obj: motion, act: () => { this.toggleReduceMotion(); motion.setText(motionLabel()) } })
     // Full-screen catcher: a tap on empty space starts. Below the button, above the dim.
     const startCatcher = this.add.rectangle(256, 192, 512, 384, 0x000000, 0.001).setScrollFactor(0).setDepth(240.5).setInteractive()
     startCatcher.on('pointerdown', () => this.beginPlay())
     els.push(startCatcher)
     this.titleUI = els
-    // Any key starts (guarded so it no-ops while the controls screen is open).
-    this.startKeyHandler = () => this.beginPlay()
+    // Keyboard: arrow keys drive the focus ring; otherwise any key starts (classic arcade feel). Once
+    // you're navigating, only Enter/Space confirms the focused entry — so you can't accidentally start.
+    this.startKeyHandler = (e: KeyboardEvent) => {
+      if (this.time.now < this.startGraceUntil) return
+      const k = e.key
+      if (k === 'ArrowUp' || k === 'ArrowLeft') { this.titleNavMove(-1); return }
+      if (k === 'ArrowDown' || k === 'ArrowRight') { this.titleNavMove(1); return }
+      if (this.titleNavActive) { if (k === 'Enter' || k === ' ' || k === 'Spacebar') this.titleActivate(); return }
+      this.beginPlay()
+    }
     this.input.keyboard!.on('keydown', this.startKeyHandler)
+  }
+
+  // Move the title focus ring (bug#5). The first directional press just reveals the ring where you
+  // are; subsequent presses step through the menu entries (wrapping).
+  private titleNavMove(dir: number) {
+    if (!this.titleNav.length) return
+    const first = !this.titleNavActive
+    this.titleNavActive = true
+    if (!first) this.titleFocus = (this.titleFocus + dir + this.titleNav.length) % this.titleNav.length
+    this.updateTitleRing()
+    this.sfx?.swap()
+  }
+
+  private titleActivate() {
+    const it = this.titleNav[this.titleFocus]
+    if (it && it.obj.active) it.act()
+  }
+
+  // Draw/reposition the focus ring around the focused entry. Entries are origin-centred + scrollFactor
+  // 0, so their x/y IS the on-screen centre — no camera math needed.
+  private updateTitleRing() {
+    const it = this.titleNav[this.titleFocus]
+    if (!it || !it.obj.active) return
+    if (!this.titleRing) {
+      this.titleRing = this.add.rectangle(0, 0, 10, 10, 0x000000, 0).setScrollFactor(0).setDepth(243).setStrokeStyle(2, 0x22d3ee, 0.95)
+      this.titleUI.push(this.titleRing)
+    }
+    this.titleRing.setVisible(this.titleNavActive)
+    this.titleRing.setPosition(it.obj.x, it.obj.y).setSize(it.obj.width + 18, it.obj.height + 10)
   }
 
   // Apply persistent Apex Armory upgrades to this run's starting stats. Called at create() AND at
@@ -3288,6 +3343,7 @@ export class MainScene extends Phaser.Scene {
     this.sfx?.startMusic(this.levels()[this.level - 1]?.theme ?? 'streets')
     this.titleUI.forEach((o) => o.destroy())
     this.titleUI = []
+    this.titleNav = []; this.titleRing = undefined; this.titleNavActive = false
     this.physics.resume()
     const d = this.levels()[this.level - 1]
     this.showBanner('SECTOR 1', d?.name || '')
@@ -3349,8 +3405,21 @@ export class MainScene extends Phaser.Scene {
     }
     if (!this.started) {
       const gp = this.readPad()
-      // Any button starts, with a short grace so a press that left a menu can't skip the title.
-      if (gp && time > this.startGraceUntil && this.anyPadButtonDown(gp.buttons)) this.beginPlay()
+      if (gp && time > this.startGraceUntil) {
+        // D-pad / stick drives the focus ring (bug#5). Before you navigate, any button starts (classic).
+        const ay = gp.axes[1] || 0, ax = gp.axes[0] || 0
+        const nav = (gp.buttons[13] || gp.buttons[15] || ay > 0.5 || ax > 0.5) ? 1
+          : (gp.buttons[12] || gp.buttons[14] || ay < -0.5 || ax < -0.5) ? -1 : 0
+        if (nav !== 0 && this.titleNavPrev === 0) this.titleNavMove(nav)
+        this.titleNavPrev = nav
+        if (!this.titleNavActive) {
+          if (nav === 0 && this.anyPadButtonDown(gp.buttons)) this.beginPlay()
+        } else {
+          const confirm = !!(gp.buttons[0] || gp.buttons[1] || gp.buttons[2] || gp.buttons[3])
+          if (confirm && !this.titleConfirmPrev) this.titleActivate()
+          this.titleConfirmPrev = confirm
+        }
+      }
       return
     }
     // Gamepad pause button toggles pause (edge-detected) — polled even while paused.
