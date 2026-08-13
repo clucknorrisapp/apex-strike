@@ -2,9 +2,10 @@
 // Everything degrades silently: if the board is offline or no wallet is connected,
 // submits no-op and fetches return an empty offline board — the game never blocks on it.
 
-export interface BoardRow { wallet: string; handle: string | null; score: number; sector: number }
-export interface BoardYou { handle: string | null; score: number; sector: number; rank: number }
-export interface RivalRow { handle: string | null; score: number }   // the named rank one rung above you
+export interface BoardRow { wallet: string; handle: string | null; score: number; sector: number; prestige?: number }
+export interface BoardYou { handle: string | null; score: number; sector: number; rank: number; prestige?: number }
+export interface RivalRow { handle: string | null; score: number; prestige?: number }   // the named rank one rung above you
+// prestige = the player's Apex Rank (account prestige ladder), rendered as a Lv badge beside their handle on every board.
 export interface BoardData { online: boolean; top: BoardRow[]; you: BoardYou | null; next: RivalRow | null }
 // What a score POST hands back: authoritative rank + rival computed after the upsert commits.
 export interface SubmitResult { ok: boolean; best: { score: number; sector: number } | null; rank: number | null; next: RivalRow | null }
@@ -138,9 +139,9 @@ export async function submitAscension(heat: number, score: number, sector: numbe
 }
 
 // ---- Campaign SPEEDRUN board (fastest full-campaign clear; ranked ascending by ms) ----
-export interface SpeedRow { wallet: string; handle: string | null; ms: number; sector: number }
-export interface SpeedYou { handle: string | null; ms: number; sector: number; rank: number }
-export interface SpeedRival { handle: string | null; ms: number }   // the next-faster ghost
+export interface SpeedRow { wallet: string; handle: string | null; ms: number; sector: number; prestige?: number }
+export interface SpeedYou { handle: string | null; ms: number; sector: number; rank: number; prestige?: number }
+export interface SpeedRival { handle: string | null; ms: number; prestige?: number }   // the next-faster ghost
 export interface SpeedData { online: boolean; top: SpeedRow[]; you: SpeedYou | null; next: SpeedRival | null }
 export interface SpeedResult { ok: boolean; best: { ms: number; sector: number } | null; rank: number | null; next: SpeedRival | null }
 

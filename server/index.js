@@ -121,7 +121,7 @@ function throttled(key, limit = 30, windowMs = 60_000) {
 async function rivalAbove(score) {
   try {
     const { rows } = await pool.query(
-      `SELECT s.score, p.handle FROM scores s LEFT JOIN players p ON p.wallet = s.wallet
+      `SELECT s.score, p.handle, p.rank AS prestige FROM scores s LEFT JOIN players p ON p.wallet = s.wallet
         WHERE s.score > $1 ORDER BY s.score ASC, s.updated_at DESC LIMIT 1`, [score])
     return rows[0] || null
   } catch { return null }
@@ -137,7 +137,7 @@ async function globalRank(score) {
 async function dailyRivalAbove(day, score) {
   try {
     const { rows } = await pool.query(
-      `SELECT d.score, p.handle FROM daily_scores d LEFT JOIN players p ON p.wallet = d.wallet
+      `SELECT d.score, p.handle, p.rank AS prestige FROM daily_scores d LEFT JOIN players p ON p.wallet = d.wallet
         WHERE d.day = $1 AND d.score > $2 ORDER BY d.score ASC, d.updated_at DESC LIMIT 1`, [day, score])
     return rows[0] || null
   } catch { return null }
@@ -152,7 +152,7 @@ async function dailyRank(day, score) {
 async function trialsRivalAbove(week, score) {
   try {
     const { rows } = await pool.query(
-      `SELECT t.score, p.handle FROM trials_scores t LEFT JOIN players p ON p.wallet = t.wallet
+      `SELECT t.score, p.handle, p.rank AS prestige FROM trials_scores t LEFT JOIN players p ON p.wallet = t.wallet
         WHERE t.week = $1 AND t.score > $2 ORDER BY t.score ASC, t.updated_at DESC LIMIT 1`, [week, score])
     return rows[0] || null
   } catch { return null }
@@ -167,7 +167,7 @@ async function trialsRank(week, score) {
 async function ascensionRivalAbove(heat, score) {
   try {
     const { rows } = await pool.query(
-      `SELECT a.score, p.handle FROM ascension_scores a LEFT JOIN players p ON p.wallet = a.wallet
+      `SELECT a.score, p.handle, p.rank AS prestige FROM ascension_scores a LEFT JOIN players p ON p.wallet = a.wallet
         WHERE a.heat = $1 AND a.score > $2 ORDER BY a.score ASC, a.updated_at DESC LIMIT 1`, [heat, score])
     return rows[0] || null
   } catch { return null }
@@ -182,7 +182,7 @@ async function ascensionRank(heat, score) {
 async function speedRivalAbove(ms) {   // the next-FASTER ghost — a beatable target one rung up
   try {
     const { rows } = await pool.query(
-      `SELECT s.ms, p.handle FROM speedruns s LEFT JOIN players p ON p.wallet = s.wallet
+      `SELECT s.ms, p.handle, p.rank AS prestige FROM speedruns s LEFT JOIN players p ON p.wallet = s.wallet
         WHERE s.ms < $1 ORDER BY s.ms DESC, s.updated_at ASC LIMIT 1`, [ms])
     return rows[0] || null
   } catch { return null }
@@ -218,7 +218,7 @@ app.get('/api/leaderboard', async (req, res) => {
   if (!dbReady) return res.json({ online: false, top: [], you: null })
   try {
     const { rows: top } = await pool.query(
-      `SELECT s.wallet, p.handle, s.score, s.sector
+      `SELECT s.wallet, p.handle, p.rank AS prestige, s.score, s.sector
          FROM scores s LEFT JOIN players p ON p.wallet = s.wallet
         ORDER BY s.score DESC, s.updated_at ASC
         LIMIT 10`
@@ -227,7 +227,7 @@ app.get('/api/leaderboard', async (req, res) => {
     const wallet = String(req.query.wallet || '').toLowerCase()
     if (WALLET_RE.test(wallet)) {
       const { rows } = await pool.query(
-        `SELECT s.score, s.sector, p.handle,
+        `SELECT s.score, s.sector, p.handle, p.rank AS prestige,
                 (SELECT count(*) + 1 FROM scores x WHERE x.score > s.score)::int AS rank
            FROM scores s LEFT JOIN players p ON p.wallet = s.wallet
           WHERE s.wallet = $1`, [wallet])
@@ -261,7 +261,7 @@ app.post('/api/scores', async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO scores (wallet, score, sector, runs) VALUES ($1, $2, $3, 1)
          ON CONFLICT (wallet) DO UPDATE SET
-           sector = CASE WHEN EXCLUDED.score >= scores.score THEN EXCLUDED.sector ELSE scores.sector END,
+           sector = CASE WHEN EXCLUDED.score > scores.score THEN EXCLUDED.sector ELSE scores.sector END,
            score  = GREATEST(scores.score, EXCLUDED.score),
            runs   = scores.runs + 1,
            updated_at = now()
@@ -313,7 +313,7 @@ app.get('/api/daily', async (req, res) => {
   if (!dbReady) return res.json({ online: false, day, top: [], you: null })
   try {
     const { rows: top } = await pool.query(
-      `SELECT d.wallet, p.handle, d.score, d.sector
+      `SELECT d.wallet, p.handle, p.rank AS prestige, d.score, d.sector
          FROM daily_scores d LEFT JOIN players p ON p.wallet = d.wallet
         WHERE d.day = $1
         ORDER BY d.score DESC, d.updated_at ASC
@@ -322,7 +322,7 @@ app.get('/api/daily', async (req, res) => {
     const wallet = String(req.query.wallet || '').toLowerCase()
     if (WALLET_RE.test(wallet)) {
       const { rows } = await pool.query(
-        `SELECT d.score, d.sector, p.handle,
+        `SELECT d.score, d.sector, p.handle, p.rank AS prestige,
                 (SELECT count(*) + 1 FROM daily_scores x WHERE x.day = d.day AND x.score > d.score)::int AS rank
            FROM daily_scores d LEFT JOIN players p ON p.wallet = d.wallet
           WHERE d.day = $1 AND d.wallet = $2`, [day, wallet])
@@ -353,7 +353,7 @@ app.post('/api/daily/scores', async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO daily_scores (day, wallet, score, sector) VALUES ($1,$2,$3,$4)
          ON CONFLICT (day, wallet) DO UPDATE SET
-           sector = CASE WHEN EXCLUDED.score >= daily_scores.score THEN EXCLUDED.sector ELSE daily_scores.sector END,
+           sector = CASE WHEN EXCLUDED.score > daily_scores.score THEN EXCLUDED.sector ELSE daily_scores.sector END,
            score  = GREATEST(daily_scores.score, EXCLUDED.score),
            updated_at = now()
        RETURNING score, sector`, [day, wallet, score, sector])
@@ -371,7 +371,7 @@ app.get('/api/trials', async (req, res) => {
   if (!dbReady) return res.json({ online: false, week, top: [], you: null })
   try {
     const { rows: top } = await pool.query(
-      `SELECT t.wallet, p.handle, t.score, t.sector
+      `SELECT t.wallet, p.handle, p.rank AS prestige, t.score, t.sector
          FROM trials_scores t LEFT JOIN players p ON p.wallet = t.wallet
         WHERE t.week = $1
         ORDER BY t.score DESC, t.updated_at ASC
@@ -380,7 +380,7 @@ app.get('/api/trials', async (req, res) => {
     const wallet = String(req.query.wallet || '').toLowerCase()
     if (WALLET_RE.test(wallet)) {
       const { rows } = await pool.query(
-        `SELECT t.score, t.sector, p.handle,
+        `SELECT t.score, t.sector, p.handle, p.rank AS prestige,
                 (SELECT count(*) + 1 FROM trials_scores x WHERE x.week = t.week AND x.score > t.score)::int AS rank
            FROM trials_scores t LEFT JOIN players p ON p.wallet = t.wallet
           WHERE t.week = $1 AND t.wallet = $2`, [week, wallet])
@@ -411,7 +411,7 @@ app.post('/api/trials/scores', async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO trials_scores (week, wallet, score, sector) VALUES ($1,$2,$3,$4)
          ON CONFLICT (week, wallet) DO UPDATE SET
-           sector = CASE WHEN EXCLUDED.score >= trials_scores.score THEN EXCLUDED.sector ELSE trials_scores.sector END,
+           sector = CASE WHEN EXCLUDED.score > trials_scores.score THEN EXCLUDED.sector ELSE trials_scores.sector END,
            score  = GREATEST(trials_scores.score, EXCLUDED.score),
            updated_at = now()
        RETURNING score, sector`, [week, wallet, score, sector])
@@ -429,7 +429,7 @@ app.get('/api/ascension', async (req, res) => {
   if (!dbReady) return res.json({ online: false, heat, top: [], you: null })
   try {
     const { rows: top } = await pool.query(
-      `SELECT a.wallet, p.handle, a.score, a.sector
+      `SELECT a.wallet, p.handle, p.rank AS prestige, a.score, a.sector
          FROM ascension_scores a LEFT JOIN players p ON p.wallet = a.wallet
         WHERE a.heat = $1
         ORDER BY a.score DESC, a.updated_at ASC
@@ -438,7 +438,7 @@ app.get('/api/ascension', async (req, res) => {
     const wallet = String(req.query.wallet || '').toLowerCase()
     if (WALLET_RE.test(wallet)) {
       const { rows } = await pool.query(
-        `SELECT a.score, a.sector, p.handle,
+        `SELECT a.score, a.sector, p.handle, p.rank AS prestige,
                 (SELECT count(*) + 1 FROM ascension_scores x WHERE x.heat = a.heat AND x.score > a.score)::int AS rank
            FROM ascension_scores a LEFT JOIN players p ON p.wallet = a.wallet
           WHERE a.heat = $1 AND a.wallet = $2`, [heat, wallet])
@@ -469,7 +469,7 @@ app.post('/api/ascension/scores', async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO ascension_scores (heat, wallet, score, sector) VALUES ($1,$2,$3,$4)
          ON CONFLICT (heat, wallet) DO UPDATE SET
-           sector = CASE WHEN EXCLUDED.score >= ascension_scores.score THEN EXCLUDED.sector ELSE ascension_scores.sector END,
+           sector = CASE WHEN EXCLUDED.score > ascension_scores.score THEN EXCLUDED.sector ELSE ascension_scores.sector END,
            score  = GREATEST(ascension_scores.score, EXCLUDED.score),
            updated_at = now()
        RETURNING score, sector`, [heat, wallet, score, sector])
@@ -485,7 +485,7 @@ app.get('/api/speedruns', async (req, res) => {
   if (!dbReady) return res.json({ online: false, top: [], you: null })
   try {
     const { rows: top } = await pool.query(
-      `SELECT s.wallet, p.handle, s.ms, s.sector
+      `SELECT s.wallet, p.handle, p.rank AS prestige, s.ms, s.sector
          FROM speedruns s LEFT JOIN players p ON p.wallet = s.wallet
         ORDER BY s.ms ASC, s.updated_at ASC
         LIMIT 10`)
@@ -493,7 +493,7 @@ app.get('/api/speedruns', async (req, res) => {
     const wallet = String(req.query.wallet || '').toLowerCase()
     if (WALLET_RE.test(wallet)) {
       const { rows } = await pool.query(
-        `SELECT s.ms, s.sector, p.handle,
+        `SELECT s.ms, s.sector, p.handle, p.rank AS prestige,
                 (SELECT count(*) + 1 FROM speedruns x WHERE x.ms < s.ms)::int AS rank
            FROM speedruns s LEFT JOIN players p ON p.wallet = s.wallet
           WHERE s.wallet = $1`, [wallet])
