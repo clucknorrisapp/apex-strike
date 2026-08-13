@@ -256,7 +256,7 @@ app.post('/api/scores', async (req, res) => {
     if (handle) {
       await pool.query(
         `INSERT INTO players (wallet, handle) VALUES ($1, $2)
-           ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle, updated_at = now()`, [wallet, handle])
+           ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle`, [wallet, handle])
     }
     const { rows } = await pool.query(
       `INSERT INTO scores (wallet, score, sector, runs) VALUES ($1, $2, $3, 1)
@@ -288,7 +288,7 @@ app.post('/api/handle', async (req, res) => {
   try {
     await pool.query(
       `INSERT INTO players (wallet, handle) VALUES ($1, $2)
-         ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle, updated_at = now()`, [wallet, handle])
+         ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle`, [wallet, handle])
     res.json({ ok: true, handle })
   } catch (e) {
     console.error('[api] handle:', e.message)
@@ -348,7 +348,7 @@ app.post('/api/daily/scores', async (req, res) => {
   if (throttled('d:' + wallet)) return res.status(429).json({ ok: false, error: 'slow down' })
   try {
     if (handle) {
-      await pool.query(`INSERT INTO players (wallet, handle) VALUES ($1,$2) ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle, updated_at = now()`, [wallet, handle])
+      await pool.query(`INSERT INTO players (wallet, handle) VALUES ($1,$2) ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle`, [wallet, handle])
     }
     const { rows } = await pool.query(
       `INSERT INTO daily_scores (day, wallet, score, sector) VALUES ($1,$2,$3,$4)
@@ -406,7 +406,7 @@ app.post('/api/trials/scores', async (req, res) => {
   if (throttled('t:' + wallet)) return res.status(429).json({ ok: false, error: 'slow down' })
   try {
     if (handle) {
-      await pool.query(`INSERT INTO players (wallet, handle) VALUES ($1,$2) ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle, updated_at = now()`, [wallet, handle])
+      await pool.query(`INSERT INTO players (wallet, handle) VALUES ($1,$2) ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle`, [wallet, handle])
     }
     const { rows } = await pool.query(
       `INSERT INTO trials_scores (week, wallet, score, sector) VALUES ($1,$2,$3,$4)
@@ -464,7 +464,7 @@ app.post('/api/ascension/scores', async (req, res) => {
   if (throttled('a:' + wallet)) return res.status(429).json({ ok: false, error: 'slow down' })
   try {
     if (handle) {
-      await pool.query(`INSERT INTO players (wallet, handle) VALUES ($1,$2) ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle, updated_at = now()`, [wallet, handle])
+      await pool.query(`INSERT INTO players (wallet, handle) VALUES ($1,$2) ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle`, [wallet, handle])
     }
     const { rows } = await pool.query(
       `INSERT INTO ascension_scores (heat, wallet, score, sector) VALUES ($1,$2,$3,$4)
@@ -517,12 +517,12 @@ app.post('/api/speedruns/scores', async (req, res) => {
   if (throttled('r:' + wallet)) return res.status(429).json({ ok: false, error: 'slow down' })
   try {
     if (handle) {
-      await pool.query(`INSERT INTO players (wallet, handle) VALUES ($1,$2) ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle, updated_at = now()`, [wallet, handle])
+      await pool.query(`INSERT INTO players (wallet, handle) VALUES ($1,$2) ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle`, [wallet, handle])
     }
     const { rows } = await pool.query(
       `INSERT INTO speedruns (wallet, ms, sector) VALUES ($1,$2,$3)
          ON CONFLICT (wallet) DO UPDATE SET
-           sector = CASE WHEN EXCLUDED.ms <= speedruns.ms THEN EXCLUDED.sector ELSE speedruns.sector END,
+           sector = CASE WHEN EXCLUDED.ms < speedruns.ms THEN EXCLUDED.sector ELSE speedruns.sector END,
            ms     = LEAST(speedruns.ms, EXCLUDED.ms),
            updated_at = now()
        RETURNING ms, sector`, [wallet, ms, sector])

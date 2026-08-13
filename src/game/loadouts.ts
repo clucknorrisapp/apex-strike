@@ -36,7 +36,7 @@ export const DOCTRINES: Doctrine[] = [
   { id: 'gunslinger', name: 'GUNSLINGER', blurb: 'RAPID★ · +1 air-jump',                          hex: '#fbbf24', glyph: '✦',
     startWeapon: 'rapid',  startMastery: 1, dHealth: 0, dLives: 0, dFire: 0,   dJumps: 1, passive: 'rampage', passiveText: 'fire rate climbs as your combo grows' },
   { id: 'bastion',    name: 'BASTION',    blurb: 'SPREAD★ · +2 hearts +1 life · slow',            hex: '#4ade80', glyph: '⛨',
-    startWeapon: 'spread', startMastery: 1, dHealth: 2, dLives: 1, dFire: -12, dJumps: 0, passive: 'guard',   passiveText: 'spread fires an extra pellet' },
+    startWeapon: 'spread', startMastery: 1, dHealth: 2, dLives: 1, dFire: -12, dJumps: 0, passive: 'guard',   passiveText: 'spread fires an extra pellet pair' },
 ]
 
 const KEY = 'apex_doctrine'

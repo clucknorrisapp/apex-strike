@@ -5331,6 +5331,10 @@ export class MainScene extends Phaser.Scene {
   // Clear a hit/telegraph flash but keep any persistent base tint (e.g. the charger's).
   private restoreTint(e: Phaser.Physics.Arcade.Sprite) {
     if (!e.active) return
+    // A STAGGER freeze owns the tint: hold cyan for the whole window so a hit's +60ms restore, a burn
+    // tick, or a telegraph's flash-off can't repaint it gold/base mid-freeze. (Thaw clears staggerUntil
+    // BEFORE calling this, so thawing still restores correctly.)
+    if (((e.getData('staggerUntil') as number) || 0) > this.time.now) { e.setTintFill(0x67e8f9); return }
     // A non-lethal hit must NOT strip an enemy's "about to strike" telegraph flash while the wind-up is
     // still live — the tell is set once on entering the state, so re-assert the gold flash instead of
     // clearing to base whenever the enemy is still winding/marking/telegraphing.
@@ -5612,15 +5616,18 @@ export class MainScene extends Phaser.Scene {
     if (this.dashHitList.includes(enemy)) return
     this.dashHitList.push(enemy)
     const type = enemy.getData('type') as string
-    const dmg = 2 + this.dashLevel
+    let dmg = 2 + this.dashLevel
+    const shatter = ((enemy.getData('staggerUntil') as number) || 0) > this.time.now   // dash-execute a STAGGERED foe
+    if (shatter) dmg = Math.round(dmg * 1.6)
     const hp = ((enemy.getData('hp') as number) || 0) - dmg
     enemy.setData('hp', hp)
-    const col = this.dashLevel >= 2 ? 0x67e8f9 : 0x22d3ee
+    const col = shatter ? 0x67e8f9 : this.dashLevel >= 2 ? 0x67e8f9 : 0x22d3ee
     enemy.setTintFill(0xffffff)
     this.time.delayedCall(60, () => this.restoreTint(enemy))
-    this.particles.emitParticleAt(enemy.x, enemy.y, 8)
-    this.shockwave(enemy.x, enemy.y, col, 18)
+    this.particles.emitParticleAt(enemy.x, enemy.y, shatter ? 14 : 8)
+    this.shockwave(enemy.x, enemy.y, col, shatter ? 26 : 18)
     this.sfx?.crit(this.panAt(enemy.x))
+    if (shatter) this.popup(enemy.x, enemy.y - 34, 'SHATTER', '#67e8f9')
     if (hp > 0) {
       if (type === 'boss') this.bossBarChip()
       const bsx = enemy.getData('bsx') as number, bsy = enemy.getData('bsy') as number
