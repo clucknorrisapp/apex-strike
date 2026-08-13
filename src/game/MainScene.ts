@@ -752,19 +752,19 @@ const BOSS_MOVES: Record<string, string[]> = {
   reaper:   ['burst', 'dash', 'lance', 'burst', 'spread'],
   brute:    ['lob', 'pound', 'nova', 'lob', 'ring'],
   tyrant:   ['spread', 'dive', 'cross', 'summon', 'spread', 'ring'],
-  warden:   ['ring', 'sweep', 'spiral', 'ring', 'lob'],
+  warden:   ['ring', 'sweep', 'mines', 'spiral', 'ring', 'lob'],
   sentinel: ['fan', 'ring', 'nova', 'burst', 'dive', 'spread'],
-  wraith:   ['dash', 'ring', 'lance', 'burst', 'sweep', 'spread'],
+  wraith:   ['dash', 'ring', 'seeker', 'lance', 'burst', 'sweep', 'spread'],
   revenant: ['spread', 'nova', 'lance', 'ring', 'sweep', 'burst'],
 }
 const BOSS_MOVES_P2: Record<string, string[]> = {
-  reaper:   ['dash', 'burst', 'nova', 'spread', 'dash', 'ring'],
+  reaper:   ['dash', 'burst', 'curtain', 'nova', 'spread', 'dash', 'ring'],
   brute:    ['pound', 'cross', 'ring', 'lob', 'pound'],
-  tyrant:   ['dive', 'spread', 'spiral', 'ring', 'summon', 'dive'],
+  tyrant:   ['dive', 'spread', 'curtain', 'spiral', 'ring', 'summon', 'dive'],
   warden:   ['sweep', 'cross', 'ring', 'sweep', 'lob', 'ring'],
-  sentinel: ['fan', 'ring', 'dive', 'lance', 'sweep', 'pound', 'burst'],
+  sentinel: ['fan', 'ring', 'mines', 'dive', 'lance', 'sweep', 'pound', 'burst'],
   wraith:   ['dash', 'sweep', 'spiral', 'ring', 'dive', 'ring', 'burst'],
-  revenant: ['nova', 'lance', 'spiral', 'ring', 'spread', 'dash', 'nova'],
+  revenant: ['nova', 'lance', 'seeker', 'spiral', 'ring', 'spread', 'dash', 'nova'],
 }
 // Classify each boss move so the wind-up telegraph can play a matching audio cue —
 // a rising whine for projectile volleys, a low whoosh for lunges, a warble for summons —
@@ -772,6 +772,7 @@ const BOSS_MOVES_P2: Record<string, string[]> = {
 const BOSS_MOVE_CLASS: Record<string, 'charge' | 'lunge' | 'summon'> = {
   burst: 'charge', fan: 'charge', spread: 'charge', ring: 'charge', lob: 'charge', sweep: 'charge',
   cross: 'charge', spiral: 'charge', lance: 'charge', nova: 'charge',
+  curtain: 'charge', seeker: 'charge', mines: 'summon',
   dash: 'lunge', dive: 'lunge', pound: 'lunge', summon: 'summon',
 }
 
@@ -3154,6 +3155,7 @@ export class MainScene extends Phaser.Scene {
   update(time: number, delta: number) {
     this.routeCameras()  // route any newly-spawned objects to the right camera
     this.updateSlowmo()  // KILL-TIME: ease sim time-scales back to normal after a big beat
+    this.updateHomingBullets()   // SEEKER boss bolts steer toward the player while their window is open
     this.pollGamepadInput()                                          // arm-on-input READY toast + gpdebug overlay
     if (this.controlsOpen) { this.updateControlsRebind(); return }   // controls / rebind screen owns input
     if (this.contractOpen) {   // Apex Contract screen — pad ▲▼ moves the focus ring, a face button confirms THAT boon
@@ -3966,23 +3968,60 @@ export class MainScene extends Phaser.Scene {
   }
 
   // Flexible boss volley: aimed fan, radial ring, or fixed-angle bolt(s), accent-tinted.
-  private bossFire(enemy: Phaser.Physics.Arcade.Sprite, o: { count: number; spreadRad?: number; aimed?: boolean; ring?: boolean; baseAngle?: number; speed?: number; scale?: number; tint?: number }) {
+  private bossFire(enemy: Phaser.Physics.Arcade.Sprite, o: { count: number; spreadRad?: number; aimed?: boolean; ring?: boolean; baseAngle?: number; speed?: number; scale?: number; tint?: number; gapCenter?: number; gapRad?: number }) {
     if (!enemy.active) return
-    const { count, spreadRad = 0, aimed = true, ring = false, baseAngle = 0, speed = 230, scale = 0.78, tint } = o
+    const { count, spreadRad = 0, aimed = true, ring = false, baseAngle = 0, speed = 230, scale = 0.78, tint, gapCenter, gapRad = 0 } = o
     const aim = aimed ? Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y) : baseAngle
     for (let i = 0; i < count; i++) {
+      const ang = ring ? baseAngle + (i * Math.PI * 2) / count
+        : aim + (count > 1 ? (i - (count - 1) / 2) * (spreadRad / (count - 1)) : 0)
+      // CURTAIN etc. can leave one telegraphed safe lane — skip bolts inside the gap wedge.
+      if (gapRad > 0 && gapCenter !== undefined && Math.abs(Phaser.Math.Angle.Wrap(ang - gapCenter)) < gapRad) continue
       const b = this.enemyBullets.get(enemy.x, enemy.y, 'enemyBullet') as Phaser.Physics.Arcade.Image
       if (!b) continue
       b.setActive(true).setVisible(true); b.setScale(scale); b.setDepth(19)
       if (tint !== undefined) b.setTint(tint); else b.clearTint()
+      b.setData('homingUntil', 0)   // clear any stale SEEKER homing from a prior pooled use
       b.body?.reset(enemy.x, enemy.y)
       ;(b.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
-      const ang = ring ? baseAngle + (i * Math.PI * 2) / count
-        : aim + (count > 1 ? (i - (count - 1) / 2) * (spreadRad / (count - 1)) : 0)
       b.setVelocity(Math.cos(ang) * speed, Math.sin(ang) * speed)
       b.setRotation(ang)
       this.time.delayedCall(2600, () => { if (b.active) b.setActive(false).setVisible(false) })
     }
+  }
+
+  // Fire a radial ring of bolts from an arbitrary point (used by MINE detonations, which burst
+  // where the mine sat, not at the boss).
+  private ringFrom(x: number, y: number, count: number, speed: number, tint: number) {
+    for (let i = 0; i < count; i++) {
+      const b = this.enemyBullets.get(x, y, 'enemyBullet') as Phaser.Physics.Arcade.Image
+      if (!b) continue
+      b.setActive(true).setVisible(true); b.setScale(0.7); b.setDepth(19); b.setTint(tint)
+      b.setData('homingUntil', 0)
+      b.body?.reset(x, y)
+      ;(b.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
+      const ang = (i * Math.PI * 2) / count
+      b.setVelocity(Math.cos(ang) * speed, Math.sin(ang) * speed)
+      this.time.delayedCall(2600, () => { if (b.active) b.setActive(false).setVisible(false) })
+    }
+  }
+
+  // SEEKER bullets steer toward the player while their homing window is open, then commit straight.
+  private updateHomingBullets() {
+    const now = this.time.now
+    this.enemyBullets.getChildren().forEach((o) => {
+      const b = o as Phaser.Physics.Arcade.Image
+      if (!b.active) return
+      const until = (b.getData('homingUntil') as number) || 0
+      if (until <= 0 || now > until) return
+      const body = b.body as Phaser.Physics.Arcade.Body
+      const cur = Math.atan2(body.velocity.y, body.velocity.x)
+      const want = Phaser.Math.Angle.Between(b.x, b.y, this.player.x, this.player.y)
+      const na = Phaser.Math.Angle.RotateTo(cur, want, 0.05)     // ease toward the target each frame
+      const spd = now > until - 380 ? 300 : 165                   // slow drift, then commit fast near the end
+      body.setVelocity(Math.cos(na) * spd, Math.sin(na) * spd)
+      b.setRotation(na)
+    })
   }
 
   private bossDoMove(enemy: Phaser.Physics.Arcade.Sprite, kind: string, move: string, p2: boolean) {
@@ -4055,6 +4094,40 @@ export class MainScene extends Phaser.Scene {
         this.bossFire(enemy, { count: n, ring: true, baseAngle: 0, speed: 260, tint: acc })
         this.time.delayedCall(170, () => this.bossFire(enemy, { count: n, ring: true, baseAngle: Math.PI / n, speed: 172, tint: acc }))
         break }
+      case 'mines': {  // LINGERING space-denial — armed bolts that sit, pulse, then burst into rings
+        const n = p2 ? 4 : 3
+        for (let k = 0; k < n; k++) {
+          const mx = enemy.x + (k - (n - 1) / 2) * 150, my = 470 + Math.random() * 70
+          const m = this.enemyBullets.get(mx, my, 'enemyBullet') as Phaser.Physics.Arcade.Image
+          if (!m) continue
+          m.setActive(true).setVisible(true); m.setScale(1.15); m.setDepth(19); m.setTint(acc); m.setData('homingUntil', 0)
+          m.body?.reset(mx, my); (m.body as Phaser.Physics.Arcade.Body).setAllowGravity(false); m.setVelocity(0, 0)
+          this.tweens.add({ targets: m, scaleX: 1.7, scaleY: 1.7, duration: 260, yoyo: true, repeat: 1 })   // arm tell
+          this.time.delayedCall(1100, () => {
+            if (!m.active) return
+            this.shockwave(m.x, m.y, acc, 30)
+            this.ringFrom(m.x, m.y, p2 ? 10 : 8, 185, acc)
+            m.setActive(false).setVisible(false)
+          })
+        }
+        break }
+      case 'curtain': {  // a dense bolt wall with ONE telegraphed safe lane on the player's bearing
+        const gapCenter = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y)
+        this.bossFire(enemy, { count: p2 ? 30 : 24, ring: true, baseAngle: 0.05, speed: 175, tint: acc, gapCenter, gapRad: p2 ? 0.4 : 0.5 })
+        break }
+      case 'seeker': {  // slow HOMING bolts that re-aim ~1.5s then commit — punishes camping
+        const n = p2 ? 3 : 2
+        for (let k = 0; k < n; k++) this.time.delayedCall(k * 150, () => {
+          const b = this.enemyBullets.get(enemy.x, enemy.y, 'enemyBullet') as Phaser.Physics.Arcade.Image
+          if (!b) return
+          b.setActive(true).setVisible(true); b.setScale(0.95); b.setDepth(19); b.setTint(0xf0abfc)
+          b.body?.reset(enemy.x, enemy.y); (b.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
+          const ang = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y)
+          b.setVelocity(Math.cos(ang) * 165, Math.sin(ang) * 165)
+          b.setData('homingUntil', this.time.now + 1500)
+          this.time.delayedCall(2600, () => { if (b.active) b.setActive(false).setVisible(false) })
+        })
+        break }
     }
   }
 
@@ -4064,6 +4137,7 @@ export class MainScene extends Phaser.Scene {
       const b = this.enemyBullets.get(enemy.x, enemy.y, 'enemyBullet') as Phaser.Physics.Arcade.Image
       if (!b) continue
       b.setActive(true).setVisible(true); b.setScale(scale); b.setDepth(19)
+      b.setData('homingUntil', 0)   // clear any stale SEEKER homing from a prior pooled use
       if (fixedSpd) b.setTint(0xbfdbfe); else b.clearTint()   // sniper bolts read cold/fast
       b.body?.reset(enemy.x, enemy.y)
       ;(b.body as Phaser.Physics.Arcade.Body).setAllowGravity(false)
