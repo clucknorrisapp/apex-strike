@@ -136,6 +136,39 @@ export function monthKey(d: Date = new Date()): string {
   return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0')
 }
 
+// The previous calendar month's key (UTC), year-boundary safe — the just-closed season to surface.
+export function prevMonthKey(d: Date = new Date()): string {
+  return monthKey(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)))
+}
+const MONTH_NAMES = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER']
+// 'YYYY-MM' → 'AUGUST' (or 'AUGUST 2026' with year), for the rollover ceremony copy.
+export function monthLabel(key: string, withYear = false): string {
+  const [y, m] = key.split('-').map((n) => parseInt(n, 10))
+  const name = MONTH_NAMES[(((m || 1) - 1) % 12 + 12) % 12] || key
+  return withYear ? name + ' ' + y : name
+}
+
+// ONE-TIME SEASON ROLLOVER — the monthly board silently resets at 00:00 UTC on the 1st, so a whole
+// month of climbing vanishes with no acknowledgment. These let the client show a single "you finished
+// #N — new season is live" ceremony on the first launch of a new month (using the still-present past-month
+// rows the server never purges), and keep a small per-device ledger of past finishes.
+export function seasonSeen(): string { try { return localStorage.getItem('apex_season_seen') || '' } catch { return '' } }
+export function markSeasonSeen(month: string): void { try { localStorage.setItem('apex_season_seen', month) } catch { /* storage blocked */ } }
+export interface SeasonFinish { month: string; rank: number }
+export function loadSeasonHistory(): SeasonFinish[] {
+  try {
+    const a = JSON.parse(localStorage.getItem('apex_season_history') || '[]')
+    return Array.isArray(a) ? a.filter((e) => e && typeof e.rank === 'number' && typeof e.month === 'string').slice(-24) : []
+  } catch { return [] }
+}
+export function recordSeasonFinish(month: string, rank: number): void {
+  try {
+    const hist = loadSeasonHistory().filter((e) => e.month !== month)
+    hist.push({ month, rank: Math.max(1, Math.round(rank)) })
+    localStorage.setItem('apex_season_history', JSON.stringify(hist.slice(-24)))
+  } catch { /* storage blocked */ }
+}
+
 export async function fetchSeason(month: string): Promise<SeasonData> {
   try {
     const w = myWallet()
