@@ -67,6 +67,15 @@ async function migrate() {
         PRIMARY KEY (week, wallet)
       );
       CREATE INDEX IF NOT EXISTS trials_rank_idx ON trials_scores (week, score DESC, updated_at ASC);
+      CREATE TABLE IF NOT EXISTS season_scores (
+        season     TEXT NOT NULL,
+        wallet     TEXT NOT NULL,
+        score      INTEGER NOT NULL,
+        sector     INTEGER NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (season, wallet)
+      );
+      CREATE INDEX IF NOT EXISTS season_rank_idx ON season_scores (season, score DESC, updated_at ASC);
       CREATE TABLE IF NOT EXISTS ascension_scores (
         heat       INTEGER NOT NULL,
         wallet     TEXT NOT NULL,
@@ -160,6 +169,21 @@ async function trialsRivalAbove(week, score) {
 async function trialsRank(week, score) {
   try {
     const { rows } = await pool.query(`SELECT count(*) + 1 AS rank FROM trials_scores WHERE week = $1 AND score > $2`, [week, score])
+    return rows[0] ? Number(rows[0].rank) : null
+  } catch { return null }
+}
+// MONTHLY SEASON equivalents (scoped by calendar month; same campaign score metric, resets each month).
+async function seasonRivalAbove(season, score) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.score, p.handle, p.rank AS prestige FROM season_scores s LEFT JOIN players p ON p.wallet = s.wallet
+        WHERE s.season = $1 AND s.score > $2 ORDER BY s.score ASC, s.updated_at DESC LIMIT 1`, [season, score])
+    return rows[0] || null
+  } catch { return null }
+}
+async function seasonRank(season, score) {
+  try {
+    const { rows } = await pool.query(`SELECT count(*) + 1 AS rank FROM season_scores WHERE season = $1 AND score > $2`, [season, score])
     return rows[0] ? Number(rows[0].rank) : null
   } catch { return null }
 }
@@ -298,6 +322,7 @@ app.post('/api/handle', async (req, res) => {
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 const WEEK_RE = /^\d{4}-W\d{2}$/       // ISO week key, e.g. 2026-W33 (matches rush.ts weekKey)
+const MONTH_RE = /^\d{4}-\d{2}$/        // calendar-month key, e.g. 2026-08 (matches leaderboard.ts monthKey)
 const MAX_BOSSES = 7                    // TRIALS is a 7-boss gauntlet; the "sector" column holds bosses cleared (0..7)
 const MAX_HEAT = 8                      // APEX HEAT ascension tiers 1..8 (matches heat.ts MAX_HEAT)
 const MAX_MS = 24 * 60 * 60 * 1000     // sanity cap on a clear time (24h); anything longer is rejected
@@ -420,6 +445,65 @@ app.post('/api/trials/scores', async (req, res) => {
     const next = best ? await trialsRivalAbove(week, best.score) : null
     res.json({ ok: true, best, rank, next })
   } catch (e) { console.error('[api] trials/scores:', e.message); res.status(500).json({ ok: false, error: 'server' }) }
+})
+
+// ---- MONTHLY SEASON board (calendar-month reset of the campaign-score ladder; keeps the all-time
+//      Score board pure while giving a fresh, catchable race every month) ----
+app.get('/api/season', async (req, res) => {
+  const season = String(req.query.month || '')
+  if (!MONTH_RE.test(season)) return res.status(400).json({ online: false, top: [], you: null })
+  if (!dbReady) return res.json({ online: false, month: season, top: [], you: null })
+  try {
+    const { rows: top } = await pool.query(
+      `SELECT s.wallet, p.handle, p.rank AS prestige, s.score, s.sector
+         FROM season_scores s LEFT JOIN players p ON p.wallet = s.wallet
+        WHERE s.season = $1
+        ORDER BY s.score DESC, s.updated_at ASC
+        LIMIT 10`, [season])
+    let you = null, next = null
+    const wallet = String(req.query.wallet || '').toLowerCase()
+    if (WALLET_RE.test(wallet)) {
+      const { rows } = await pool.query(
+        `SELECT s.score, s.sector, p.handle, p.rank AS prestige,
+                (SELECT count(*) + 1 FROM season_scores x WHERE x.season = s.season AND x.score > s.score)::int AS rank
+           FROM season_scores s LEFT JOIN players p ON p.wallet = s.wallet
+          WHERE s.season = $1 AND s.wallet = $2`, [season, wallet])
+      you = rows[0] || null
+      if (you) next = await seasonRivalAbove(season, you.score)
+    }
+    res.json({ online: true, month: season, top, you, next })
+  } catch (e) { console.error('[api] season:', e.message); res.json({ online: false, month: season, top: [], you: null }) }
+})
+
+app.post('/api/season/scores', async (req, res) => {
+  if (!dbReady) return res.status(503).json({ ok: false, offline: true })
+  const b = req.body || {}
+  const season = String(b.month || '')
+  const wallet = String(b.wallet || '').toLowerCase()
+  const score = Number(b.score)
+  const sector = Number(b.sector)
+  const handle = sanitizeHandle(b.handle)
+  if (!MONTH_RE.test(season)) return res.status(400).json({ ok: false, error: 'bad month' })
+  if (!WALLET_RE.test(wallet)) return res.status(400).json({ ok: false, error: 'bad wallet' })
+  if (!Number.isInteger(score) || score < 0 || score > MAX_SCORE) return res.status(400).json({ ok: false, error: 'bad score' })
+  if (!Number.isInteger(sector) || sector < 0 || sector > MAX_BOSSES) return res.status(400).json({ ok: false, error: 'bad sector' })
+  if (throttled('se:' + wallet)) return res.status(429).json({ ok: false, error: 'slow down' })
+  try {
+    if (handle) {
+      await pool.query(`INSERT INTO players (wallet, handle) VALUES ($1,$2) ON CONFLICT (wallet) DO UPDATE SET handle = EXCLUDED.handle`, [wallet, handle])
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO season_scores (season, wallet, score, sector) VALUES ($1,$2,$3,$4)
+         ON CONFLICT (season, wallet) DO UPDATE SET
+           sector = CASE WHEN EXCLUDED.score > season_scores.score THEN EXCLUDED.sector ELSE season_scores.sector END,
+           score  = GREATEST(season_scores.score, EXCLUDED.score),
+           updated_at = now()
+       RETURNING score, sector`, [season, wallet, score, sector])
+    const best = rows[0] || null
+    const rank = best ? await seasonRank(season, best.score) : null
+    const next = best ? await seasonRivalAbove(season, best.score) : null
+    res.json({ ok: true, best, rank, next })
+  } catch (e) { console.error('[api] season/scores:', e.message); res.status(500).json({ ok: false, error: 'server' }) }
 })
 
 // ---- APEX HEAT ascension board (scoped by heat tier; sector column = sector reached) ----
