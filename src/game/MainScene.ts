@@ -906,6 +906,8 @@ const CONTRACTS: { id: string; name: string; desc: string; hex: string; relic?: 
   { id: 'salvage',   name: 'SALVAGE',     desc: 'every 7th kill drops a heart',         hex: '#4ade80', relic: true },
   { id: 'aegis',     name: 'AEGIS',       desc: 'absorb the first hit of each sector',  hex: '#67e8f9', relic: true },
   { id: 'arclash',   name: 'ARC LASH',    desc: 'a PUNISH crit lashes a nearby foe',    hex: '#e879f9', relic: true },
+  { id: 'gale',      name: 'GALE',        desc: 'a dash refunds your air-jumps',        hex: '#c084fc', relic: true },
+  { id: 'momentum',  name: 'MOMENTUM',    desc: 'a fresh kill quickens your fire',      hex: '#fbbf24', relic: true },
 ]
 
 export class MainScene extends Phaser.Scene {
@@ -974,6 +976,7 @@ export class MainScene extends Phaser.Scene {
   private relics = new Set<string>()
   private salvageKills = 0       // SALVAGE relic: heart-drop kill counter
   private sectorShield = false   // AEGIS relic: one absorbed hit, refreshed each sector
+  private momentumUntil = 0      // MOMENTUM relic: a fresh kill quickens fire until this time
   private deflectCount = 0      // COUNTER-DASH deflects this run
   private tipsShown = new Set<string>()   // session cache so a just-in-time tip is evaluated once
   private activeTip?: Phaser.GameObjects.Text   // single tip slot — a new tip replaces the old so early-run tips can't pile into a blob
@@ -1040,7 +1043,7 @@ export class MainScene extends Phaser.Scene {
   private closeBadgesKey?: () => void
   private contractOpen = false
   private contractUI: Phaser.GameObjects.GameObject[] = []
-  private contractPicks: { id: string; name: string; desc: string; hex: string }[] = []
+  private contractPicks: { id: string; name: string; desc: string; hex: string; relic?: boolean }[] = []
   private contractOnDone?: () => void
   private contractKey?: (e: KeyboardEvent) => void
   private contractPadPrev = false
@@ -1423,7 +1426,7 @@ export class MainScene extends Phaser.Scene {
     this.maxCombo = 0
     this.bossesThisRun = 0
     this.grazeCount = 0
-    this.relics.clear(); this.salvageKills = 0; this.sectorShield = false   // fresh run → no relics
+    this.relics.clear(); this.salvageKills = 0; this.sectorShield = false; this.momentumUntil = 0   // fresh run → no relics
     this.deflectCount = 0
     this.prevOnGround = false
     this.fallSpeed = 0
@@ -4918,6 +4921,7 @@ export class MainScene extends Phaser.Scene {
         this.dashCdUntil = time + this.dashCd
         this.dashIframeUntil = Math.max(this.dashUntil, time + (this.dashLevel >= 2 ? 220 : this.dashLevel >= 1 ? 195 : 175))   // i-frames always cover the full dash (dashUntil=175) AND still progress per PHASE DASH tier (175/195/220), so tier 1 isn't a no-op
         this.facingRight = dir > 0; this.player.setFlipX(dir < 0)
+        if (this.relics.has('gale')) this.jumpsLeft = this.maxJumps   // GALE relic — a dash refunds your air-jumps (aggressive aerial play)
         this.dashFx()
         this.sfx?.jump()
       } else if (dashHeld && !this.prevDash && !this.prone) {
@@ -4960,6 +4964,7 @@ export class MainScene extends Phaser.Scene {
       else if (this.weapon === 'arc') rate = 560   // heavy launcher — slow, deliberate lobs
       rate = Math.max(20, rate - this.fireBonus - (this.weaponLvl[this.weapon] || 0) * 10)   // Armory FIREPOWER + weapon mastery speed up fire
       if (this.doctrinePassive === 'rampage') rate = Math.max(18, rate - Math.min(34, this.combo * 2))   // GUNSLINGER: fire rate climbs with combo
+      if (this.relics.has('momentum') && this.time.now < this.momentumUntil) rate = Math.max(16, Math.round(rate * 0.72))   // MOMENTUM relic — a fresh kill quickens fire
       this.lastFired = time + rate
     }
   }
@@ -5884,6 +5889,7 @@ export class MainScene extends Phaser.Scene {
     this.scoreText.setText('SCORE  ' + this.score)
     this.popup(enemy.x, enemy.y - 20, '+' + pts)
     if (this.relics.has('salvage') && ++this.salvageKills % 7 === 0) this.spawnPowerup(enemy.x, enemy.y - 8, 'health')   // SALVAGE relic — a heart economy off your kills
+    if (this.relics.has('momentum')) this.momentumUntil = this.time.now + 1600   // MOMENTUM relic — a fresh kill quickens fire
 
     if (type === 'boss') { this.bossDeath(enemy); return }
 
@@ -6258,6 +6264,7 @@ export class MainScene extends Phaser.Scene {
       this.contractCards.push(card)
       keep(this.add.text(256, y - 9, (i + 1) + '.  ' + b.name, { fontFamily: 'monospace', fontSize: '12px', color: b.hex, fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(232))
       keep(this.add.text(256, y + 10, b.desc, { fontFamily: 'monospace', fontSize: '9px', color: '#e9d5ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(232))
+      if (b.relic) keep(this.add.text(398, y - 20, '◆ RELIC', { fontFamily: 'monospace', fontSize: '7px', color: b.hex, fontStyle: 'bold' }).setOrigin(1, 0).setScrollFactor(0).setDepth(232))   // mark the build-defining picks so they read apart from stat boons
       card.on('pointerover', () => { this.contractFocus = i; this.updateContractFocus() })
       card.on('pointerdown', () => this.pickContract(b.id))
     })
@@ -6313,6 +6320,8 @@ export class MainScene extends Phaser.Scene {
       case 'salvage':   this.relics.add('salvage'); break
       case 'aegis':     this.relics.add('aegis'); this.sectorShield = true; break
       case 'arclash':   this.relics.add('arclash'); break
+      case 'gale':      this.relics.add('gale'); break
+      case 'momentum':  this.relics.add('momentum'); break
     }
   }
 
