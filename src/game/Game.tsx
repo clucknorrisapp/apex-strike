@@ -184,6 +184,11 @@ export function Game() {
     const w = window as unknown as { __APEX?: { pad: Record<string, boolean>; gutter: boolean; act: ((n: string) => void) | null } }
     w.__APEX = w.__APEX || { pad: {}, gutter: false, act: null }
     w.__APEX.gutter = showGutter
+    // When the gutter STOPS rendering (rotate to portrait, resize, gutter shrinks below threshold), a button
+    // held at that instant unmounts before it can fire its own pointerup, latching FIRE / a run direction
+    // TRUE. The sceneState cleanup misses this — the rotate gate is a scene.pause, not a state change — so
+    // clear all held pad inputs here too, or the input sticks through the next resume. (round-13 mobile#1)
+    if (!showGutter && w.__APEX.pad) for (const k in w.__APEX.pad) w.__APEX.pad[k] = false
   }, [showGutter])
 
   const toggleFullscreen = useCallback(async () => {
@@ -273,11 +278,17 @@ export function Game() {
           <Joystick setPad={setPad} zoneW={Math.max(gutterW, 168)} />
           {/* RIGHT gutter — dash+swap / jump / fire, anchored to the RIGHT edge */}
           <div style={{ position: 'absolute', right: 14, bottom: '7%', display: 'flex', flexDirection: 'column', gap: 10, width: aw, zIndex: 30 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
+            {/* On a compact phone (narrow gutter) DASH squeezes to ~32px and its label spills onto SWAP —
+                so a panic-dodge taps SWAP and eats the hit. Below aw~100 stack them full-width instead. (round-13 mobile#2) */}
+            <div style={{ display: 'flex', flexDirection: aw < 100 ? 'column' : 'row', gap: 8 }}>
               {dashActive ? (
                 <>
-                  {hold('dash', '» DASH', { flex: 1, height: 38, fontSize: 12, background: 'rgba(8,51,68,0.55)', border: '2px solid rgba(34,211,238,0.85)' })}
-                  {tap('swap', '⇄', { width: 44, height: 38, fontSize: 16, background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)' })}
+                  {hold('dash', '» DASH', aw < 100
+                    ? { width: '100%', height: 34, fontSize: 12, background: 'rgba(8,51,68,0.55)', border: '2px solid rgba(34,211,238,0.85)' }
+                    : { flex: 1, minWidth: 48, height: 38, fontSize: 12, background: 'rgba(8,51,68,0.55)', border: '2px solid rgba(34,211,238,0.85)' })}
+                  {tap('swap', aw < 100 ? '⇄ SWAP' : '⇄', aw < 100
+                    ? { width: '100%', height: 34, fontSize: 12, background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)' }
+                    : { width: 44, height: 38, fontSize: 16, background: 'rgba(30,27,75,0.5)', border: '2px solid rgba(168,85,247,0.7)' })}
                 </>
               ) : (
                 /* Dash not available this run (locked, or a Daily) — SWAP takes the whole row instead of a dead DASH button */
@@ -321,7 +332,7 @@ export function Game() {
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold tracking-widest text-fuchsia-400">APEX STRIKE</span>
           <div className="flex items-center gap-3">
-            <span className="text-violet-400/70 text-xs">v2.76 — Tune</span>
+            <span className="text-violet-400/70 text-xs">v2.77 — Grip</span>
             <button
               onClick={toggleFullscreen}
               className="text-xs text-violet-200 px-2 py-1 rounded-md border border-violet-700/60 hover:border-fuchsia-500/70 hover:text-fuchsia-200 transition-colors"
