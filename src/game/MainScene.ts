@@ -892,13 +892,20 @@ const BOSS_LEITMOTIF: Record<string, number[]> = {
 // Apex Contracts — between every sector (campaign only) you pick 1 of 3 boons that persist for the
 // rest of the run, turning the fixed campaign into a lightweight roguelite with real decisions.
 // Effects apply through the scene's existing stat machinery (see applyContract).
-const CONTRACTS: { id: string; name: string; desc: string; hex: string }[] = [
+// `relic: true` marks a build-defining, one-time boon (excluded from the draw once owned); the rest are
+// repeatable stat boons. Relics change HOW you play and stack across sectors.
+const CONTRACTS: { id: string; name: string; desc: string; hex: string; relic?: boolean }[] = [
   { id: 'heal',      name: 'FIELD MEDIC', desc: 'refill all hearts',          hex: '#4ade80' },
   { id: 'vitality',  name: 'IRONHEART',   desc: '+1 max heart (full refill)', hex: '#f472b6' },
   { id: 'reserves',  name: 'SECOND WIND', desc: '+1 extra life',              hex: '#67e8f9' },
   { id: 'firepower', name: 'OVERCLOCK',   desc: 'permanently faster fire',    hex: '#fbbf24' },
   { id: 'boots',     name: 'AIR SURGE',   desc: '+1 air-jump',                hex: '#c084fc' },
   { id: 'mastery',   name: 'GUNSMITH',    desc: '+1 mastery on your gun',     hex: '#22d3ee' },
+  // --- RELICS (one-time, build-defining) ---
+  { id: 'embers',    name: 'EMBERS',      desc: 'every hit sets foes smoldering',      hex: '#fb923c', relic: true },
+  { id: 'salvage',   name: 'SALVAGE',     desc: 'every 7th kill drops a heart',         hex: '#4ade80', relic: true },
+  { id: 'aegis',     name: 'AEGIS',       desc: 'absorb the first hit of each sector',  hex: '#67e8f9', relic: true },
+  { id: 'arclash',   name: 'ARC LASH',    desc: 'a PUNISH crit lashes a nearby foe',    hex: '#e879f9', relic: true },
 ]
 
 export class MainScene extends Phaser.Scene {
@@ -961,6 +968,12 @@ export class MainScene extends Phaser.Scene {
   private bossesThisRun = 0     // bosses downed this run — feeds daily bounties
   private grazeCount = 0        // RAZOR GRAZE near-misses this run
   private lastShieldHintAt = 0  // throttle the shielder "BLOCKED" popup so a held beam doesn't spam it
+  // APEX RELICS — build-defining boons drafted between sectors (Apex Contract). Unlike the stat boons they
+  // STACK for the rest of the run and change HOW you play. Kept survivability/utility/offense-shaped so the
+  // score formula is untouched and the boards stay fair (same spirit as the Doctrine passives).
+  private relics = new Set<string>()
+  private salvageKills = 0       // SALVAGE relic: heart-drop kill counter
+  private sectorShield = false   // AEGIS relic: one absorbed hit, refreshed each sector
   private deflectCount = 0      // COUNTER-DASH deflects this run
   private tipsShown = new Set<string>()   // session cache so a just-in-time tip is evaluated once
   private activeTip?: Phaser.GameObjects.Text   // single tip slot — a new tip replaces the old so early-run tips can't pile into a blob
@@ -1410,6 +1423,7 @@ export class MainScene extends Phaser.Scene {
     this.maxCombo = 0
     this.bossesThisRun = 0
     this.grazeCount = 0
+    this.relics.clear(); this.salvageKills = 0; this.sectorShield = false   // fresh run → no relics
     this.deflectCount = 0
     this.prevOnGround = false
     this.fallSpeed = 0
@@ -5765,6 +5779,7 @@ export class MainScene extends Phaser.Scene {
       this.hitstop(14)
       this.sfx?.crit(this.panAt(enemy.x))
       if (hp > 0) this.interruptEnemy(enemy)   // a SURVIVED punish CANCELS the telegraphed attack (boss moves exempt) — reading the tell is now offense
+      if (this.relics.has('arclash')) this.arcLash(enemy)   // ARC LASH relic — a read also lashes a nearby foe
 
       // VANGUARD: a read refunds dash — but ONE read is one refund. hitEnemy runs per bullet→enemy
       // contact, so a multi-pellet spread or a piercing laser would otherwise refund N×260ms in a single
@@ -5791,6 +5806,12 @@ export class MainScene extends Phaser.Scene {
       enemy.setData('burnTicks', Math.min(8, cur + 3))
       if (cur <= 0) enemy.setData('burnNext', this.time.now + 300)
       this.particles.emitParticleAt(bx, by, 3)
+    }
+    // EMBERS relic — every weapon leaves a small burning stack, turning any gun into a damage-over-time build.
+    if (hp > 0 && this.weapon !== 'fire' && this.relics.has('embers')) {
+      const cur = (enemy.getData('burnTicks') as number) || 0
+      enemy.setData('burnTicks', Math.min(8, cur + 2))
+      if (cur <= 0) enemy.setData('burnNext', this.time.now + 300)
     }
 
     if (hp > 0) {
@@ -5827,6 +5848,29 @@ export class MainScene extends Phaser.Scene {
 
   // Award points, detonate, drop, and remove a killed enemy. Extracted from hitEnemy so the
   // ARC LAUNCHER's area blast kills through the exact same path (score, combo, drops, boss).
+  // ARC LASH relic — a PUNISH read also whips a violet arc to the nearest OTHER grunt for a chip of damage,
+  // rewarding fighting in packs. Offense-shaped, no score-formula change (a kill still scores its base pts).
+  private arcLash(from: Phaser.Physics.Arcade.Sprite) {
+    let best: Phaser.Physics.Arcade.Sprite | undefined
+    let bestD = 150 * 150
+    this.enemies.getChildren().forEach((o) => {
+      const e = o as Phaser.Physics.Arcade.Sprite
+      if (e === from || !e.active || e.getData('dying') === true || e.getData('type') === 'boss' || ((e.getData('hp') as number) ?? 1) <= 0) return
+      const dx = e.x - from.x, dy = e.y - from.y, d = dx * dx + dy * dy
+      if (d < bestD) { bestD = d; best = e }
+    })
+    if (!best) return
+    const target = best
+    const line = this.add.rectangle((from.x + target.x) / 2, (from.y + target.y) / 2, Math.sqrt(bestD), 2, 0xe879f9, 0.9)
+      .setDepth(8).setRotation(Math.atan2(target.y - from.y, target.x - from.x))
+    this.tweens.add({ targets: line, alpha: 0, scaleY: 0.3, duration: 170, onComplete: () => line.destroy() })
+    this.shockwave(target.x, target.y, 0xe879f9, 12)
+    const hp = ((target.getData('hp') as number) || 0) - 1
+    target.setData('hp', hp)
+    target.setTintFill(0xe879f9); this.time.delayedCall(60, () => this.restoreTint(target))
+    if (hp <= 0) this.killEnemy(target)
+  }
+
   private killEnemy(enemy: Phaser.Physics.Arcade.Sprite) {
     if (!enemy.active || enemy.getData('dying') === true) return   // never re-count a boss during its ~1s detonation (defense-in-depth vs any future AoE path)
     const type = enemy.getData('type') as string
@@ -5839,6 +5883,7 @@ export class MainScene extends Phaser.Scene {
     this.score += pts
     this.scoreText.setText('SCORE  ' + this.score)
     this.popup(enemy.x, enemy.y - 20, '+' + pts)
+    if (this.relics.has('salvage') && ++this.salvageKills % 7 === 0) this.spawnPowerup(enemy.x, enemy.y - 8, 'health')   // SALVAGE relic — a heart economy off your kills
 
     if (type === 'boss') { this.bossDeath(enemy); return }
 
@@ -6017,6 +6062,15 @@ export class MainScene extends Phaser.Scene {
 
   private damagePlayer(cause: DeathCause = 'enemy', killer?: string) {
     if (this.time.now < this.invulnUntil || this.gameOver || this.levelTransition || this.time.now < this.dashIframeUntil) return
+    // AEGIS relic — absorb the first hit of each sector: consume the shield, brief i-frames, no health/combo loss.
+    if (this.sectorShield && this.relics.has('aegis')) {
+      this.sectorShield = false
+      this.invulnUntil = this.time.now + 700   // so the same contact overlap can't immediately hit again
+      this.popup(this.player.x, this.player.y - 30, 'SHIELD', '#67e8f9')
+      this.shockwave(this.player.x, this.player.y, 0x67e8f9, 30)
+      this.sfx?.deflect(); this.fxFlash(80, 60, 200, 255, false)
+      return
+    }
     this.buzz(60)   // firm hit buzz on mobile
     this.health -= 1
     this.runNoHit = false
@@ -6147,6 +6201,8 @@ export class MainScene extends Phaser.Scene {
 
   private advanceSector() {
     const next = this.level + 1
+    this.sectorShield = this.relics.has('aegis')   // AEGIS relic refreshes its one-hit shield at each new sector
+
     const msg = this.add.text(256, 150, `SECTOR ${next}\n${this.levels()[next - 1].name}`, {
       fontFamily: 'monospace', fontSize: '16px', color: '#22d3ee', align: 'center',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(200)
@@ -6187,7 +6243,7 @@ export class MainScene extends Phaser.Scene {
     this.contractNavPrev = 0
     this.physics.pause()
     this.setBridge('contract')
-    const pool = [...CONTRACTS]
+    const pool = CONTRACTS.filter((c) => !c.relic || !this.relics.has(c.id))   // owned relics drop out of the draw; stat boons stay repeatable
     this.contractPicks = []
     for (let i = 0; i < 3 && pool.length; i++) this.contractPicks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0])
     const keep = <T extends Phaser.GameObjects.GameObject>(o: T): T => { this.contractUI.push(o); return o }
@@ -6252,6 +6308,11 @@ export class MainScene extends Phaser.Scene {
       case 'firepower': this.fireBonus += 14; break
       case 'boots':     this.maxJumps++; break
       case 'mastery':   this.weaponLvl[this.weapon] = Math.min(2, (this.weaponLvl[this.weapon] || 0) + 1); this.updateWeaponHUD(); break
+      // RELICS — set a per-run flag that combat reads (see EMBERS/SALVAGE/AEGIS/ARC LASH hooks).
+      case 'embers':    this.relics.add('embers'); break
+      case 'salvage':   this.relics.add('salvage'); break
+      case 'aegis':     this.relics.add('aegis'); this.sectorShield = true; break
+      case 'arclash':   this.relics.add('arclash'); break
     }
   }
 
