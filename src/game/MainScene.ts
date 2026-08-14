@@ -2649,7 +2649,18 @@ export class MainScene extends Phaser.Scene {
   // fails to initialise in some browsers/builds (that was the bug: "connected"
   // never armed and rebinding never captured a press). navigator.getGamepads()
   // works everywhere; the browser only surfaces a pad after its first button press.
+  // Per-frame cache: readPad() is polled several times a frame (pollGamepadInput + handleInput + the pause /
+  // menu handlers); navigator.getGamepads() re-snapshots hardware and allocates on every call, so memoise the
+  // merged state once per frame, keyed on the scene clock. (round-13 perf)
+  private padCache: PadState | null = null
+  private padCacheAt = -1
   private readPad(): PadState | null {
+    if (this.padCacheAt === this.time.now) return this.padCache
+    this.padCacheAt = this.time.now
+    this.padCache = this.readPadRaw()
+    return this.padCache
+  }
+  private readPadRaw(): PadState | null {
     let pads: (Gamepad | null)[] = []
     try { pads = (navigator.getGamepads && navigator.getGamepads()) || [] } catch { return null }
     const live = pads.filter((p): p is Gamepad => !!(p && p.connected && p.buttons && p.buttons.length))
@@ -3116,7 +3127,7 @@ export class MainScene extends Phaser.Scene {
   private startTrials() {
     if (this.started) return
     if (this.startKeyHandler) { this.input.keyboard!.off('keydown', this.startKeyHandler); this.startKeyHandler = undefined }
-    this.titleUI.forEach((o) => o.destroy()); this.titleUI = []
+    this.titleUI.forEach((o) => { this.tweens.killTweensOf(o); o.destroy() })   // kill the infinite prompt-blink tween too, so it doesn't tick against a destroyed Text (round-13 perf); this.titleUI = []
     this.titleNav = []; this.titleRing = undefined; this.titleNavActive = false
     this.rushRun = true
     this.rushIndex = 0
@@ -4234,7 +4245,7 @@ export class MainScene extends Phaser.Scene {
     this.started = true
     this.sfx?.resume()
     this.sfx?.startMusic(this.levels()[this.level - 1]?.theme ?? 'streets')
-    this.titleUI.forEach((o) => o.destroy())
+    this.titleUI.forEach((o) => { this.tweens.killTweensOf(o); o.destroy() })   // kill the infinite prompt-blink tween too, so it doesn't tick against a destroyed Text (round-13 perf)
     this.titleUI = []
     this.titleNav = []; this.titleRing = undefined; this.titleNavActive = false
     // The gate has its OWN flag: a first-ever Daily (which burns apex_coached via the legacy card) must
