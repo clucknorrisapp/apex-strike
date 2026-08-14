@@ -6288,6 +6288,9 @@ export class MainScene extends Phaser.Scene {
     keep(this.add.rectangle(256, 192, 512, 384, 0x05040a, 0.94).setScrollFactor(0).setDepth(230).setInteractive())
     keep(this.add.text(256, 66, 'APEX CONTRACT', { fontFamily: 'monospace', fontSize: '18px', color: '#fbbf24', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(231))
     keep(this.add.text(256, 90, 'choose one boon — it lasts the rest of the run', { fontFamily: 'monospace', fontSize: '9px', color: '#a1a1aa' }).setOrigin(0.5).setScrollFactor(0).setDepth(231))
+    // Show the RELICS you already hold so the draft is a real build decision (draft synergies), not a blind pick.
+    const held = [...this.relics].map((id) => CONTRACTS.find((c) => c.id === id)?.name || id)
+    if (held.length) keep(this.add.text(256, 108, '◆ HELD  ' + held.join('  ·  '), { fontFamily: 'monospace', fontSize: '8px', color: '#a78bfa' }).setOrigin(0.5).setScrollFactor(0).setDepth(231))
     this.contractCards = []
     this.contractPicks.forEach((b, i) => {
       const y = 138 + i * 56
