@@ -4,9 +4,24 @@ NFT-gated Contra-style run-and-gun for **Apex Huntress** holders on Cronos.
 
 **Live:** https://apexstrike.app · (Railway origin: https://apex-strike-production.up.railway.app)
 
-## Current Version — v1.7 (Depth)
+## Current Version — v2.68 (Relics)
 
-### Systems (v1.7)
+Apex Strike has grown well beyond the v1.7 foundation below. Highlights of what's been layered on since:
+
+### Modes & competition
+- **Four modes** — the base Campaign, a daily **DAILY CHALLENGE** (rotating modifier), weekly **APEX TRIALS** (7-boss gauntlet), and **APEX HEAT** (ascension difficulty ladder)
+- **Seven leaderboards** on a self-owned server — all-time score, daily, trials, ascension, campaign **speedruns**, a resetting monthly **SEASON**, and an **Apex Rank** prestige board — each with a persistent named **rival** to chase
+- **Season rollover** — a monthly closing ceremony ("you finished #N — the new month's live")
+
+### Progression & identity
+- **Apex Rank** prestige ladder with tiered **Insignia** glyphs/colours; **Armory** permanent upgrades (Apex Shards); **Strike Doctrines** (pre-run class/kit picker); **weekly Contracts** + **daily Bounties**; per-sector **splits**; a **badge** case; a shareable **flex card**
+- **Apex Relics** — build-defining boons drafted between sectors that change how you play (ignite-on-hit, kill-to-heart, a per-sector shield, a punish that chains)
+
+### Combat depth
+- Six weapons with per-run mastery; a defensive verb set — **dash / i-frames / Phase Strike / Counter-Dash deflect / Razor Graze**; **telegraph-punish**, **stagger** and **interrupt** on enemy wind-ups; ~11 enemy archetypes and multi-phase bosses drawing from a 16-move vocabulary with colour-coded, always-readable telegraphs
+- **Reduce-motion** accessibility, rebindable gamepad, an in-game **Intel** codex, and a persistent objective HUD
+
+### Systems (v1.7 foundation)
 - **Pause & mute** — P / Esc / gamepad-Start to pause (resume + restart), M to mute; touch buttons on mobile
 - **Boss fight** — a live **APEX SENTINEL health bar** + attack **telegraphs** (wind-up flash before every volley)
 - **Apex Shards** — collectible shards hidden on ledges each stage; grab them all for a bonus
