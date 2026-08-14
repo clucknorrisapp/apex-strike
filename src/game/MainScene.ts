@@ -970,6 +970,7 @@ export class MainScene extends Phaser.Scene {
   private bossesThisRun = 0     // bosses downed this run — feeds daily bounties
   private grazeCount = 0        // RAZOR GRAZE near-misses this run
   private lastShieldHintAt = 0  // throttle the shielder "BLOCKED" popup so a held beam doesn't spam it
+  private lastBossChipAt = 0    // throttle the boss-bar hit flash so fast weapons don't wash out the HP fill
   // APEX RELICS — build-defining boons drafted between sectors (Apex Contract). Unlike the stat boons they
   // STACK for the rest of the run and change HOW you play. Kept survivability/utility/offense-shaped so the
   // score formula is untouched and the boards stay fair (same spirit as the Doctrine passives).
@@ -3903,7 +3904,11 @@ export class MainScene extends Phaser.Scene {
   // A quick white flash over the boss bar on each hit — the HP chip reads as impact, not just decay.
   private bossBarChip() {
     if (!this.bossBarFill) return
-    const flash = this.add.rectangle(256, 26, 308, 16, 0xffffff, 0.5).setScrollFactor(0).setDepth(207)
+    // Throttle: laser/rapid hit every 40-70ms, so an un-gated full-bar flash layered into a near-constant
+    // white wash that hid the HP fill you're trying to read. One flash per ~90ms still reads each hit. (round-11 combat#9)
+    if (this.time.now - this.lastBossChipAt < 90) return
+    this.lastBossChipAt = this.time.now
+    const flash = this.add.rectangle(256, 26, 308, 16, 0xffffff, 0.42).setScrollFactor(0).setDepth(207)
     this.tweens.add({ targets: flash, alpha: 0, duration: 120, onComplete: () => flash.destroy() })
   }
 
