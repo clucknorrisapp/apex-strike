@@ -908,6 +908,8 @@ const CONTRACTS: { id: string; name: string; desc: string; hex: string; relic?: 
   { id: 'arclash',   name: 'ARC LASH',    desc: 'a PUNISH crit lashes a nearby foe',    hex: '#e879f9', relic: true },
   { id: 'gale',      name: 'GALE',        desc: 'a dash refunds your air-jumps',        hex: '#c084fc', relic: true },
   { id: 'momentum',  name: 'MOMENTUM',    desc: 'a fresh kill quickens your fire',      hex: '#fbbf24', relic: true },
+  { id: 'siphon',    name: 'SIPHON',      desc: 'a PUNISH read mends a heart',          hex: '#34d399', relic: true },
+  { id: 'riptide',   name: 'RIPTIDE',     desc: 'a hit you take repels nearby foes',    hex: '#38bdf8', relic: true },
 ]
 
 export class MainScene extends Phaser.Scene {
@@ -978,6 +980,7 @@ export class MainScene extends Phaser.Scene {
   private salvageKills = 0       // SALVAGE relic: heart-drop kill counter
   private sectorShield = false   // AEGIS relic: one absorbed hit, refreshed each sector
   private momentumUntil = 0      // MOMENTUM relic: a fresh kill quickens fire until this time
+  private lastSiphonAt = 0       // SIPHON relic: throttle the punish→heal
   private deflectCount = 0      // COUNTER-DASH deflects this run
   private tipsShown = new Set<string>()   // session cache so a just-in-time tip is evaluated once
   private activeTip?: Phaser.GameObjects.Text   // single tip slot — a new tip replaces the old so early-run tips can't pile into a blob
@@ -1427,7 +1430,7 @@ export class MainScene extends Phaser.Scene {
     this.maxCombo = 0
     this.bossesThisRun = 0
     this.grazeCount = 0
-    this.relics.clear(); this.salvageKills = 0; this.sectorShield = false; this.momentumUntil = 0   // fresh run → no relics
+    this.relics.clear(); this.salvageKills = 0; this.sectorShield = false; this.momentumUntil = 0; this.lastSiphonAt = 0   // fresh run → no relics
     this.deflectCount = 0
     this.prevOnGround = false
     this.fallSpeed = 0
@@ -5790,6 +5793,11 @@ export class MainScene extends Phaser.Scene {
       this.sfx?.crit(this.panAt(enemy.x))
       if (hp > 0) this.interruptEnemy(enemy)   // a SURVIVED punish CANCELS the telegraphed attack (boss moves exempt) — reading the tell is now offense
       if (this.relics.has('arclash')) this.arcLash(enemy)   // ARC LASH relic — a read also lashes a nearby foe
+      if (this.relics.has('siphon') && this.health < this.maxHealth && this.time.now > this.lastSiphonAt + 3500) {   // SIPHON relic — a read mends a heart (throttled)
+        this.lastSiphonAt = this.time.now
+        this.health++; this.updateHealth()
+        this.popup(this.player.x, this.player.y - 30, '+♥', '#34d399')
+      }
 
       // VANGUARD: a read refunds dash — but ONE read is one refund. hitEnemy runs per bullet→enemy
       // contact, so a multi-pellet spread or a piercing laser would otherwise refund N×260ms in a single
@@ -6103,6 +6111,18 @@ export class MainScene extends Phaser.Scene {
     this.sfx?.hurt()
     this.player.setVelocityY(-260)
     this.time.delayedCall(200, () => { if (this.player.active) this.player.clearTint() })   // brief hit flash; i-frames run on the timestamp
+    // RIPTIDE relic — a hit you take bursts a repel: interrupt + knock nearby foes back to buy breathing room.
+    if (this.relics.has('riptide')) {
+      this.shockwave(this.player.x, this.player.y, 0x38bdf8, 42)
+      this.enemies.getChildren().forEach((o) => {
+        const e = o as Phaser.Physics.Arcade.Sprite
+        if (!e.active || e.getData('dying') === true || e.getData('type') === 'boss' || ((e.getData('hp') as number) ?? 1) <= 0) return
+        const dx = e.x - this.player.x, dy = e.y - this.player.y
+        if (dx * dx + dy * dy > 130 * 130) return
+        this.interruptEnemy(e)
+        ;(e.body as Phaser.Physics.Arcade.Body | null)?.setVelocity(Math.sign(dx || 1) * 220, -140)
+      })
+    }
 
     if (this.health <= 0) {
       this.lives -= 1; this.livesText.setText('LIVES  ' + this.lives)
@@ -6334,6 +6354,8 @@ export class MainScene extends Phaser.Scene {
       case 'arclash':   this.relics.add('arclash'); break
       case 'gale':      this.relics.add('gale'); break
       case 'momentum':  this.relics.add('momentum'); break
+      case 'siphon':    this.relics.add('siphon'); break
+      case 'riptide':   this.relics.add('riptide'); break
     }
   }
 
