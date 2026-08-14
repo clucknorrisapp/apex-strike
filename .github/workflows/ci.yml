@@ -1,0 +1,40 @@
+name: CI
+
+# Guards main before code lands: runs the unit suite and the production build on
+# every PR and on pushes to main. The Railway deploy (deploy.yml) only builds at
+# deploy time — i.e. AFTER a merge — so without this a broken build or a failing
+# test would reach main before anyone noticed. This catches both at PR time.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# One run per ref; a new push cancels an in-flight run for the same branch/PR.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # No package-lock.json is committed (it's gitignored), so `npm ci` can't run;
+      # `npm install` matches how Railway/NIXPACKS resolves deps for the deploy build.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
