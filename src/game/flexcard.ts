@@ -15,6 +15,7 @@ export interface FlexSummary {
   prestigeTitle?: string   // title band, e.g. 'MYTHIC'
   prestigeGlyph?: string   // Insignia band glyph, e.g. '✹'
   prestigeHex?: string     // Insignia band colour
+  relics?: string[]        // APEX RELICS drafted this run — the build behind the score
   topHex: string     // sector accent — the gradient glow / highlight colour
   botHex: string     // sector background — the gradient base
 }
@@ -92,6 +93,15 @@ export function renderFlexCard(s: FlexSummary): HTMLCanvasElement {
     ctx.fillStyle = s.topHex; font('800 78px'); ctx.fillText(st[1], cx, 830)
     ctx.fillStyle = withAlpha('#ffffff', 0.5); font('600 34px'); ctx.fillText(st[0], cx, 884)
   })
+
+  // Run BUILD — the APEX RELICS drafted this run, so a share reads "I ran an ignite build," not just a number.
+  if (s.relics && s.relics.length) {
+    const shown = s.relics.slice(0, 4)
+    const extra = s.relics.length - shown.length
+    const label = '◆ RELICS   ' + shown.join('   ·   ') + (extra > 0 ? '   +' + extra : '')
+    ctx.fillStyle = withAlpha('#c4b5fd', 0.92); font('700 30px')
+    ctx.fillText(label, W / 2, 936)
+  }
 
   // Rank pill (only when we have a wallet-tied rank).
   if (s.rank && s.rank > 0) {

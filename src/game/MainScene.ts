@@ -6534,6 +6534,7 @@ export class MainScene extends Phaser.Scene {
         score: this.score, sector, kills: this.kills, maxCombo: this.maxCombo, win,
         rank: this.shareRank, handle: localHandle() || null,
         prestige: pr, prestigeTitle: pr > 0 ? rankTitle(pr) : undefined, prestigeGlyph: prestigeGlyph(pr) || undefined, prestigeHex: pr > 0 ? rankBandColor(pr) : undefined,
+        relics: [...this.relics].map((id) => CONTRACTS.find((c) => c.id === id)?.name || id),   // the run's build, surfaced on the share
         topHex: hx(theme.accent), botHex: hx(theme.bg),
       }
       share.setText('preparing…').setColor('#a5b4fc')
