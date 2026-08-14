@@ -5893,8 +5893,7 @@ export class MainScene extends Phaser.Scene {
     this.score += pts
     this.scoreText.setText('SCORE  ' + this.score)
     this.popup(enemy.x, enemy.y - 20, '+' + pts)
-    if (this.relics.has('salvage') && ++this.salvageKills % 7 === 0) this.spawnPowerup(enemy.x, enemy.y - 8, 'health')   // SALVAGE relic — a heart economy off your kills
-    if (this.relics.has('momentum')) this.momentumUntil = this.time.now + 1600   // MOMENTUM relic — a fresh kill quickens fire
+    this.noteRelicKill(enemy.x, enemy.y)
 
     if (type === 'boss') { this.bossDeath(enemy); return }
 
@@ -6037,6 +6036,13 @@ export class MainScene extends Phaser.Scene {
     this.killEnemy(enemy)   // routes a boss through bossDeath internally
   }
 
+  // SALVAGE + MOMENTUM fire on EVERY kill — routed through one helper so both killEnemy and the independent
+  // stompEnemy scoring path feed them (a stomp is still a kill). (round-12 relic audit)
+  private noteRelicKill(x: number, y: number) {
+    if (this.relics.has('salvage') && ++this.salvageKills % 7 === 0) this.spawnPowerup(x, y - 8, 'health')   // SALVAGE relic — a heart economy off your kills
+    if (this.relics.has('momentum')) this.momentumUntil = this.time.now + 1600   // MOMENTUM relic — a fresh kill quickens fire
+  }
+
   private stompEnemy(enemy: Phaser.Physics.Arcade.Sprite) {
     const type = enemy.getData('type') as string
     const isElite = enemy.getData('elite') === true
@@ -6046,6 +6052,7 @@ export class MainScene extends Phaser.Scene {
     this.kills++
     this.score += pts
     this.scoreText.setText('SCORE  ' + this.score)
+    this.noteRelicKill(enemy.x, enemy.y)
     this.popup(enemy.x, enemy.y - 20, (isElite ? 'ELITE STOMP +' : 'STOMP +') + pts, '#fbbf24')
     this.particles.emitParticleAt(enemy.x, enemy.y, isElite ? 30 : 22)
     this.deathParticles.setParticleTint(isElite ? 0xfde047 : type === 'flyer' ? 0xa855f7 : 0xf43f5e)
